@@ -144,6 +144,12 @@ class PositionState:
     last_sell_route_hops: int | None = None
     last_sell_route_label: str | None = None
     quote_miss_streak: int = 0
+    # Drip exit state: chunked selling paced over multiple cycles.
+    drip_exit_active: bool = False
+    drip_exit_reason: str | None = None
+    drip_qty_remaining_atomic: int | None = None
+    drip_chunks_done: int = 0
+    drip_next_chunk_at: str | None = None
 
 
 @dataclass(slots=True)

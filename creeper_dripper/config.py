@@ -71,6 +71,10 @@ class Settings:
     unknown_exit_saturation_limit: int
     max_exit_blocked_positions: int
     log_level: str
+    drip_exit_enabled: bool
+    drip_chunk_pcts: list[float]
+    drip_near_equal_band: float
+    drip_min_chunk_wait_seconds: int
 
     def validate(self) -> None:
         errors: list[str] = []
@@ -180,6 +184,10 @@ def load_settings() -> Settings:
         unknown_exit_saturation_limit=env_int("UNKNOWN_EXIT_SATURATION_LIMIT", 6),
         max_exit_blocked_positions=env_int("MAX_EXIT_BLOCKED_POSITIONS", 5),
         log_level=env_str("LOG_LEVEL", "INFO"),
+        drip_exit_enabled=env_bool("DRIP_EXIT_ENABLED", False),
+        drip_chunk_pcts=env_csv_floats("DRIP_CHUNK_PCTS", [0.10, 0.25, 0.50]),
+        drip_near_equal_band=env_float("DRIP_NEAR_EQUAL_BAND", 0.002),
+        drip_min_chunk_wait_seconds=env_int("DRIP_MIN_CHUNK_WAIT_SECONDS", 30),
     )
     settings.validate()
     return settings

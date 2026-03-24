@@ -43,6 +43,11 @@ def _position_state_from_raw(raw: dict) -> PositionState:
         ("last_sell_route_hops", None),
         ("last_sell_route_label", None),
         ("quote_miss_streak", 0),
+        ("drip_exit_active", False),
+        ("drip_exit_reason", None),
+        ("drip_qty_remaining_atomic", None),
+        ("drip_chunks_done", 0),
+        ("drip_next_chunk_at", None),
     ):
         m.setdefault(key, default)
     for f in fields(PositionState):

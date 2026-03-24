@@ -39,6 +39,7 @@ from creeper_dripper.engine.position_pricing import (
     is_valid_sol_mark,
     resolve_position_valuation,
 )
+from creeper_dripper.execution.drip_chunker import select_drip_chunk
 from creeper_dripper.execution.executor import TradeExecutor
 from creeper_dripper.models import PortfolioState, PositionState, ProbeQuote, TakeProfitStep, TokenCandidate, TradeDecision
 from creeper_dripper.observability import EventCollector
@@ -502,8 +503,32 @@ class CreeperDripper:
 
     def _start_exit(self, position: PositionState, qty_atomic: int, reason: str, decisions: list[TradeDecision], now: str) -> bool:
         if position.status == "EXIT_PENDING":
+            # If a drip is in progress and a hard (non-TP) exit arrives, override it.
+            hard_exit = not reason.startswith("take_profit_")
+            if position.drip_exit_active and hard_exit:
+                LOGGER.info(
+                    "drip_override mint=%s reason=%s drip_reason=%s",
+                    position.token_mint,
+                    reason,
+                    position.drip_exit_reason,
+                )
+                _clear_drip_state(position)
+                qty_atomic = position.remaining_qty_atomic
+                position.pending_exit_reason = reason
+                position.pending_exit_qty_atomic = qty_atomic
+                position.updated_at = now
+                decisions.append(TradeDecision(action="EXIT_PENDING", token_mint=position.token_mint, symbol=position.symbol, reason=reason, qty_atomic=qty_atomic))
+                self._attempt_exit(position, decisions, now)
+                return True
             return False
         qty_atomic = min(max(1, qty_atomic), position.remaining_qty_atomic)
+        # Decide whether to use drip exit for this signal.
+        if self.settings.drip_exit_enabled and _is_drip_eligible(reason):
+            position.drip_exit_active = True
+            position.drip_exit_reason = reason
+            position.drip_qty_remaining_atomic = qty_atomic
+            position.drip_chunks_done = 0
+            position.drip_next_chunk_at = None
         position.status = "EXIT_PENDING"
         position.pending_exit_reason = reason
         position.pending_exit_qty_atomic = qty_atomic
@@ -573,16 +598,44 @@ class CreeperDripper:
     def _attempt_exit(self, position: PositionState, decisions: list[TradeDecision], now: str) -> None:
         if position.pending_exit_qty_atomic is None or position.pending_exit_qty_atomic <= 0:
             position.status = "EXIT_BLOCKED"
+            _clear_drip_state(position)
             decisions.append(TradeDecision(action="SELL_BLOCKED", token_mint=position.token_mint, symbol=position.symbol, reason="missing_pending_qty"))
             return
-        requested_qty = min(position.pending_exit_qty_atomic, position.remaining_qty_atomic)
+        # Drip timing gate: hold until the next chunk window is due.
+        if position.drip_exit_active and position.drip_next_chunk_at and not _retry_due(position.drip_next_chunk_at, now):
+            decisions.append(
+                TradeDecision(
+                    action="DRIP_CHUNK_WAITING",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason=position.drip_exit_reason or "drip",
+                    metadata={
+                        "drip_next_chunk_at": position.drip_next_chunk_at,
+                        "drip_chunks_done": position.drip_chunks_done,
+                    },
+                )
+            )
+            return
+        # Drip: select best chunk size; non-drip: use full pending qty.
+        if position.drip_exit_active:
+            chunk_qty = select_drip_chunk(position, self.executor, self.settings)
+            requested_qty = (
+                min(chunk_qty, position.remaining_qty_atomic)
+                if chunk_qty is not None and chunk_qty > 0
+                else min(position.pending_exit_qty_atomic, position.remaining_qty_atomic)
+            )
+        else:
+            requested_qty = min(position.pending_exit_qty_atomic, position.remaining_qty_atomic)
         wallet_balance = self.executor.wallet_token_balance_atomic(position.token_mint)
         if wallet_balance is not None and wallet_balance < requested_qty:
             LOGGER.warning("sell balance discrepancy position_id=%s mint=%s expected=%s wallet=%s", position.position_id or position.token_mint, position.token_mint, requested_qty, wallet_balance)
             requested_qty = max(0, wallet_balance)
-            position.pending_exit_qty_atomic = requested_qty
+            if not position.drip_exit_active:
+                # Drip: pending_exit_qty_atomic holds the total drip target; do not clobber it.
+                position.pending_exit_qty_atomic = requested_qty
             decisions.append(TradeDecision(action="SELL_BALANCE_ADJUSTED", token_mint=position.token_mint, symbol=position.symbol, reason="wallet_balance_below_expected", qty_atomic=requested_qty))
         if requested_qty <= 0:
+            _clear_drip_state(position)
             position.status = POSITION_RECONCILE_PENDING
             position.reconcile_context = "exit"
             position.exit_retry_count += 1
@@ -697,6 +750,7 @@ class CreeperDripper:
                     sold_atomic=sold_reconciled,
                     remaining_after=new_remaining,
                 )
+                _clear_drip_state(position)
                 position.last_sell_signature = result.signature
                 position.status = POSITION_RECONCILE_PENDING
                 position.reconcile_context = "exit"
@@ -752,6 +806,40 @@ class CreeperDripper:
                 )
             )
             self.events.emit("exit_success", result.diagnostic_code or "success", position_id=position.position_id or position.token_mint, qty=sold_reconciled)
+            # Drip lifecycle: schedule next chunk or complete the drip.
+            if position.drip_exit_active and position.remaining_qty_atomic > 0:
+                drip_remaining = max(0, (position.drip_qty_remaining_atomic or 0) - sold_reconciled)
+                position.drip_chunks_done += 1
+                if drip_remaining > 0:
+                    position.drip_qty_remaining_atomic = drip_remaining
+                    position.drip_next_chunk_at = _next_normal_retry_at(now, self.settings.drip_min_chunk_wait_seconds)
+                    position.pending_exit_qty_atomic = drip_remaining
+                    position.pending_exit_reason = position.drip_exit_reason
+                    position.pending_exit_signature = None
+                    position.status = "EXIT_PENDING"
+                    position.updated_at = now
+                    decisions.append(
+                        TradeDecision(
+                            action="DRIP_CHUNK_EXECUTED",
+                            token_mint=position.token_mint,
+                            symbol=position.symbol,
+                            reason=position.drip_exit_reason or "drip",
+                            qty_atomic=sold_reconciled,
+                            metadata={
+                                "drip_chunks_done": position.drip_chunks_done,
+                                "drip_qty_remaining_atomic": drip_remaining,
+                                "drip_next_chunk_at": position.drip_next_chunk_at,
+                            },
+                        )
+                    )
+                    self.events.emit("drip_chunk_executed", "chunk_done", position_id=position.position_id or position.token_mint, chunks_done=position.drip_chunks_done)
+                    return
+                else:
+                    # All drip qty is sold; fall through to CLOSED/PARTIAL.
+                    _clear_drip_state(position)
+            elif position.drip_exit_active:
+                # remaining_qty_atomic is 0 — position will close; clear drip state.
+                _clear_drip_state(position)
             if position.remaining_qty_atomic <= 0:
                 position.status = "CLOSED"
                 self.portfolio.total_realized_sol += position.realized_sol - position.entry_sol
@@ -764,6 +852,7 @@ class CreeperDripper:
             return
 
         if result.status == "unknown" and result.diagnostic_code == SETTLEMENT_UNCONFIRMED:
+            _clear_drip_state(position)
             position.status = POSITION_RECONCILE_PENDING
             position.reconcile_context = "exit"
             position.pending_exit_signature = result.signature
@@ -793,6 +882,7 @@ class CreeperDripper:
             return
 
         if result.status == "failed":
+            _clear_drip_state(position)
             classification = str(result.diagnostic_metadata.get("classification") or result.diagnostic_code or "failed")
             jupiter_error_code = _extract_jupiter_error_code(result.diagnostic_metadata.get("response_body"))
             position.status = "EXIT_BLOCKED"
@@ -822,6 +912,7 @@ class CreeperDripper:
             )
             self.events.emit("exit_failed", result.diagnostic_code or "failed", position_id=position.position_id or position.token_mint, error=result.error or "unknown")
         else:
+            _clear_drip_state(position)
             position.status = "EXIT_PENDING"
             position.pending_exit_signature = result.signature
             decisions.append(TradeDecision(action="SELL_PENDING", token_mint=position.token_mint, symbol=position.symbol, reason=f"execution_unknown:{result.error or 'unknown'}", qty_atomic=requested_qty))
@@ -1336,6 +1427,28 @@ def _probe_sanity_reason(probe) -> str | None:
     if impact is not None and abs(float(impact)) >= MAX_ABS_PRICE_IMPACT_BPS:
         return REJECT_QUOTE_PRICE_IMPACT_INVALID
     return None
+
+
+def _clear_drip_state(position: PositionState) -> None:
+    """Reset drip control fields on a position (call on reconcile, failure, or completion).
+
+    ``drip_chunks_done`` is intentionally preserved here so callers can inspect how
+    many chunks fired before the drip ended.  It is reset to 0 only when a *new*
+    drip is started in ``_start_exit``.
+    """
+    position.drip_exit_active = False
+    position.drip_exit_reason = None
+    position.drip_qty_remaining_atomic = None
+    position.drip_next_chunk_at = None
+
+
+def _is_drip_eligible(reason: str) -> bool:
+    """Return True if the exit reason should use drip (chunked) selling.
+
+    Only take-profit exits use drip by default; stop-loss / time-stop / trailing-stop
+    / liquidity exits are hard exits that should clear as quickly as possible.
+    """
+    return reason.startswith("take_profit_")
 
 
 def _roundtrip_sanity_reason(buy_probe, sell_probe) -> str | None:
