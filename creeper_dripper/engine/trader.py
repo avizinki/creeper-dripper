@@ -339,20 +339,22 @@ class CreeperDripper:
         last_hops = position.last_sell_route_hops
         streak = int(position.quote_miss_streak)
 
-        open_map = self.portfolio.open_positions
-        n = len(open_map)
-        miss_count = sum(1 for p in open_map.values() if int(p.quote_miss_streak) >= 1) if n else 0
-        miss_ratio = (miss_count / n) if n else 0.0
-        # Cross-position suppression: only when multiple opens (ratio is meaningless for n==1).
-        suppressed = n >= 2 and miss_ratio > 0.6
+        ACTIVE = {"OPEN", "PARTIAL"}
+        active_positions = [p for p in self.portfolio.open_positions.values() if p.status in ACTIVE]
+
+        n_active = len(active_positions)
+
+        miss_count = sum(1 for p in active_positions if int(p.quote_miss_streak) >= 1)
+
+        miss_ratio = (miss_count / n_active) if n_active else 0.0
+        suppressed = n_active >= 2 and miss_ratio > 0.6
 
         impact_ratio: float | None = None
         if entry_imp is not None and last_imp is not None:
             try:
-                e = float(entry_imp)
+                e = max(float(entry_imp), 1.0)
                 l = float(last_imp)
-                if e > 0.0:
-                    impact_ratio = l / e
+                impact_ratio = l / e
             except (TypeError, ValueError):
                 pass
 
