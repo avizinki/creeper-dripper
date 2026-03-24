@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "creeper-dripper"
+version = "0.1.0"
+description = "Birdeye + Jupiter production-minded Solana momentum and ladder trader"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "OpenAI for Yoav"}]
+dependencies = [
+  "requests>=2.32.0",
+  "python-dotenv>=1.0.1",
+  "solders>=0.27.0",
+  "base58>=2.1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "pytest-mock>=3.14.0",
+]
+
+[project.scripts]
+creeper-dripper = "creeper_dripper.cli.main:main"
+
+[tool.setuptools]
+packages = ["creeper_dripper", "creeper_dripper.clients", "creeper_dripper.engine", "creeper_dripper.execution", "creeper_dripper.storage", "creeper_dripper.cli"]
