@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 from solders.keypair import Keypair
+from solders.message import to_bytes_versioned
 from solders.transaction import VersionedTransaction
 
 from creeper_dripper.clients.jupiter import JupiterClient, _partially_sign_for_owner
@@ -22,11 +25,15 @@ from creeper_dripper.errors import (
     EXEC_TX_BUILD_FAILED,
     EXEC_TX_SEND_FAILED,
     EXEC_TX_SIGN_FAILED,
+    EXEC_V2_EXECUTE_FAILED,
+    EXEC_V2_ORDER_BUILD_FAILED,
+    EXEC_V2_SIGN_FAILED,
     REJECT_JUPITER_BAD_PROBE,
     REJECT_JUPITER_UNTRADABLE,
+    SELL_THRESHOLD_UNCOMPUTABLE,
 )
 from creeper_dripper.models import ExecutionResult, ProbeQuote, TokenCandidate
-from creeper_dripper.utils import b64, b64decode
+from creeper_dripper.utils import atomic_write_json, b64, b64decode
 from creeper_dripper.observability import EventCollector
 
 LOGGER = logging.getLogger(__name__)
@@ -135,37 +142,43 @@ class TradeExecutor:
                 quote,
             )
         try:
-            swap_tx_b64 = self.build_swap_transaction(quote_response=quote.raw or {})
+            order = self.build_v2_execution_order(
+                input_mint=SOL_MINT,
+                output_mint=token.address,
+                amount_atomic=requested,
+            )
         except Exception as exc:
-            self.events.emit("entry_failed", EXEC_TX_BUILD_FAILED, token_mint=token.address, error=str(exc))
+            self.events.emit("entry_failed", EXEC_V2_ORDER_BUILD_FAILED, token_mint=token.address, error=str(exc))
             return (
                 ExecutionResult(
                     status="failed",
                     requested_amount=requested,
-                    diagnostic_code=EXEC_TX_BUILD_FAILED,
+                    diagnostic_code=EXEC_V2_ORDER_BUILD_FAILED,
                     error=str(exc),
                     diagnostic_metadata={
                         "phase": "order_build",
                         "side": "buy",
-                        "endpoint": "/swap",
+                        "endpoint": "/order",
                         "request_params": {
-                            "quoteResponse": quote.raw or {},
-                            "userPublicKey": self.owner_address,
-                            "wrapAndUnwrapSol": True,
+                            "inputMint": SOL_MINT,
+                            "outputMint": token.address,
+                            "amount": str(requested),
+                            "taker": self.owner_address,
+                            "slippageBps": self.settings.default_slippage_bps,
                         },
                         "status_code": getattr(exc, "status_code", None),
                         "response_body": getattr(exc, "body", None),
-                        "classification": EXEC_TX_BUILD_FAILED,
+                        "classification": EXEC_V2_ORDER_BUILD_FAILED,
                     },
                 ),
                 quote,
             )
         try:
-            signature = self.sign_and_send(swap_tx_b64)
+            signature = self.sign_and_execute_v2(order)
         except Exception as exc:
-            code = EXEC_TX_SEND_FAILED
-            if "sign" in str(exc).lower():
-                code = EXEC_TX_SIGN_FAILED
+            code = EXEC_V2_EXECUTE_FAILED
+            if str(exc).startswith("sign_failed:"):
+                code = EXEC_V2_SIGN_FAILED
             self.events.emit("entry_failed", code, token_mint=token.address, error=str(exc))
             return (
                 ExecutionResult(
@@ -173,7 +186,7 @@ class TradeExecutor:
                     requested_amount=requested,
                     diagnostic_code=code,
                     error=str(exc),
-                    diagnostic_metadata={"phase": "execute", "side": "buy", "classification": code},
+                    diagnostic_metadata={"phase": "execute", "side": "buy", "classification": code, "endpoint": "/execute"},
                 ),
                 quote,
             )
@@ -240,37 +253,43 @@ class TradeExecutor:
                 quote,
             )
         try:
-            swap_tx_b64 = self.build_swap_transaction(quote_response=quote.raw or {})
+            order = self.build_v2_execution_order(
+                input_mint=token_mint,
+                output_mint=SOL_MINT,
+                amount_atomic=requested,
+            )
         except Exception as exc:
-            self.events.emit("exit_failed", EXEC_TX_BUILD_FAILED, token_mint=token_mint, error=str(exc))
+            self.events.emit("exit_failed", EXEC_V2_ORDER_BUILD_FAILED, token_mint=token_mint, error=str(exc))
             return (
                 ExecutionResult(
                     status="failed",
                     requested_amount=requested,
-                    diagnostic_code=EXEC_TX_BUILD_FAILED,
+                    diagnostic_code=EXEC_V2_ORDER_BUILD_FAILED,
                     error=str(exc),
                     diagnostic_metadata={
                         "phase": "order_build",
                         "side": "sell",
-                        "endpoint": "/swap",
+                        "endpoint": "/order",
                         "request_params": {
-                            "quoteResponse": quote.raw or {},
-                            "userPublicKey": self.owner_address,
-                            "wrapAndUnwrapSol": True,
+                            "inputMint": token_mint,
+                            "outputMint": SOL_MINT,
+                            "amount": str(requested),
+                            "taker": self.owner_address,
+                            "slippageBps": self.settings.default_slippage_bps,
                         },
                         "status_code": getattr(exc, "status_code", None),
                         "response_body": getattr(exc, "body", None),
-                        "classification": EXEC_TX_BUILD_FAILED,
+                        "classification": EXEC_V2_ORDER_BUILD_FAILED,
                     },
                 ),
                 quote,
             )
         try:
-            signature = self.sign_and_send(swap_tx_b64)
+            signature = self.sign_and_execute_v2(order)
         except Exception as exc:
-            code = EXEC_TX_SEND_FAILED
-            if "sign" in str(exc).lower():
-                code = EXEC_TX_SIGN_FAILED
+            code = EXEC_V2_EXECUTE_FAILED
+            if str(exc).startswith("sign_failed:"):
+                code = EXEC_V2_SIGN_FAILED
             self.events.emit("exit_failed", code, token_mint=token_mint, error=str(exc))
             return (
                 ExecutionResult(
@@ -278,7 +297,7 @@ class TradeExecutor:
                     requested_amount=requested,
                     diagnostic_code=code,
                     error=str(exc),
-                    diagnostic_metadata={"phase": "execute", "side": "sell", "classification": code},
+                    diagnostic_metadata={"phase": "execute", "side": "sell", "classification": code, "endpoint": "/execute"},
                 ),
                 quote,
             )
@@ -305,14 +324,67 @@ class TradeExecutor:
             wrap_and_unwrap_sol=True,
         )
 
+    def build_v2_execution_order(self, *, input_mint: str, output_mint: str, amount_atomic: int) -> dict:
+        if not self.owner_address:
+            raise RuntimeError("missing_wallet_keypair")
+        return self.jupiter.execution_order_v2(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_atomic=amount_atomic,
+            taker=self.owner_address,
+            slippage_bps=self.settings.default_slippage_bps,
+        )
+
+    def sign_and_execute_v2(self, order: dict) -> str:
+        if self.owner is None:
+            raise RuntimeError("sign_failed: missing owner keypair")
+        unsigned_tx_b64 = str(order.get("transaction") or "")
+        request_id = str(order.get("requestId") or "")
+        if not unsigned_tx_b64 or not request_id:
+            raise RuntimeError("execute_failed: missing transaction/requestId in order response")
+        try:
+            tx = VersionedTransaction.from_bytes(b64decode(unsigned_tx_b64))
+            sig = self.owner.sign_message(to_bytes_versioned(tx.message))
+            signed_tx = VersionedTransaction.populate(tx.message, [sig])
+            signed_tx_b64 = b64(bytes(signed_tx))
+        except Exception as exc:
+            raise RuntimeError(f"sign_failed: {exc}") from exc
+        try:
+            result = self.jupiter.execute_signed_v2(
+                signed_transaction_b64=signed_tx_b64,
+                request_id=request_id,
+            )
+            if result.get("error"):
+                raise RuntimeError(f"{result.get('error')}")
+            signature = (result.get("signature") or "").strip()
+            if not signature:
+                raise RuntimeError("missing signature in /execute response")
+            return signature
+        except Exception as exc:
+            raise RuntimeError(f"execute_failed: {exc}") from exc
+
     def sign_and_send(self, swap_transaction_b64: str) -> str:
         if self.owner is None:
             raise RuntimeError("sign_failed: missing owner keypair")
+        tx_metadata: dict = {}
+        simulation: dict | None = None
         try:
             tx = VersionedTransaction.from_bytes(b64decode(swap_transaction_b64))
             tx = _partially_sign_for_owner(tx, self.owner)
+            tx_metadata = self._tx_metadata(tx)
+            LOGGER.info("tx metadata: %s", tx_metadata)
         except Exception as exc:
             raise RuntimeError(f"sign_failed: {exc}") from exc
+        try:
+            simulation = self._simulate_transaction(tx)
+            LOGGER.info("tx simulation: %s", simulation)
+        except Exception as exc:
+            LOGGER.warning("simulateTransaction failed before send: %s", exc)
+            simulation = {
+                "ok": False,
+                "exception_type": type(exc).__name__,
+                "error": str(exc),
+            }
         try:
             payload = {
                 "jsonrpc": "2.0",
@@ -320,17 +392,104 @@ class TradeExecutor:
                 "method": "sendTransaction",
                 "params": [b64(bytes(tx)), {"encoding": "base64", "skipPreflight": False}],
             }
+            LOGGER.info("sendTransaction payload submitted to rpc=%s", self._rpc_url)
             response = self._rpc.post(self._rpc_url, json=payload, timeout=20)
             response.raise_for_status()
             body = response.json()
+            wrote_artifact = False
             if body.get("error"):
+                self._write_tx_failure_artifact(
+                    stage="send_rpc_error",
+                    tx_metadata=tx_metadata,
+                    simulation=simulation,
+                    error={
+                        "exception_type": "RpcError",
+                        "error": str(body.get("error")),
+                        "rpc_response_body": body,
+                    },
+                )
+                wrote_artifact = True
                 raise RuntimeError(str(body.get("error")))
             signature = (body.get("result") or "").strip()
             if not signature:
+                self._write_tx_failure_artifact(
+                    stage="send_empty_signature",
+                    tx_metadata=tx_metadata,
+                    simulation=simulation,
+                    error={
+                        "exception_type": "RuntimeError",
+                        "error": "empty_signature_from_rpc",
+                        "rpc_response_body": body,
+                    },
+                )
+                wrote_artifact = True
                 raise RuntimeError("empty_signature_from_rpc")
             return signature
         except Exception as exc:
+            rpc_body = None
+            if isinstance(exc, requests.HTTPError) and exc.response is not None:
+                try:
+                    rpc_body = exc.response.json()
+                except Exception:
+                    rpc_body = exc.response.text
+            if not locals().get("wrote_artifact", False):
+                self._write_tx_failure_artifact(
+                    stage="send_exception",
+                    tx_metadata=tx_metadata,
+                    simulation=simulation,
+                    error={
+                        "exception_type": type(exc).__name__,
+                        "error": str(exc),
+                        "rpc_response_body": rpc_body,
+                    },
+                )
             raise RuntimeError(f"send_failed: {exc}") from exc
+
+    def _simulate_transaction(self, tx: VersionedTransaction) -> dict:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "simulateTransaction",
+            "params": [b64(bytes(tx)), {"encoding": "base64", "sigVerify": False}],
+        }
+        response = self._rpc.post(self._rpc_url, json=payload, timeout=20)
+        response.raise_for_status()
+        body = response.json()
+        value = (body.get("result") or {}).get("value") or {}
+        return {
+            "ok": value.get("err") is None,
+            "err": value.get("err"),
+            "logs": value.get("logs") or [],
+            "units_consumed": value.get("unitsConsumed"),
+        }
+
+    def _tx_metadata(self, tx: VersionedTransaction) -> dict:
+        msg = tx.message
+        lookups = getattr(msg, "address_table_lookups", None) or []
+        instructions = getattr(msg, "instructions", None) or []
+        return {
+            "version": "legacy" if getattr(msg, "header", None) is None else "v0_or_newer",
+            "uses_address_lookup_tables": len(lookups) > 0,
+            "address_lookup_table_count": len(lookups),
+            "instruction_count": len(instructions),
+        }
+
+    def _write_tx_failure_artifact(self, *, stage: str, tx_metadata: dict, simulation: dict | None, error: dict) -> None:
+        try:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            path = Path(self.settings.runtime_dir) / f"tx_failure_{ts}.json"
+            payload = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "stage": stage,
+                "rpc_url": self._rpc_url,
+                "tx_metadata": tx_metadata,
+                "simulation": simulation,
+                "error": error,
+            }
+            atomic_write_json(path, payload)
+            LOGGER.error("tx failure artifact written: %s", path)
+        except Exception as artifact_exc:
+            LOGGER.error("failed to write tx failure artifact: %s", artifact_exc)
 
     def wallet_token_balance_atomic(self, token_mint: str) -> int | None:
         if not self.owner_address:
@@ -426,6 +585,8 @@ class TradeExecutor:
             body_text = (response_body or str(exc) or "").lower()
             if "no route" in body_text or "route not found" in body_text:
                 classification = EXEC_NO_ROUTE
+            elif side == "sell" and "cannot_compute_other_amount_threshold" in body_text:
+                classification = SELL_THRESHOLD_UNCOMPUTABLE
             elif "not tradable" in body_text or "cannot be traded" in body_text or "tradable" in body_text:
                 classification = REJECT_JUPITER_UNTRADABLE
             else:

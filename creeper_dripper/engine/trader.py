@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,7 @@ from creeper_dripper.errors import (
     SAFETY_MAX_EXIT_BLOCKED,
     SAFETY_STALE_MARKET_DATA,
     SAFETY_UNKNOWN_EXIT_SATURATION,
+    SELL_THRESHOLD_UNCOMPUTABLE,
     STATE_SAVE_FAILED,
 )
 from creeper_dripper.engine.discovery import discover_candidates
@@ -112,6 +114,7 @@ class CreeperDripper:
         by_mint = {c.address: c for c in candidates}
         for mint, position in list(self.portfolio.open_positions.items()):
             if position.status == "EXIT_BLOCKED":
+                self._retry_blocked_exit_if_due(position, decisions, now)
                 continue
             candidate = by_mint.get(mint)
             if candidate is None:
@@ -192,6 +195,14 @@ class CreeperDripper:
             return
         self._attempt_exit(position, decisions, now)
 
+    def _retry_blocked_exit_if_due(self, position: PositionState, decisions: list[TradeDecision], now: str) -> None:
+        if position.pending_exit_reason != SELL_THRESHOLD_UNCOMPUTABLE:
+            return
+        if position.next_exit_retry_at and not _retry_due(position.next_exit_retry_at, now):
+            return
+        # Keep blocked-state retries on normal cycle cadence for threshold failures.
+        self._attempt_exit(position, decisions, now)
+
     def _attempt_exit(self, position: PositionState, decisions: list[TradeDecision], now: str) -> None:
         if position.pending_exit_qty_atomic is None or position.pending_exit_qty_atomic <= 0:
             position.status = "EXIT_BLOCKED"
@@ -237,6 +248,8 @@ class CreeperDripper:
                     "signature": result.signature,
                     "error": result.error,
                     "price_impact_bps": quote.price_impact_bps,
+                    "classification": result.diagnostic_metadata.get("classification") or result.diagnostic_code,
+                    "jupiter_error_code": _extract_jupiter_error_code(result.diagnostic_metadata.get("response_body")),
                 },
             )
         )
@@ -292,13 +305,34 @@ class CreeperDripper:
                 position.updated_at = now
             return
 
-        position.exit_retry_count += 1
-        position.last_exit_attempt_at = now
-        position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
         if result.status == "failed":
+            classification = str(result.diagnostic_metadata.get("classification") or result.diagnostic_code or "failed")
+            jupiter_error_code = _extract_jupiter_error_code(result.diagnostic_metadata.get("response_body"))
             position.status = "EXIT_BLOCKED"
-            decisions.append(TradeDecision(action="SELL_BLOCKED", token_mint=position.token_mint, symbol=position.symbol, reason=f"execution_failed:{result.error or 'unknown'}", qty_atomic=requested_qty))
-            self.portfolio.consecutive_execution_failures += 1
+            if classification == SELL_THRESHOLD_UNCOMPUTABLE:
+                position.pending_exit_reason = SELL_THRESHOLD_UNCOMPUTABLE
+                position.pending_exit_qty_atomic = requested_qty
+                position.last_exit_attempt_at = now
+                position.next_exit_retry_at = _next_normal_retry_at(now, self.settings.poll_interval_seconds)
+            else:
+                position.exit_retry_count += 1
+                position.last_exit_attempt_at = now
+                position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
+                self.portfolio.consecutive_execution_failures += 1
+            decisions.append(
+                TradeDecision(
+                    action="SELL_BLOCKED",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason=f"execution_failed:{result.error or 'unknown'}",
+                    qty_atomic=requested_qty,
+                    metadata={
+                        "classification": classification,
+                        "jupiter_error_code": jupiter_error_code,
+                        "requested_amount": requested_qty,
+                    },
+                )
+            )
             self.events.emit("exit_failed", result.diagnostic_code or "failed", position_id=position.position_id or position.token_mint, error=result.error or "unknown")
         else:
             position.status = "EXIT_PENDING"
@@ -683,6 +717,31 @@ def _next_retry_at(now: str, retry_count: int) -> str:
         now_dt = datetime.now(timezone.utc)
     delay_seconds = EXIT_RETRY_BASE_SECONDS * (2 ** max(0, retry_count - 1))
     return (now_dt + timedelta(seconds=delay_seconds)).isoformat()
+
+
+def _next_normal_retry_at(now: str, interval_seconds: int) -> str:
+    try:
+        now_dt = datetime.fromisoformat(now.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except Exception:
+        now_dt = datetime.now(timezone.utc)
+    return (now_dt + timedelta(seconds=max(1, int(interval_seconds)))).isoformat()
+
+
+def _extract_jupiter_error_code(response_body: object) -> str | None:
+    if response_body is None:
+        return None
+    if isinstance(response_body, dict):
+        val = response_body.get("errorCode")
+        return str(val) if val is not None else None
+    if isinstance(response_body, str):
+        try:
+            parsed = json.loads(response_body)
+            if isinstance(parsed, dict):
+                val = parsed.get("errorCode")
+                return str(val) if val is not None else None
+        except Exception:
+            return None
+    return None
 
 
 def _probe_sanity_reason(probe) -> str | None:

@@ -243,9 +243,9 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     jupiter = JupiterClient(settings.jupiter_api_key)
     try:
         jupiter.probe_quote(input_mint=SOL_MINT, output_mint=USDC_MINT, amount_atomic=1_000_000, slippage_bps=settings.default_slippage_bps)
-        checks.append({"check": "jupiter_probe_reachable_v2_order", "ok": True, "endpoint": "GET /swap/v2/order"})
+        checks.append({"check": "jupiter_probe_reachable_v1_quote", "ok": True, "endpoint": "GET /swap/v1/quote"})
     except Exception as exc:
-        checks.append({"check": "jupiter_probe_reachable_v2_order", "ok": False, "endpoint": "GET /swap/v2/order", "error": str(exc)})
+        checks.append({"check": "jupiter_probe_reachable_v1_quote", "ok": False, "endpoint": "GET /swap/v1/quote", "error": str(exc)})
         ok = False
 
     try:
@@ -277,6 +277,7 @@ def cmd_status(_args: argparse.Namespace) -> int:
     settings = load_settings()
     portfolio = load_portfolio(settings.state_path, settings.portfolio_start_sol)
     open_positions = list(portfolio.open_positions.values())
+    blocked_positions = [p for p in open_positions if p.status == "EXIT_BLOCKED"]
     summary = {
         "dry_run": settings.dry_run,
         "live_trading_enabled": settings.live_trading_enabled,
@@ -284,6 +285,15 @@ def cmd_status(_args: argparse.Namespace) -> int:
         "partial_positions": sum(1 for p in open_positions if p.status == "PARTIAL"),
         "exit_pending_positions": sum(1 for p in open_positions if p.status == "EXIT_PENDING"),
         "exit_blocked_positions": sum(1 for p in open_positions if p.status == "EXIT_BLOCKED"),
+        "blocked_positions": [
+            {
+                "symbol": p.symbol,
+                "mint": p.token_mint,
+                "blocked_reason_classification": p.pending_exit_reason,
+                "next_retry_at": p.next_exit_retry_at,
+            }
+            for p in blocked_positions
+        ],
         "closed_positions": len(portfolio.closed_positions),
         "cash_sol": round(portfolio.cash_sol, 6),
         "safe_mode_active": portfolio.safe_mode_active,

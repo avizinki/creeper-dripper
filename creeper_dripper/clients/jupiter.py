@@ -14,8 +14,9 @@ from creeper_dripper.utils import b64decode
 
 LOGGER = logging.getLogger(__name__)
 
-ORDER_BASE_URL = "https://api.jup.ag/swap/v2"
+QUOTE_BASE_URL = "https://api.jup.ag/swap/v1"
 SWAP_BASE_URL = "https://api.jup.ag/swap/v1"
+EXEC_BASE_URL = "https://api.jup.ag/swap/v2"
 
 
 class JupiterBadRequestError(RuntimeError):
@@ -65,7 +66,7 @@ class JupiterClient:
         response.raise_for_status()
         return response.json()
 
-    def order(
+    def quote(
         self,
         *,
         input_mint: str,
@@ -74,14 +75,14 @@ class JupiterClient:
         taker: str | None = None,
         slippage_bps: int | None = None,
     ) -> JupiterOrder:
-        params = self.build_order_params(
+        params = self.build_quote_params(
             input_mint=input_mint,
             output_mint=output_mint,
             amount_atomic=amount_atomic,
             taker=taker,
             slippage_bps=slippage_bps,
         )
-        raw = self._get("/order", params=params, base_url=ORDER_BASE_URL)
+        raw = self._get("/quote", params=params, base_url=QUOTE_BASE_URL)
         return JupiterOrder(
             request_id=str(raw.get("requestId") or ""),
             transaction_b64=raw.get("transaction"),
@@ -92,7 +93,7 @@ class JupiterClient:
         )
 
     @staticmethod
-    def build_order_params(
+    def build_quote_params(
         *,
         input_mint: str,
         output_mint: str,
@@ -119,7 +120,7 @@ class JupiterClient:
         amount_atomic: int,
         slippage_bps: int | None = None,
     ) -> ProbeQuote:
-        order = self.order(
+        order = self.quote(
             input_mint=input_mint,
             output_mint=output_mint,
             amount_atomic=amount_atomic,
@@ -146,12 +147,40 @@ class JupiterClient:
             "quoteResponse": quote_response,
             "userPublicKey": str(user_public_key),
             "wrapAndUnwrapSol": bool(wrap_and_unwrap_sol),
+            "dynamicComputeUnitLimit": True,
+            "prioritizationFeeLamports": 10_000,
         }
         raw = self._post("/swap", payload=payload, base_url=SWAP_BASE_URL)
         tx_b64 = raw.get("swapTransaction") or raw.get("transaction")
         if not tx_b64:
             raise RuntimeError("Jupiter /swap response missing swapTransaction")
         return str(tx_b64)
+
+    def execution_order_v2(
+        self,
+        *,
+        input_mint: str,
+        output_mint: str,
+        amount_atomic: int,
+        taker: str,
+        slippage_bps: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "inputMint": input_mint,
+            "outputMint": output_mint,
+            "amount": str(amount_atomic),
+            "taker": str(taker),
+        }
+        if slippage_bps is not None:
+            params["slippageBps"] = str(slippage_bps)
+        return self._get("/order", params=params, base_url=EXEC_BASE_URL)
+
+    def execute_signed_v2(self, *, signed_transaction_b64: str, request_id: str) -> dict[str, Any]:
+        payload = {
+            "signedTransaction": signed_transaction_b64,
+            "requestId": str(request_id),
+        }
+        return self._post("/execute", payload=payload, base_url=EXEC_BASE_URL)
 
     def check_swap_reachability(self) -> None:
         # Lightweight endpoint check for /swap/v1/swap without requiring a real quote.
