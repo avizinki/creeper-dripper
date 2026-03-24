@@ -13,6 +13,8 @@ from creeper_dripper.errors import (
     EXEC_SKIPPED_LIVE_DISABLED,
     EXIT_UNKNOWN_PENDING_RECONCILE,
     JOURNAL_APPEND_FAILED,
+    POSITION_RECONCILE_PENDING,
+    SETTLEMENT_UNCONFIRMED,
     REJECT_ECONOMIC_SANITY_FAILED,
     REJECT_EXECUTION_ROUTE_MISSING,
     REJECT_NO_BUY_ROUTE,
@@ -28,6 +30,14 @@ from creeper_dripper.errors import (
     STATE_SAVE_FAILED,
 )
 from creeper_dripper.engine.discovery import discover_candidates
+from creeper_dripper.engine.position_pricing import (
+    SOURCE_JUPITER_SELL,
+    VALUATION_STATUS_NO_ROUTE,
+    VALUATION_STATUS_OK,
+    ensure_entry_sol_mark,
+    is_valid_sol_mark,
+    resolve_position_valuation,
+)
 from creeper_dripper.execution.executor import TradeExecutor
 from creeper_dripper.models import PortfolioState, PositionState, ProbeQuote, TakeProfitStep, TokenCandidate, TradeDecision
 from creeper_dripper.observability import EventCollector
@@ -37,6 +47,39 @@ from creeper_dripper.utils import append_jsonl, atomic_write_json, utc_now_iso
 
 LOGGER = logging.getLogger(__name__)
 MAX_EXIT_RETRIES = 5
+
+
+def _seed_sol_basis_on_open(
+    position: PositionState,
+    candidate: TokenCandidate,
+    entry_sol_spent: float,
+    qty_ui: float,
+) -> None:
+    """Primary cost basis: SOL per token at entry. USD fields are optional display only."""
+    denom_ui = max(float(qty_ui), 1e-30)
+    mark = float(entry_sol_spent) / denom_ui
+    position.entry_mark_sol_per_token = mark
+    position.last_mark_sol_per_token = mark
+    position.peak_mark_sol_per_token = mark
+    pu = candidate.price_usd
+    try:
+        uf = float(pu) if pu is not None else 0.0
+    except (TypeError, ValueError):
+        uf = 0.0
+    if uf > 0.0:
+        position.entry_price_usd = uf
+        position.avg_entry_price_usd = uf
+        position.last_price_usd = uf
+        position.peak_price_usd = uf
+        position.usd_mark_unavailable = False
+    else:
+        position.entry_price_usd = 0.0
+        position.avg_entry_price_usd = 0.0
+        position.last_price_usd = 0.0
+        position.peak_price_usd = 0.0
+        position.usd_mark_unavailable = True
+
+
 EXIT_RETRY_BASE_SECONDS = 30
 MIN_ROUNDTRIP_RETURN_RATIO = 0.02
 MAX_ABS_PRICE_IMPACT_BPS = 5_000.0
@@ -86,7 +129,12 @@ class CreeperDripper:
             for decision in recovery_decisions:
                 self.events.emit("recovery_action", decision.reason, action=decision.action, token_mint=decision.token_mint)
             self._startup_recovery_done = True
-        candidates, discovery_summary = self._discover_with_cadence()
+        try:
+            candidates, discovery_summary = self._discover_with_cadence()
+        except Exception as exc:
+            LOGGER.error("event=discovery_failed error=%s", exc, exc_info=True)
+            candidates = []
+            discovery_summary = self._failed_discovery_summary()
         market_data_checked_at = str(discovery_summary.get("market_data_checked_at") or utc_now_iso())
         safe_mode_reason = self._evaluate_safety(now, market_data_checked_at=market_data_checked_at)
         if safe_mode_reason:
@@ -100,9 +148,9 @@ class CreeperDripper:
             self.portfolio.safe_mode_active = False
             self.portfolio.safety_stop_reason = None
 
-        self._mark_positions(candidates, decisions, now)
         if not self.portfolio.safe_mode_active:
             self._maybe_open_positions(candidates, decisions, now)
+        self._mark_positions(candidates, decisions, now)
         self.portfolio.last_cycle_at = now
         cycle_summary = self._cycle_summary(now, discovery_summary, decisions)
         self._persist_cycle(now, decisions, cycle_summary)
@@ -142,6 +190,38 @@ class CreeperDripper:
         self._last_discovery_summary = dict(summary)
         return candidates, summary
 
+    def _failed_discovery_summary(self) -> dict:
+        """Minimal discovery summary when discovery aborts; keeps cycle + summaries consistent."""
+        cc, rc = self._candidate_cache, self._route_cache
+        return {
+            "seeds_total": 0,
+            "discovered_candidates": 0,
+            "prefiltered_candidates": 0,
+            "seed_prefiltered_out": 0,
+            "topn_candidates": 0,
+            "route_checked_candidates": 0,
+            "cache_hits": cc.stats.hits + rc.stats.hits,
+            "cache_misses": cc.stats.misses + rc.stats.misses,
+            "candidate_cache_hits": cc.stats.hits,
+            "candidate_cache_misses": cc.stats.misses,
+            "route_cache_hits": rc.stats.hits,
+            "route_cache_misses": rc.stats.misses,
+            "birdeye_candidate_build_calls": 0,
+            "jupiter_buy_probe_calls": 0,
+            "jupiter_sell_probe_calls": 0,
+            "candidates_built": 0,
+            "candidates_accepted": 0,
+            "candidates_rejected_total": 0,
+            "rejection_counts": {},
+            "events": [],
+            "market_data_checked_at": None,
+            "cache_debug_first_keys": [],
+            "cache_debug_identity": {"candidate_cache_id": id(cc), "route_cache_id": id(rc)},
+            "cache_engine_identity": {"candidate_cache_id": id(cc), "route_cache_id": id(rc)},
+            "cache_debug_trace": {"candidate": [], "route": []},
+            "discovery_cached": False,
+        }
+
     def run_startup_recovery(self) -> list[TradeDecision]:
         now = utc_now_iso()
         self._reset_daily_counters(now)
@@ -166,22 +246,79 @@ class CreeperDripper:
                     seed = {"address": mint, "symbol": position.symbol, "decimals": position.decimals}
                     candidate = self.birdeye.build_candidate(seed)
                 except Exception as exc:
-                    LOGGER.warning("mark build failed for %s: %s", mint, exc)
-                    continue
-            price = candidate.price_usd or position.last_price_usd
-            position.last_price_usd = price
+                    LOGGER.warning("mark build failed for %s: %s — using minimal candidate for pricing fallback", mint, exc)
+                    candidate = TokenCandidate(address=mint, symbol=position.symbol, decimals=position.decimals)
+            ensure_entry_sol_mark(position)
+            v = resolve_position_valuation(
+                mint=mint,
+                symbol=position.symbol,
+                position=position,
+                executor=self.executor,
+            )
+            if v.status == VALUATION_STATUS_OK and v.value_sol is not None and v.mark_sol_per_token is not None:
+                position.last_mark_sol_per_token = float(v.mark_sol_per_token)
+                position.last_estimated_exit_value_sol = float(v.value_sol)
+                position.unrealized_pnl_sol = float(v.value_sol) - float(position.entry_sol)
+                position.valuation_source = SOURCE_JUPITER_SELL
+                position.valuation_status = VALUATION_STATUS_OK
+                if not is_valid_sol_mark(position.peak_mark_sol_per_token):
+                    position.peak_mark_sol_per_token = position.last_mark_sol_per_token
+                else:
+                    position.peak_mark_sol_per_token = max(
+                        float(position.peak_mark_sol_per_token),
+                        float(position.last_mark_sol_per_token),
+                    )
+                LOGGER.info(
+                    "event=position_valuation_sol mint=%s symbol=%s value_sol=%s pnl_sol=%s source=jupiter_sell status=ok size_bucket=%s",
+                    mint,
+                    position.symbol,
+                    position.last_estimated_exit_value_sol,
+                    position.unrealized_pnl_sol,
+                    v.size_bucket,
+                )
+            else:
+                position.valuation_status = VALUATION_STATUS_NO_ROUTE
+                LOGGER.info(
+                    "event=position_valuation_failed mint=%s symbol=%s reason=no_route size_bucket=%s detail=%s",
+                    mint,
+                    position.symbol,
+                    v.size_bucket,
+                    v.detail,
+                )
             position.updated_at = now
             position.last_exit_liquidity_usd = candidate.exit_liquidity_usd
-            position.peak_price_usd = max(position.peak_price_usd, price)
-            if position.status == "EXIT_PENDING":
+            if position.status == "EXIT_PENDING" or (
+                position.status == POSITION_RECONCILE_PENDING and position.reconcile_context == "exit"
+            ):
                 self._retry_pending_exit(position, decisions, now)
+                continue
+            if position.status == POSITION_RECONCILE_PENDING and position.reconcile_context == "entry":
+                self._retry_entry_settlement_reconciliation(position, decisions, now)
                 continue
             self._evaluate_exit_rules(position, candidate, decisions, now)
 
     def _evaluate_exit_rules(self, position: PositionState, candidate: TokenCandidate, decisions: list[TradeDecision], now: str) -> None:
         if position.status not in {"OPEN", "PARTIAL"}:
             return
-        pnl_pct = ((position.last_price_usd - position.avg_entry_price_usd) / position.avg_entry_price_usd) * 100.0 if position.avg_entry_price_usd else 0.0
+        ensure_entry_sol_mark(position)
+        if position.last_estimated_exit_value_sol is None:
+            LOGGER.info(
+                "exit_rules_skipped_no_valuation mint=%s last_estimated_exit_value_sol=None",
+                position.token_mint,
+            )
+            return
+        if not is_valid_sol_mark(position.entry_mark_sol_per_token) or not is_valid_sol_mark(position.last_mark_sol_per_token):
+            LOGGER.warning(
+                "exit_rules_skipped_invalid_sol_marks mint=%s entry_mark_sol=%s last_mark_sol=%s valuation_status=%s",
+                position.token_mint,
+                position.entry_mark_sol_per_token,
+                position.last_mark_sol_per_token,
+                position.valuation_status,
+            )
+            return
+        entry_s = float(position.entry_mark_sol_per_token)
+        last_s = float(position.last_mark_sol_per_token)
+        pnl_pct = (last_s / entry_s - 1.0) * 100.0
         age_minutes = _age_minutes(position.opened_at)
         liquidity_ratio = None
         if position.exit_liquidity_at_entry_usd and position.last_exit_liquidity_usd:
@@ -196,8 +333,9 @@ class CreeperDripper:
             return
 
         if pnl_pct >= position.trailing_arm_pct:
-            trail_floor = position.peak_price_usd * (1.0 - position.trailing_stop_pct / 100.0)
-            if position.last_price_usd <= trail_floor:
+            peak_s = float(position.peak_mark_sol_per_token) if is_valid_sol_mark(position.peak_mark_sol_per_token) else last_s
+            trail_floor = peak_s * (1.0 - position.trailing_stop_pct / 100.0)
+            if last_s <= trail_floor:
                 self._start_exit(position, position.remaining_qty_atomic, "trailing_stop", decisions, now)
                 return
 
@@ -227,6 +365,45 @@ class CreeperDripper:
         decisions.append(TradeDecision(action="EXIT_PENDING", token_mint=position.token_mint, symbol=position.symbol, reason=reason, qty_atomic=qty_atomic))
         self._attempt_exit(position, decisions, now)
         return True
+
+    def _retry_entry_settlement_reconciliation(self, position: PositionState, decisions: list[TradeDecision], now: str) -> None:
+        """Resolve ENTRY_RECONCILE_PENDING using wallet RPC as secondary truth (never zero out blindly)."""
+        bal = self.executor.wallet_token_balance_atomic(position.token_mint)
+        if bal is not None and bal > 0:
+            denom = 10 ** max(position.decimals, 0)
+            position.remaining_qty_atomic = bal
+            position.remaining_qty_ui = (bal / denom) if denom else float(bal)
+            if position.entry_sol > 0.0 and position.remaining_qty_ui > 0.0:
+                position.entry_mark_sol_per_token = position.entry_sol / max(position.remaining_qty_ui, 1e-30)
+                if not is_valid_sol_mark(position.last_mark_sol_per_token):
+                    position.last_mark_sol_per_token = position.entry_mark_sol_per_token
+                if not is_valid_sol_mark(position.peak_mark_sol_per_token):
+                    position.peak_mark_sol_per_token = position.entry_mark_sol_per_token
+                else:
+                    position.peak_mark_sol_per_token = max(
+                        float(position.peak_mark_sol_per_token),
+                        float(position.entry_mark_sol_per_token),
+                    )
+            position.status = "OPEN"
+            position.reconcile_context = None
+            position.updated_at = now
+            decisions.append(
+                TradeDecision(
+                    action="RECOVERY_CORRECTION",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason="entry_settlement_resolved_wallet",
+                    qty_atomic=bal,
+                    metadata={"classification": "entry_settlement_resolved_wallet"},
+                )
+            )
+            return
+        if bal == 0:
+            LOGGER.warning(
+                "entry_reconcile_still_zero mint=%s position_id=%s (keeping RECONCILE_PENDING)",
+                position.token_mint,
+                position.position_id or position.token_mint,
+            )
 
     def _retry_pending_exit(self, position: PositionState, decisions: list[TradeDecision], now: str) -> None:
         if position.exit_retry_count >= MAX_EXIT_RETRIES:
@@ -260,11 +437,21 @@ class CreeperDripper:
             position.pending_exit_qty_atomic = requested_qty
             decisions.append(TradeDecision(action="SELL_BALANCE_ADJUSTED", token_mint=position.token_mint, symbol=position.symbol, reason="wallet_balance_below_expected", qty_atomic=requested_qty))
         if requested_qty <= 0:
-            position.status = "EXIT_BLOCKED"
+            position.status = POSITION_RECONCILE_PENDING
+            position.reconcile_context = "exit"
             position.exit_retry_count += 1
             position.last_exit_attempt_at = now
             position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
-            decisions.append(TradeDecision(action="SELL_BLOCKED", token_mint=position.token_mint, symbol=position.symbol, reason="wallet_balance_zero", qty_atomic=0))
+            decisions.append(
+                TradeDecision(
+                    action="SELL_SETTLEMENT_PENDING",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason="wallet_balance_zero_reconcile_pending",
+                    qty_atomic=position.remaining_qty_atomic,
+                    metadata={"classification": SETTLEMENT_UNCONFIRMED},
+                )
+            )
             return
 
         result, quote = self.executor.sell(position.token_mint, requested_qty)
@@ -299,22 +486,47 @@ class CreeperDripper:
         )
 
         if result.status == "success":
-            sold_atomic = min(result.executed_amount or requested_qty, position.remaining_qty_atomic)
-            if sold_atomic <= 0:
-                position.status = "EXIT_BLOCKED"
+            sett = result.diagnostic_metadata.get("post_sell_settlement")
+            if not isinstance(sett, dict) or not sett.get("settlement_confirmed"):
+                LOGGER.error(
+                    "sell_settlement_metadata_missing position_id=%s mint=%s",
+                    position.position_id or position.token_mint,
+                    position.token_mint,
+                )
+                position.status = POSITION_RECONCILE_PENDING
+                position.reconcile_context = "exit"
                 position.exit_retry_count += 1
                 position.last_exit_attempt_at = now
                 position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
-                decisions.append(TradeDecision(action="SELL_BLOCKED", token_mint=position.token_mint, symbol=position.symbol, reason="success_without_executed_amount", qty_atomic=requested_qty))
+                position.pending_exit_signature = result.signature
+                decisions.append(
+                    TradeDecision(
+                        action="SELL_SETTLEMENT_PENDING",
+                        token_mint=position.token_mint,
+                        symbol=position.symbol,
+                        reason="sell_settlement_metadata_missing",
+                        qty_atomic=requested_qty,
+                        metadata={"classification": SETTLEMENT_UNCONFIRMED},
+                    )
+                )
                 return
-            sold_qty_atomic = sold_atomic
-            sold_fraction = sold_qty_atomic / max(position.remaining_qty_atomic, 1)
-            sold_ui = position.remaining_qty_ui * sold_fraction
-            position.remaining_qty_atomic -= sold_qty_atomic
-            position.remaining_qty_ui = max(0.0, position.remaining_qty_ui - sold_ui)
+            sold_reconciled = int(sett.get("sold_atomic_settled") or result.executed_amount or 0)
+            if sold_reconciled < 0:
+                raise RuntimeError("invariant violated: negative sold amount")
+            if sold_reconciled > position.remaining_qty_atomic:
+                LOGGER.warning(
+                    "sell_settlement sold_exceeds_remaining position_id=%s sold=%s remaining=%s",
+                    position.position_id or position.token_mint,
+                    sold_reconciled,
+                    position.remaining_qty_atomic,
+                )
+            denom = 10 ** max(position.decimals, 0)
+            new_remaining = max(0, position.remaining_qty_atomic - sold_reconciled)
+            position.remaining_qty_atomic = new_remaining
+            position.remaining_qty_ui = (new_remaining / denom) if denom else float(new_remaining)
             out_sol = None
             if result.output_amount is not None:
-                out_sol = result.output_amount / 1_000_000_000
+                out_sol = max(0.0, float(result.output_amount) / 1_000_000_000.0)
                 position.realized_sol += out_sol
                 self.portfolio.cash_sol += out_sol
             else:
@@ -326,19 +538,29 @@ class CreeperDripper:
             position.pending_exit_qty_atomic = None
             position.pending_exit_reason = None
             position.pending_exit_signature = None
+            position.reconcile_context = None
+            sold_ui = sold_reconciled / denom if denom else float(sold_reconciled)
             decisions.append(
                 TradeDecision(
                     action="SELL",
                     token_mint=position.token_mint,
                     symbol=position.symbol,
                     reason="exit_success",
-                    qty_atomic=sold_qty_atomic,
+                    qty_atomic=sold_reconciled,
                     qty_ui=sold_ui,
-                    metadata={"out_sol": out_sol, "signature": result.signature, "partial": result.is_partial, "proceeds_pending_reconcile": out_sol is None},
+                    metadata={
+                        "out_sol": out_sol,
+                        "signature": result.signature,
+                        "partial": result.is_partial,
+                        "proceeds_pending_reconcile": out_sol is None,
+                        "post_sell_settlement": sett,
+                        "sold_atomic_settled": sold_reconciled,
+                        "remaining_after_sell_atomic": new_remaining,
+                    },
                 )
             )
-            self.events.emit("exit_success", result.diagnostic_code or "success", position_id=position.position_id or position.token_mint, qty=sold_qty_atomic)
-            if position.remaining_qty_atomic <= 0 or position.remaining_qty_ui <= 0.0:
+            self.events.emit("exit_success", result.diagnostic_code or "success", position_id=position.position_id or position.token_mint, qty=sold_reconciled)
+            if position.remaining_qty_atomic <= 0:
                 position.status = "CLOSED"
                 self.portfolio.total_realized_sol += position.realized_sol - position.entry_sol
                 self.portfolio.closed_positions.append(position)
@@ -347,6 +569,35 @@ class CreeperDripper:
             else:
                 position.status = "PARTIAL"
                 position.updated_at = now
+            return
+
+        if result.status == "unknown" and result.diagnostic_code == SETTLEMENT_UNCONFIRMED:
+            position.status = POSITION_RECONCILE_PENDING
+            position.reconcile_context = "exit"
+            position.pending_exit_signature = result.signature
+            position.exit_retry_count += 1
+            position.last_exit_attempt_at = now
+            position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
+            decisions.append(
+                TradeDecision(
+                    action="SELL_SETTLEMENT_PENDING",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason="sell_settlement_unconfirmed",
+                    qty_atomic=requested_qty,
+                    metadata={
+                        "classification": SETTLEMENT_UNCONFIRMED,
+                        "signature": result.signature,
+                        "post_sell_settlement": result.diagnostic_metadata.get("post_sell_settlement"),
+                    },
+                )
+            )
+            self.events.emit(
+                "exit_failed",
+                SETTLEMENT_UNCONFIRMED,
+                position_id=position.position_id or position.token_mint,
+                error=result.error or SETTLEMENT_UNCONFIRMED,
+            )
             return
 
         if result.status == "failed":
@@ -492,6 +743,76 @@ class CreeperDripper:
             self._write_entry_probe_artifact(candidate, now, buy_probe, sell_probe, "entry_probe_passed")
             execution, quote = self.executor.buy(candidate, size_sol)
             self.events.emit("entry_attempt", "discovery_entry", token_mint=candidate.address, size_sol=size_sol)
+            if execution.status == "unknown" and execution.diagnostic_code == SETTLEMENT_UNCONFIRMED:
+                pbs = execution.diagnostic_metadata.get("post_buy_settlement") or {}
+                provisional = pbs.get("provisional_quote_atomic") or quote.out_amount_atomic
+                if provisional is None or int(provisional) <= 0:
+                    decisions.append(
+                        TradeDecision(
+                            action="BUY_SKIP",
+                            token_mint=candidate.address,
+                            symbol=candidate.symbol,
+                            reason="buy_settlement_unconfirmed_no_provisional_qty",
+                            size_sol=size_sol,
+                            metadata={"classification": SETTLEMENT_UNCONFIRMED, "signature": execution.signature},
+                        )
+                    )
+                    self.portfolio.consecutive_execution_failures += 1
+                    continue
+                qty_atomic = int(provisional)
+                if not candidate.decimals:
+                    continue
+                qty_ui = qty_atomic / (10 ** candidate.decimals)
+                position = PositionState(
+                    token_mint=candidate.address,
+                    symbol=candidate.symbol,
+                    decimals=candidate.decimals,
+                    status=POSITION_RECONCILE_PENDING,
+                    opened_at=now,
+                    updated_at=now,
+                    entry_price_usd=0.0,
+                    avg_entry_price_usd=0.0,
+                    entry_sol=size_sol,
+                    remaining_qty_atomic=qty_atomic,
+                    remaining_qty_ui=qty_ui,
+                    peak_price_usd=0.0,
+                    last_price_usd=0.0,
+                    position_id=f"{candidate.address}:{now}",
+                    stop_loss_pct=self.settings.stop_loss_pct,
+                    trailing_stop_pct=self.settings.trailing_stop_pct,
+                    trailing_arm_pct=self.settings.trailing_arm_pct,
+                    exit_liquidity_at_entry_usd=candidate.exit_liquidity_usd,
+                    last_exit_liquidity_usd=candidate.exit_liquidity_usd,
+                    take_profit_steps=[TakeProfitStep(trigger_pct=lvl, fraction=frac) for lvl, frac in zip(self.settings.take_profit_levels_pct, self.settings.take_profit_fractions)],
+                    notes=[f"score={candidate.discovery_score}", "entry_settlement_unconfirmed", *candidate.reasons],
+                    reconcile_context="entry",
+                )
+                _seed_sol_basis_on_open(position, candidate, size_sol, qty_ui)
+                self.portfolio.open_positions[candidate.address] = position
+                self.portfolio.cash_sol -= size_sol
+                self.portfolio.opened_today_count += 1
+                decisions.append(
+                    TradeDecision(
+                        action="BUY",
+                        token_mint=candidate.address,
+                        symbol=candidate.symbol,
+                        reason="discovery_entry_settlement_pending",
+                        size_sol=size_sol,
+                        qty_atomic=qty_atomic,
+                        qty_ui=qty_ui,
+                        metadata={
+                            "classification": SETTLEMENT_UNCONFIRMED,
+                            "signature": execution.signature,
+                            "provisional_qty_atomic": qty_atomic,
+                            "price_impact_bps": quote.price_impact_bps,
+                        },
+                    )
+                )
+                self.events.emit("entry_failed", SETTLEMENT_UNCONFIRMED, token_mint=candidate.address, symbol=candidate.symbol, phase="post_execute_settlement")
+                if len(self.portfolio.open_positions) >= self.settings.max_open_positions:
+                    break
+                continue
+
             if execution.status != "success":
                 phase = str(execution.diagnostic_metadata.get("phase") or "execute")
                 classification = str(execution.diagnostic_metadata.get("classification") or execution.diagnostic_code or f"execution_{execution.status}")
@@ -538,8 +859,8 @@ class CreeperDripper:
             if qty_atomic is None or qty_atomic <= 0:
                 decisions.append(TradeDecision(action="BUY_SKIP", token_mint=candidate.address, symbol=candidate.symbol, reason="missing_executed_amount", size_sol=size_sol))
                 continue
-            entry_price = candidate.price_usd or 0.0
-            if entry_price <= 0 or not candidate.decimals:
+            assert qty_atomic > 0, "position cannot be created with zero quantity"
+            if not candidate.decimals:
                 continue
             qty_ui = qty_atomic / (10 ** candidate.decimals)
             position = PositionState(
@@ -549,13 +870,13 @@ class CreeperDripper:
                 status="OPEN",
                 opened_at=now,
                 updated_at=now,
-                entry_price_usd=entry_price,
-                avg_entry_price_usd=entry_price,
+                entry_price_usd=0.0,
+                avg_entry_price_usd=0.0,
                 entry_sol=size_sol,
                 remaining_qty_atomic=qty_atomic,
                 remaining_qty_ui=qty_ui,
-                peak_price_usd=entry_price,
-                last_price_usd=entry_price,
+                peak_price_usd=0.0,
+                last_price_usd=0.0,
                 position_id=f"{candidate.address}:{now}",
                 stop_loss_pct=self.settings.stop_loss_pct,
                 trailing_stop_pct=self.settings.trailing_stop_pct,
@@ -565,6 +886,7 @@ class CreeperDripper:
                 take_profit_steps=[TakeProfitStep(trigger_pct=lvl, fraction=frac) for lvl, frac in zip(self.settings.take_profit_levels_pct, self.settings.take_profit_fractions)],
                 notes=[f"score={candidate.discovery_score}", *candidate.reasons],
             )
+            _seed_sol_basis_on_open(position, candidate, size_sol, qty_ui)
             self.portfolio.open_positions[candidate.address] = position
             self.portfolio.cash_sol -= size_sol
             self.portfolio.opened_today_count += 1
@@ -664,7 +986,12 @@ class CreeperDripper:
                     "data_source_name": "discovery_cycle_market_data",
                 }
                 return SAFETY_STALE_MARKET_DATA
-        unknown_exits = sum(1 for p in self.portfolio.open_positions.values() if p.status == "EXIT_PENDING")
+        unknown_exits = sum(
+            1
+            for p in self.portfolio.open_positions.values()
+            if p.status == "EXIT_PENDING"
+            or (p.status == POSITION_RECONCILE_PENDING and p.reconcile_context == "exit")
+        )
         if unknown_exits >= self.settings.unknown_exit_saturation_limit:
             return SAFETY_UNKNOWN_EXIT_SATURATION
         blocked = sum(1 for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED")
@@ -675,7 +1002,12 @@ class CreeperDripper:
     def _cycle_summary(self, now: str, discovery_summary: dict, decisions: list[TradeDecision]) -> dict:
         open_positions = list(self.portfolio.open_positions.values())
         partial_positions = sum(1 for p in open_positions if p.status == "PARTIAL")
-        exit_pending_positions = sum(1 for p in open_positions if p.status == "EXIT_PENDING")
+        exit_pending_positions = sum(
+            1
+            for p in open_positions
+            if p.status == "EXIT_PENDING"
+            or (p.status == POSITION_RECONCILE_PENDING and p.reconcile_context == "exit")
+        )
         exit_blocked_positions = sum(1 for p in open_positions if p.status == "EXIT_BLOCKED")
         entries_attempted = sum(1 for d in decisions if d.action == "BUY_SKIP" or d.action == "BUY")
         entries_succeeded = sum(1 for d in decisions if d.action == "BUY")
