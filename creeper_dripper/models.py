@@ -136,6 +136,14 @@ class PositionState:
     valuation_source: str | None = None
     valuation_status: str | None = None
     usd_mark_unavailable: bool = False
+    # Jupiter sell-quote liquidity deterioration (JSDS); baseline at entry, refreshed each valuation cycle.
+    entry_sell_impact_bps: float | None = None
+    entry_sell_route_hops: int | None = None
+    entry_sell_route_label: str | None = None
+    last_sell_impact_bps: float | None = None
+    last_sell_route_hops: int | None = None
+    last_sell_route_label: str | None = None
+    quote_miss_streak: int = 0
 
 
 @dataclass(slots=True)

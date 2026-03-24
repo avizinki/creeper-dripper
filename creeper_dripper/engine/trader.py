@@ -35,6 +35,7 @@ from creeper_dripper.engine.position_pricing import (
     VALUATION_STATUS_NO_ROUTE,
     VALUATION_STATUS_OK,
     ensure_entry_sol_mark,
+    extract_sell_quote_liquidity,
     is_valid_sol_mark,
     resolve_position_valuation,
 )
@@ -83,6 +84,17 @@ def _seed_sol_basis_on_open(
 EXIT_RETRY_BASE_SECONDS = 30
 MIN_ROUNDTRIP_RETURN_RATIO = 0.02
 MAX_ABS_PRICE_IMPACT_BPS = 5_000.0
+
+
+def _seed_jsds_entry_baseline(position: PositionState, sell_probe: ProbeQuote) -> None:
+    impact, hops, label = extract_sell_quote_liquidity(sell_probe)
+    position.entry_sell_impact_bps = impact
+    position.entry_sell_route_hops = hops
+    position.entry_sell_route_label = label
+    position.last_sell_impact_bps = impact
+    position.last_sell_route_hops = hops
+    position.last_sell_route_label = label
+    position.quote_miss_streak = 0
 
 
 class CreeperDripper:
@@ -281,8 +293,13 @@ class CreeperDripper:
                     position.unrealized_pnl_sol,
                     v.size_bucket,
                 )
+                position.last_sell_impact_bps = v.sell_quote_impact_bps
+                position.last_sell_route_hops = v.sell_route_hops
+                position.last_sell_route_label = v.sell_route_label
+                position.quote_miss_streak = 0
             else:
                 position.valuation_status = VALUATION_STATUS_NO_ROUTE
+                position.quote_miss_streak = int(position.quote_miss_streak) + 1
                 LOGGER.info(
                     "event=position_valuation_failed mint=%s symbol=%s reason=no_route size_bucket=%s detail=%s",
                     mint,
@@ -314,6 +331,116 @@ class CreeperDripper:
                 continue
             self._evaluate_exit_rules(position, candidate, decisions, now)
 
+    def _evaluate_jsds_liquidity(self, position: PositionState, decisions: list[TradeDecision], now: str) -> bool:
+        """Jupiter sell-quote liquidity deterioration (JSDS). Returns True if an exit was started."""
+        entry_imp = position.entry_sell_impact_bps
+        last_imp = position.last_sell_impact_bps
+        entry_hops = position.entry_sell_route_hops
+        last_hops = position.last_sell_route_hops
+        streak = int(position.quote_miss_streak)
+
+        open_map = self.portfolio.open_positions
+        n = len(open_map)
+        miss_count = sum(1 for p in open_map.values() if int(p.quote_miss_streak) >= 1) if n else 0
+        miss_ratio = (miss_count / n) if n else 0.0
+        # Cross-position suppression: only when multiple opens (ratio is meaningless for n==1).
+        suppressed = n >= 2 and miss_ratio > 0.6
+
+        impact_ratio: float | None = None
+        if entry_imp is not None and last_imp is not None:
+            try:
+                e = float(entry_imp)
+                l = float(last_imp)
+                if e > 0.0:
+                    impact_ratio = l / e
+            except (TypeError, ValueError):
+                pass
+
+        hop_delta: int | None = None
+        if entry_hops is not None and last_hops is not None:
+            try:
+                hop_delta = int(last_hops) - int(entry_hops)
+            except (TypeError, ValueError):
+                hop_delta = None
+
+        pos_id = position.position_id or position.token_mint
+
+        hard_from_streak = streak >= 5 if suppressed else streak >= 3
+        hard_from_route = (
+            entry_imp is not None
+            and not suppressed
+            and impact_ratio is not None
+            and hop_delta is not None
+            and impact_ratio >= 5.0
+            and hop_delta >= 2
+        )
+        will_hard = hard_from_streak or hard_from_route
+
+        soft_ok = (
+            not suppressed
+            and entry_imp is not None
+            and impact_ratio is not None
+            and hop_delta is not None
+            and impact_ratio >= 4.0
+            and hop_delta >= 1
+        )
+
+        if suppressed and not will_hard:
+            blocked: list[str] = []
+            if streak >= 3 and streak < 5:
+                blocked.append("hard_streak")
+            if entry_imp is not None and impact_ratio is not None and hop_delta is not None:
+                if impact_ratio >= 5.0 and hop_delta >= 2:
+                    blocked.append("hard_route")
+                if impact_ratio >= 4.0 and hop_delta >= 1:
+                    blocked.append("soft")
+            if blocked:
+                LOGGER.info(
+                    "event=liquidity_signal_suppressed_platform_issue mint=%s position_id=%s quote_miss_streak=%s positions_miss_ratio=%s suppressed_triggers=%s",
+                    position.token_mint,
+                    pos_id,
+                    streak,
+                    round(miss_ratio, 4),
+                    ",".join(blocked),
+                )
+
+        if will_hard:
+            LOGGER.info(
+                "event=liquidity_break mint=%s position_id=%s type=hard impact_ratio=%s hop_delta=%s quote_miss_streak=%s",
+                position.token_mint,
+                pos_id,
+                impact_ratio,
+                hop_delta,
+                streak,
+            )
+            self._start_exit(position, position.remaining_qty_atomic, "liquidity_break_hard", decisions, now)
+            return True
+
+        if soft_ok:
+            LOGGER.info(
+                "event=liquidity_break mint=%s position_id=%s type=soft impact_ratio=%s hop_delta=%s quote_miss_streak=%s",
+                position.token_mint,
+                pos_id,
+                impact_ratio,
+                hop_delta,
+                streak,
+            )
+            qty = max(1, int(position.remaining_qty_atomic * 0.5))
+            self._start_exit(position, qty, "liquidity_break_soft", decisions, now)
+            return True
+
+        if entry_imp is not None and impact_ratio is not None and impact_ratio >= 2.5:
+            LOGGER.info(
+                "event=liquidity_deterioration_watch mint=%s position_id=%s impact_ratio=%s hop_delta=%s quote_miss_streak=%s",
+                position.token_mint,
+                pos_id,
+                impact_ratio,
+                hop_delta,
+                streak,
+            )
+
+        return False
+
     def _evaluate_exit_rules(self, position: PositionState, candidate: TokenCandidate, decisions: list[TradeDecision], now: str) -> None:
         if position.status not in {"OPEN", "PARTIAL"}:
             return
@@ -340,6 +467,9 @@ class CreeperDripper:
 
         if self.settings.force_full_exit_on_liquidity_break and liquidity_ratio is not None and liquidity_ratio < self.settings.liquidity_break_ratio:
             self._start_exit(position, position.remaining_qty_atomic, "liquidity_break", decisions, now)
+            return
+
+        if self._evaluate_jsds_liquidity(position, decisions, now):
             return
 
         if pnl_pct <= -abs(position.stop_loss_pct):
@@ -844,6 +974,7 @@ class CreeperDripper:
                     reconcile_context="entry",
                 )
                 _seed_sol_basis_on_open(position, candidate, size_sol, qty_ui)
+                _seed_jsds_entry_baseline(position, sell_probe)
                 self.portfolio.open_positions[candidate.address] = position
                 self.portfolio.cash_sol -= size_sol
                 self.portfolio.opened_today_count += 1
@@ -943,6 +1074,7 @@ class CreeperDripper:
                 notes=[f"score={candidate.discovery_score}", *candidate.reasons],
             )
             _seed_sol_basis_on_open(position, candidate, size_sol, qty_ui)
+            _seed_jsds_entry_baseline(position, sell_probe)
             self.portfolio.open_positions[candidate.address] = position
             self.portfolio.cash_sol -= size_sol
             self.portfolio.opened_today_count += 1

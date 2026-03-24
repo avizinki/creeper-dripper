@@ -36,6 +36,13 @@ def _position_state_from_raw(raw: dict) -> PositionState:
         ("usd_mark_unavailable", False),
         ("valuation_source", None),
         ("valuation_status", None),
+        ("entry_sell_impact_bps", None),
+        ("entry_sell_route_hops", None),
+        ("entry_sell_route_label", None),
+        ("last_sell_impact_bps", None),
+        ("last_sell_route_hops", None),
+        ("last_sell_route_label", None),
+        ("quote_miss_streak", 0),
     ):
         m.setdefault(key, default)
     for f in fields(PositionState):

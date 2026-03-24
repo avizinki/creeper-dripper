@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from creeper_dripper.models import PositionState
+from creeper_dripper.models import PositionState, ProbeQuote
 
 if TYPE_CHECKING:
     from creeper_dripper.execution.executor import TradeExecutor
@@ -52,6 +52,28 @@ class PositionValuation:
     status: str
     size_bucket: str
     detail: str | None = None
+    sell_quote_impact_bps: float | None = None
+    sell_route_hops: int | None = None
+    sell_route_label: str | None = None
+
+
+def extract_sell_quote_liquidity(probe: ProbeQuote) -> tuple[float | None, int | None, str | None]:
+    """Impact, route hop count, and top DEX label from Jupiter quote raw (same probe as valuation)."""
+    impact = probe.price_impact_bps
+    raw = probe.raw if isinstance(probe.raw, dict) else {}
+    plan = raw.get("routePlan") or raw.get("route_plan")
+    if not isinstance(plan, list) or len(plan) == 0:
+        return impact, None, None
+    hops = len(plan)
+    label: str | None = None
+    first = plan[0]
+    if isinstance(first, dict):
+        si = first.get("swapInfo") or first.get("swap_info")
+        if isinstance(si, dict):
+            lab = si.get("label") or si.get("ammLabel")
+            if lab is not None:
+                label = str(lab)
+    return impact, hops, label
 
 
 def is_valid_sol_mark(p: float | None) -> bool:
@@ -169,6 +191,7 @@ def resolve_position_valuation(
             detail="nonpositive_mark",
         )
 
+    liq_impact, liq_hops, liq_label = extract_sell_quote_liquidity(q)
     return PositionValuation(
         value_sol,
         mark_sol_per_token,
@@ -176,6 +199,9 @@ def resolve_position_valuation(
         VALUATION_STATUS_OK,
         bucket,
         detail=None,
+        sell_quote_impact_bps=liq_impact,
+        sell_route_hops=liq_hops,
+        sell_route_label=liq_label,
     )
 
 

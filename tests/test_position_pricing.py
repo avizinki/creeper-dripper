@@ -58,6 +58,9 @@ def test_jupiter_sell_ok_sets_value_and_mark():
     assert r.value_sol is not None and abs(r.value_sol - 0.5) < 1e-12
     ui = 1.0
     assert r.mark_sol_per_token is not None and abs(r.mark_sol_per_token - 0.5 / ui) < 1e-12
+    assert r.sell_quote_impact_bps == 10.0
+    assert r.sell_route_hops is None
+    assert r.sell_route_label is None
 
 
 def test_jupiter_no_route_returns_none_values():
