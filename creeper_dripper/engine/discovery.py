@@ -5,7 +5,7 @@ import json
 import logging
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Any, Iterable
 
 from creeper_dripper.clients.birdeye import BirdeyeClient
 from creeper_dripper.clients.jupiter import JupiterBadRequestError, JupiterClient
@@ -72,7 +72,17 @@ def discover_candidates(
     route_cache: TTLCache[ProbeQuote] | None = None,
 ) -> tuple[list[TokenCandidate], dict]:
     events = EventCollector()
-    seeds = _dedupe_by_address([*birdeye.trending_tokens(limit=settings.discovery_limit), *birdeye.new_listings(limit=max(4, settings.discovery_limit // 3))])
+    trending: list[dict[str, Any]] = []
+    try:
+        trending = birdeye.trending_tokens(limit=settings.discovery_limit)
+    except Exception as exc:
+        LOGGER.warning("event=discovery_seed_failed stage=trending error=%s", exc)
+    new_listing_seeds: list[dict[str, Any]] = []
+    try:
+        new_listing_seeds = birdeye.new_listings(limit=max(4, settings.discovery_limit // 3))
+    except Exception as exc:
+        LOGGER.warning("event=discovery_seed_failed stage=new_listings error=%s", exc)
+    seeds = _dedupe_by_address([*trending, *new_listing_seeds])
     market_data_checked_at = None
     events.emit("discovery_seed_loaded", "ok", seeds_total=len(seeds))
     candidates: list[TokenCandidate] = []
@@ -243,7 +253,8 @@ def discover_candidates(
                     amount_atomic=probe_buy_amount,
                     slippage_bps=settings.default_slippage_bps,
                 )
-                route_cache.set(buy_cache_key, buy_probe)
+                if (buy_probe.raw or {}).get("error") != "jupiter_timeout":
+                    route_cache.set(buy_cache_key, buy_probe)
             except JupiterBadRequestError as exc:
                 reason = _classify_buy_probe_failure(exc)
                 rejection_counts[reason] += 1
@@ -261,6 +272,21 @@ def discover_candidates(
                 )
                 continue
         route_checked += 1
+        if not buy_probe.route_ok and (buy_probe.raw or {}).get("error") == "jupiter_timeout":
+            rejection_counts["reject_probe_timeout"] += 1
+            LOGGER.info(
+                "event=candidate_probe_failed reason=jupiter_timeout mint=%s symbol=%s probe=buy",
+                candidate.address,
+                candidate.symbol,
+            )
+            events.emit(
+                "candidate_probe_failed",
+                "jupiter_timeout",
+                mint=candidate.address,
+                symbol=candidate.symbol,
+                probe="buy",
+            )
+            continue
         candidate.jupiter_buy_out_amount = buy_probe.out_amount_atomic
         candidate.jupiter_buy_price_impact_bps = buy_probe.price_impact_bps
         if not buy_probe.out_amount_atomic:
@@ -292,7 +318,8 @@ def discover_candidates(
                     amount_atomic=sell_probe_amount,
                     slippage_bps=settings.default_slippage_bps,
                 )
-                route_cache.set(sell_cache_key, sell_probe)
+                if (sell_probe.raw or {}).get("error") != "jupiter_timeout":
+                    route_cache.set(sell_cache_key, sell_probe)
             except JupiterBadRequestError as exc:
                 reason = _classify_sell_probe_failure(exc)
                 rejection_counts[reason] += 1
@@ -310,6 +337,21 @@ def discover_candidates(
                 )
                 continue
         route_checked += 1
+        if not sell_probe.route_ok and (sell_probe.raw or {}).get("error") == "jupiter_timeout":
+            rejection_counts["reject_probe_timeout"] += 1
+            LOGGER.info(
+                "event=candidate_probe_failed reason=jupiter_timeout mint=%s symbol=%s probe=sell",
+                candidate.address,
+                candidate.symbol,
+            )
+            events.emit(
+                "candidate_probe_failed",
+                "jupiter_timeout",
+                mint=candidate.address,
+                symbol=candidate.symbol,
+                probe="sell",
+            )
+            continue
         candidate.jupiter_sell_price_impact_bps = sell_probe.price_impact_bps
         candidate.sell_route_available = bool(sell_probe.route_ok and sell_probe.out_amount_atomic)
         candidate.sell_quote_out_amount = sell_probe.out_amount_atomic

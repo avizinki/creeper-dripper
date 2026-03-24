@@ -239,11 +239,24 @@ def test_discovery_reuse_does_not_block_held_position_marking(monkeypatch, tmp_p
         remaining_qty_ui=0.001,
         peak_price_usd=1.0,
         last_price_usd=1.0,
+        stop_loss_pct=200.0,
+        entry_mark_sol_per_token=100.0,
+        last_mark_sol_per_token=100.0,
+        peak_mark_sol_per_token=100.0,
         take_profit_steps=[TakeProfitStep(trigger_pct=25.0, fraction=0.2)],
     )
 
     class DummyExecutor:
         jupiter = object()
+
+        def quote_sell(self, _mint, amt: int):
+            return ProbeQuote(
+                input_amount_atomic=amt,
+                out_amount_atomic=11_000_000,
+                price_impact_bps=1.0,
+                route_ok=True,
+                raw={},
+            )
 
         def wallet_token_balance_atomic(self, _mint):
             return None
@@ -276,5 +289,10 @@ def test_discovery_reuse_does_not_block_held_position_marking(monkeypatch, tmp_p
     }
     decisions = []
     engine._mark_positions([], decisions, "2026-01-01T00:00:01+00:00")
-    assert engine.portfolio.open_positions["mintH"].last_price_usd == 1.1
+    held = engine.portfolio.open_positions["mintH"]
+    assert held.valuation_source == "jupiter_sell"
+    assert held.valuation_status == "ok"
+    assert held.last_estimated_exit_value_sol is not None
+    assert abs(held.last_estimated_exit_value_sol - 0.011) < 1e-12
+    assert abs(held.last_mark_sol_per_token - 11.0) < 1e-9
 
