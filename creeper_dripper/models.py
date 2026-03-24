@@ -125,6 +125,17 @@ class PositionState:
     last_exit_attempt_at: str | None = None
     next_exit_retry_at: str | None = None
     pending_proceeds_sol: float = 0.0
+    # "entry" = buy settlement unclear; "exit" = sell settlement unclear (retry exit path).
+    reconcile_context: str | None = None
+    # SOL-first marks (see engine.position_pricing); USD fields above are display/risk metadata only.
+    entry_mark_sol_per_token: float = 0.0
+    last_mark_sol_per_token: float = 0.0
+    peak_mark_sol_per_token: float = 0.0
+    last_estimated_exit_value_sol: float | None = None
+    unrealized_pnl_sol: float | None = None
+    valuation_source: str | None = None
+    valuation_status: str | None = None
+    usd_mark_unavailable: bool = False
 
 
 @dataclass(slots=True)
