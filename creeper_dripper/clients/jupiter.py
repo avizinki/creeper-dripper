@@ -14,7 +14,8 @@ from creeper_dripper.utils import b64decode
 
 LOGGER = logging.getLogger(__name__)
 
-BASE_URL = "https://api.jup.ag/swap/v1"
+ORDER_BASE_URL = "https://api.jup.ag/swap/v2"
+SWAP_BASE_URL = "https://api.jup.ag/swap/v1"
 
 
 class JupiterBadRequestError(RuntimeError):
@@ -43,17 +44,17 @@ class JupiterClient:
         self._session = requests.Session()
         self._session.headers.update({"x-api-key": api_key, "Accept": "application/json"})
 
-    def _get(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
-        response = self._session.get(f"{BASE_URL}{path}", params=params, timeout=20)
+    def _get(self, path: str, *, params: dict[str, Any], base_url: str) -> dict[str, Any]:
+        response = self._session.get(f"{base_url}{path}", params=params, timeout=20)
         if response.status_code == 400:
             body = response.text if response.text is not None else ""
             raise JupiterBadRequestError(endpoint=path, params=params, body=body, status_code=response.status_code)
         response.raise_for_status()
         return response.json()
 
-    def _post(self, path: str, *, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post(self, path: str, *, payload: dict[str, Any], base_url: str) -> dict[str, Any]:
         response = self._session.post(
-            f"{BASE_URL}{path}",
+            f"{base_url}{path}",
             json=payload,
             headers={**self._session.headers, "Content-Type": "application/json"},
             timeout=25,
@@ -80,7 +81,7 @@ class JupiterClient:
             taker=taker,
             slippage_bps=slippage_bps,
         )
-        raw = self._get("/order", params=params)
+        raw = self._get("/order", params=params, base_url=ORDER_BASE_URL)
         return JupiterOrder(
             request_id=str(raw.get("requestId") or ""),
             transaction_b64=raw.get("transaction"),
@@ -146,11 +147,24 @@ class JupiterClient:
             "userPublicKey": str(user_public_key),
             "wrapAndUnwrapSol": bool(wrap_and_unwrap_sol),
         }
-        raw = self._post("/swap", payload=payload)
+        raw = self._post("/swap", payload=payload, base_url=SWAP_BASE_URL)
         tx_b64 = raw.get("swapTransaction") or raw.get("transaction")
         if not tx_b64:
             raise RuntimeError("Jupiter /swap response missing swapTransaction")
         return str(tx_b64)
+
+    def check_swap_reachability(self) -> None:
+        # Lightweight endpoint check for /swap/v1/swap without requiring a real quote.
+        response = self._session.post(
+            f"{SWAP_BASE_URL}/swap",
+            json={},
+            headers={**self._session.headers, "Content-Type": "application/json"},
+            timeout=25,
+        )
+        # 400/422 are expected for intentionally minimal payloads and prove endpoint reachability.
+        if response.status_code in {200, 400, 422}:
+            return
+        response.raise_for_status()
 
 
 def _intish(value: Any) -> int | None:

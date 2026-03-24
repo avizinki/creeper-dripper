@@ -243,9 +243,16 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     jupiter = JupiterClient(settings.jupiter_api_key)
     try:
         jupiter.probe_quote(input_mint=SOL_MINT, output_mint=USDC_MINT, amount_atomic=1_000_000, slippage_bps=settings.default_slippage_bps)
-        checks.append({"check": "jupiter_reachable", "ok": True})
+        checks.append({"check": "jupiter_probe_reachable_v2_order", "ok": True, "endpoint": "GET /swap/v2/order"})
     except Exception as exc:
-        checks.append({"check": "jupiter_reachable", "ok": False, "error": str(exc)})
+        checks.append({"check": "jupiter_probe_reachable_v2_order", "ok": False, "endpoint": "GET /swap/v2/order", "error": str(exc)})
+        ok = False
+
+    try:
+        jupiter.check_swap_reachability()
+        checks.append({"check": "jupiter_execution_reachable_v1_swap", "ok": True, "endpoint": "POST /swap/v1/swap"})
+    except Exception as exc:
+        checks.append({"check": "jupiter_execution_reachable_v1_swap", "ok": False, "endpoint": "POST /swap/v1/swap", "error": str(exc)})
         ok = False
 
     try:
