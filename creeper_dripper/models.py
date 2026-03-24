@@ -55,6 +55,18 @@ class JupiterExecuteResult:
 
 
 @dataclass(slots=True)
+class ExecutionResult:
+    status: str
+    requested_amount: int
+    executed_amount: int | None = None
+    output_amount: int | None = None
+    diagnostic_code: str | None = None
+    signature: str | None = None
+    error: str | None = None
+    is_partial: bool = False
+
+
+@dataclass(slots=True)
 class ProbeQuote:
     input_amount_atomic: int
     out_amount_atomic: int | None
@@ -85,6 +97,7 @@ class PositionState:
     remaining_qty_ui: float
     peak_price_usd: float
     last_price_usd: float
+    position_id: str = ""
     realized_sol: float = 0.0
     stop_loss_pct: float = 20.0
     trailing_stop_pct: float = 12.0
@@ -94,6 +107,13 @@ class PositionState:
     take_profit_steps: list[TakeProfitStep] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     last_sell_signature: str | None = None
+    pending_exit_reason: str | None = None
+    pending_exit_qty_atomic: int | None = None
+    pending_exit_signature: str | None = None
+    exit_retry_count: int = 0
+    last_exit_attempt_at: str | None = None
+    next_exit_retry_at: str | None = None
+    pending_proceeds_sol: float = 0.0
 
 
 @dataclass(slots=True)
@@ -106,7 +126,11 @@ class PortfolioState:
     closed_positions: list[PositionState]
     cooldowns: dict[str, str]
     opened_today_count: int
+    opened_today_date: str | None = None
     last_cycle_at: str | None = None
+    safe_mode_active: bool = False
+    safety_stop_reason: str | None = None
+    consecutive_execution_failures: int = 0
 
 
 @dataclass(slots=True)
