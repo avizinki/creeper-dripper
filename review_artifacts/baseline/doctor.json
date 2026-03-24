@@ -1,0 +1,45 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "check": "config_load",
+      "ok": true
+    },
+    {
+      "check": "mode_flags",
+      "ok": true,
+      "dry_run": false,
+      "live_trading_enabled": true
+    },
+    {
+      "check": "wallet_path",
+      "ok": true,
+      "path": "<SOLANA_KEYPAIR_PATH \u2014 set locally; not committed>"
+    },
+    {
+      "check": "runtime_dir_writable",
+      "ok": true,
+      "path": "runtime"
+    },
+    {
+      "check": "birdeye_auth",
+      "ok": true
+    },
+    {
+      "check": "jupiter_probe_reachable_v1_quote",
+      "ok": true,
+      "endpoint": "GET /swap/v1/quote"
+    },
+    {
+      "check": "jupiter_execution_reachable_v1_swap",
+      "ok": true,
+      "endpoint": "POST /swap/v1/swap"
+    },
+    {
+      "check": "safe_mode_state",
+      "ok": true,
+      "safe_mode_active": false,
+      "safety_stop_reason": null
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+2026-03-24 23:32:52,678 INFO [creeper_dripper.observability] event=discovery_seed_loaded reason=ok metadata={'seeds_total': 20}
+2026-03-24 23:33:35,233 INFO [creeper_dripper.observability] event=candidate_accepted reason=ok metadata={'mint': 'J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE', 'symbol': 'PRl', 'score': 79.41}
+2026-03-24 23:33:35,456 INFO [creeper_dripper.observability] event=candidate_accepted reason=ok metadata={'mint': '5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA', 'symbol': 'EDGe', 'score': 67.57}
