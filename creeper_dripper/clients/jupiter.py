@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import requests
@@ -17,6 +18,10 @@ LOGGER = logging.getLogger(__name__)
 QUOTE_BASE_URL = "https://api.jup.ag/swap/v1"
 SWAP_BASE_URL = "https://api.jup.ag/swap/v1"
 EXEC_BASE_URL = "https://api.jup.ag/swap/v2"
+
+
+class JupiterTemporaryError(RuntimeError):
+    """Raised when Jupiter HTTP requests fail after retries (timeout / connection)."""
 
 
 class JupiterBadRequestError(RuntimeError):
@@ -46,12 +51,28 @@ class JupiterClient:
         self._session.headers.update({"x-api-key": api_key, "Accept": "application/json"})
 
     def _get(self, path: str, *, params: dict[str, Any], base_url: str) -> dict[str, Any]:
-        response = self._session.get(f"{base_url}{path}", params=params, timeout=20)
-        if response.status_code == 400:
-            body = response.text if response.text is not None else ""
-            raise JupiterBadRequestError(endpoint=path, params=params, body=body, status_code=response.status_code)
-        response.raise_for_status()
-        return response.json()
+        backoff_seconds = (0.5, 1.0)
+        for attempt in range(3):
+            try:
+                response = self._session.get(f"{base_url}{path}", params=params, timeout=20)
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as exc:
+                if attempt < 2:
+                    time.sleep(backoff_seconds[attempt])
+                    continue
+                raise JupiterTemporaryError(f"jupiter_temporary path={path} params={params}") from exc
+            if response.status_code == 400:
+                body = response.text if response.text is not None else ""
+                raise JupiterBadRequestError(endpoint=path, params=params, body=body, status_code=response.status_code)
+            if response.status_code >= 500:
+                if attempt < 2:
+                    time.sleep(backoff_seconds[attempt])
+                    continue
+                raise JupiterTemporaryError(
+                    f"jupiter_temporary HTTP {response.status_code} path={path} params={params}"
+                )
+            response.raise_for_status()
+            return response.json()
+        raise JupiterTemporaryError(f"jupiter_temporary path={path} params={params}")
 
     def _post(self, path: str, *, payload: dict[str, Any], base_url: str) -> dict[str, Any]:
         response = self._session.post(
@@ -120,13 +141,22 @@ class JupiterClient:
         amount_atomic: int,
         slippage_bps: int | None = None,
     ) -> ProbeQuote:
-        order = self.quote(
-            input_mint=input_mint,
-            output_mint=output_mint,
-            amount_atomic=amount_atomic,
-            taker=None,
-            slippage_bps=slippage_bps,
-        )
+        try:
+            order = self.quote(
+                input_mint=input_mint,
+                output_mint=output_mint,
+                amount_atomic=amount_atomic,
+                taker=None,
+                slippage_bps=slippage_bps,
+            )
+        except JupiterTemporaryError:
+            return ProbeQuote(
+                input_amount_atomic=amount_atomic,
+                out_amount_atomic=None,
+                price_impact_bps=None,
+                route_ok=False,
+                raw={"error": "jupiter_timeout"},
+            )
         impact_bps = _extract_price_impact_bps(order.raw)
         return ProbeQuote(
             input_amount_atomic=amount_atomic,
