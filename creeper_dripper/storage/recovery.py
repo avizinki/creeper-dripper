@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import logging
 
-from creeper_dripper.errors import EXIT_RECONCILED_CLOSED, EXIT_RECONCILED_PARTIAL, EXIT_UNKNOWN_PENDING_RECONCILE, RECOVERY_QTY_REDUCED_TO_WALLET, RECOVERY_WALLET_GT_STATE
+from creeper_dripper.errors import (
+    EXIT_RECONCILED_CLOSED,
+    EXIT_RECONCILED_PARTIAL,
+    EXIT_UNKNOWN_PENDING_RECONCILE,
+    POSITION_RECONCILE_PENDING,
+    RECOVERY_QTY_REDUCED_TO_WALLET,
+    RECOVERY_WALLET_GT_STATE,
+)
 from creeper_dripper.execution.reconcile import reconcile_pending_exit
 from creeper_dripper.models import PortfolioState, TradeDecision
 
@@ -12,7 +19,7 @@ LOGGER = logging.getLogger(__name__)
 def run_startup_recovery(portfolio: PortfolioState, executor, now: str) -> list[TradeDecision]:
     decisions: list[TradeDecision] = []
     for mint, position in list(portfolio.open_positions.items()):
-        if position.status not in {"OPEN", "PARTIAL", "EXIT_PENDING", "EXIT_BLOCKED"}:
+        if position.status not in {"OPEN", "PARTIAL", "EXIT_PENDING", "EXIT_BLOCKED", "RECONCILE_PENDING"}:
             continue
         wallet_qty = executor.wallet_token_balance_atomic(mint)
         if wallet_qty is None:
@@ -56,12 +63,29 @@ def run_startup_recovery(portfolio: PortfolioState, executor, now: str) -> list[
                 portfolio.open_positions.pop(mint, None)
                 portfolio.cooldowns[mint] = now
                 decisions.append(TradeDecision(action="RECOVERY_EXIT", token_mint=mint, symbol=position.symbol, reason=EXIT_RECONCILED_CLOSED))
+            elif position.status == POSITION_RECONCILE_PENDING:
+                LOGGER.warning(
+                    "recovery_wallet_zero_reconcile_pending mint=%s context=%s",
+                    mint,
+                    position.reconcile_context,
+                )
+                decisions.append(
+                    TradeDecision(
+                        action="RECOVERY_DISCREPANCY",
+                        token_mint=mint,
+                        symbol=position.symbol,
+                        reason=EXIT_UNKNOWN_PENDING_RECONCILE,
+                        metadata={"wallet_qty": 0, "status": POSITION_RECONCILE_PENDING, "reconcile_context": position.reconcile_context},
+                    )
+                )
             else:
                 position.status = "EXIT_BLOCKED"
                 decisions.append(TradeDecision(action="RECOVERY_DISCREPANCY", token_mint=mint, symbol=position.symbol, reason=EXIT_UNKNOWN_PENDING_RECONCILE, metadata={"wallet_qty": 0}))
             continue
 
-        if position.status == "EXIT_PENDING":
+        if position.status == "EXIT_PENDING" or (
+            position.status == POSITION_RECONCILE_PENDING and position.reconcile_context == "exit"
+        ):
             tx_status = executor.transaction_status(position.pending_exit_signature) if position.pending_exit_signature else None
             next_status, reason = reconcile_pending_exit(position, wallet_qty, tx_status)
             if wallet_qty < original_state_qty and next_status == "EXIT_PENDING":
@@ -69,15 +93,18 @@ def run_startup_recovery(portfolio: PortfolioState, executor, now: str) -> list[
                 reason = EXIT_RECONCILED_PARTIAL
             if next_status == "PARTIAL":
                 position.status = "PARTIAL"
+                position.reconcile_context = None
                 decisions.append(TradeDecision(action="RECOVERY_EXIT", token_mint=mint, symbol=position.symbol, reason=EXIT_RECONCILED_PARTIAL, qty_atomic=position.remaining_qty_atomic))
             elif next_status == "CLOSED":
                 position.status = "CLOSED"
+                position.reconcile_context = None
                 portfolio.closed_positions.append(position)
                 portfolio.open_positions.pop(mint, None)
                 portfolio.cooldowns[mint] = now
                 decisions.append(TradeDecision(action="RECOVERY_EXIT", token_mint=mint, symbol=position.symbol, reason=EXIT_RECONCILED_CLOSED))
             elif next_status == "EXIT_BLOCKED":
                 position.status = "EXIT_BLOCKED"
+                position.reconcile_context = None
                 decisions.append(TradeDecision(action="RECOVERY_EXIT", token_mint=mint, symbol=position.symbol, reason=reason))
             else:
                 decisions.append(TradeDecision(action="RECOVERY_EXIT", token_mint=mint, symbol=position.symbol, reason=EXIT_UNKNOWN_PENDING_RECONCILE))
