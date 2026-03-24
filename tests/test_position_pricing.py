@@ -84,7 +84,11 @@ def test_empty_position_no_route():
     ex.quote_sell.assert_not_called()
 
 
-def test_trader_exit_rules_skipped_when_no_estimated_value(monkeypatch, tmp_path):
+def test_trader_exit_rules_run_using_last_known_mark_when_valuation_stale(monkeypatch, tmp_path):
+    """Exit rules must run even when the current-cycle valuation is unavailable.
+    If SOL marks are valid from a prior cycle, stop-loss/time-stop must still evaluate.
+    This test: position has valid marks (0% PNL) and is old → time-stop fires.
+    """
     from creeper_dripper.config import load_settings
     from creeper_dripper.engine.trader import CreeperDripper
     from creeper_dripper.storage.state import new_portfolio
@@ -96,17 +100,33 @@ def test_trader_exit_rules_skipped_when_no_estimated_value(monkeypatch, tmp_path
     monkeypatch.setenv("RUNTIME_DIR", str(tmp_path))
     settings = load_settings()
 
-    class X:
+    class FakeExecutor:
         jupiter = object()
 
+        def wallet_token_balance_atomic(self, _mint):
+            return 1_000_000
+
+        def sell(self, _mint, _qty):
+            from creeper_dripper.models import ExecutionResult, ProbeQuote
+            return (
+                ExecutionResult(status="skipped", requested_amount=_qty, diagnostic_code="dry_run"),
+                ProbeQuote(input_amount_atomic=_qty, out_amount_atomic=None, price_impact_bps=None, route_ok=False, raw={}),
+            )
+
+    # Position has valid marks (0% PNL) but no current-cycle valuation.
+    # opened_at is far in the past so time-stop triggers.
     pos = _pos()
-    pos.last_estimated_exit_value_sol = None
+    pos.last_estimated_exit_value_sol = None  # current valuation unavailable
     portfolio = new_portfolio(5.0)
     portfolio.open_positions[pos.token_mint] = pos
-    engine = CreeperDripper(settings, MagicMock(), X(), portfolio)
+    engine = CreeperDripper(settings, MagicMock(), FakeExecutor(), portfolio)
     decisions: list = []
     from creeper_dripper.models import TokenCandidate
 
     c = TokenCandidate(address=pos.token_mint, symbol="T", decimals=6, price_usd=0.05)
     engine._evaluate_exit_rules(pos, c, decisions, "2026-01-01T00:00:01+00:00")
-    assert decisions == []
+    # Time-stop must fire: position is old and PNL < 12%.
+    actions = [d.action for d in decisions]
+    assert "EXIT_PENDING" in actions or "SELL_ATTEMPT" in actions or any(
+        d.reason in ("time_stop", "time_stop_no_valuation") for d in decisions
+    ), f"expected time-stop decision, got: {decisions}"

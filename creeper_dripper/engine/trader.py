@@ -135,7 +135,12 @@ class CreeperDripper:
             LOGGER.error("event=discovery_failed error=%s", exc, exc_info=True)
             candidates = []
             discovery_summary = self._failed_discovery_summary()
-        market_data_checked_at = str(discovery_summary.get("market_data_checked_at") or utc_now_iso())
+        _checked_at_raw = discovery_summary.get("market_data_checked_at")
+        if not _checked_at_raw:
+            # Discovery failed — use last known successful timestamp so stale-data gate fires correctly.
+            # Never substitute now() here: that would mask a discovery outage as "data is fresh".
+            _checked_at_raw = self._last_discovery_summary.get("market_data_checked_at")
+        market_data_checked_at = str(_checked_at_raw) if _checked_at_raw else None
         safe_mode_reason = self._evaluate_safety(now, market_data_checked_at=market_data_checked_at)
         if safe_mode_reason:
             self.portfolio.safe_mode_active = True
@@ -294,6 +299,18 @@ class CreeperDripper:
                 continue
             if position.status == POSITION_RECONCILE_PENDING and position.reconcile_context == "entry":
                 self._retry_entry_settlement_reconciliation(position, decisions, now)
+                # Time stop must apply even to unconfirmed entries — no position holds indefinitely.
+                if position.status == POSITION_RECONCILE_PENDING:
+                    _entry_age = _age_minutes(position.opened_at)
+                    if _entry_age >= self.settings.time_stop_minutes:
+                        LOGGER.warning(
+                            "reconcile_entry_time_stop mint=%s position_id=%s age_min=%.1f — forcing exit attempt",
+                            position.token_mint,
+                            position.position_id or position.token_mint,
+                            _entry_age,
+                        )
+                        position.status = "OPEN"
+                        self._start_exit(position, position.remaining_qty_atomic, "time_stop_reconcile_entry", decisions, now)
                 continue
             self._evaluate_exit_rules(position, candidate, decisions, now)
 
@@ -301,25 +318,22 @@ class CreeperDripper:
         if position.status not in {"OPEN", "PARTIAL"}:
             return
         ensure_entry_sol_mark(position)
-        if position.last_estimated_exit_value_sol is None:
-            LOGGER.info(
-                "exit_rules_skipped_no_valuation mint=%s last_estimated_exit_value_sol=None",
-                position.token_mint,
-            )
-            return
+        age_minutes = _age_minutes(position.opened_at)
         if not is_valid_sol_mark(position.entry_mark_sol_per_token) or not is_valid_sol_mark(position.last_mark_sol_per_token):
+            # Valuation unavailable (Jupiter down, no route, first cycle).
+            # Do NOT skip exit protection — apply time stop using age alone.
             LOGGER.warning(
-                "exit_rules_skipped_invalid_sol_marks mint=%s entry_mark_sol=%s last_mark_sol=%s valuation_status=%s",
+                "exit_rules_no_valid_marks mint=%s valuation_status=%s age_min=%.1f — time_stop_only",
                 position.token_mint,
-                position.entry_mark_sol_per_token,
-                position.last_mark_sol_per_token,
                 position.valuation_status,
+                age_minutes,
             )
+            if age_minutes >= self.settings.time_stop_minutes:
+                self._start_exit(position, position.remaining_qty_atomic, "time_stop_no_valuation", decisions, now)
             return
         entry_s = float(position.entry_mark_sol_per_token)
         last_s = float(position.last_mark_sol_per_token)
         pnl_pct = (last_s / entry_s - 1.0) * 100.0
-        age_minutes = _age_minutes(position.opened_at)
         liquidity_ratio = None
         if position.exit_liquidity_at_entry_usd and position.last_exit_liquidity_usd:
             liquidity_ratio = position.last_exit_liquidity_usd / max(position.exit_liquidity_at_entry_usd, 1.0)
@@ -530,7 +544,53 @@ class CreeperDripper:
                 position.realized_sol += out_sol
                 self.portfolio.cash_sol += out_sol
             else:
-                position.pending_proceeds_sol += 0.0
+                # SOL proceeds unavailable from both Jupiter and RPC — do NOT credit cash,
+                # do NOT close the position. Mark RECONCILE_PENDING so the operator can
+                # investigate and so the position remains visible in state.
+                LOGGER.critical(
+                    "sell_proceeds_unknown mint=%s position_id=%s signature=%s "
+                    "sold_atomic=%s remaining_after=%s — RECONCILE_PENDING, SOL not credited",
+                    position.token_mint,
+                    position.position_id or position.token_mint,
+                    result.signature,
+                    sold_reconciled,
+                    new_remaining,
+                )
+                self.events.emit(
+                    "sell_proceeds_unknown",
+                    SETTLEMENT_UNCONFIRMED,
+                    token_mint=position.token_mint,
+                    position_id=position.position_id or position.token_mint,
+                    signature=result.signature,
+                    sold_atomic=sold_reconciled,
+                    remaining_after=new_remaining,
+                )
+                position.last_sell_signature = result.signature
+                position.status = POSITION_RECONCILE_PENDING
+                position.reconcile_context = "exit"
+                position.exit_retry_count += 1
+                position.last_exit_attempt_at = now
+                position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
+                position.pending_exit_signature = result.signature
+                # Set qty to 0 so _attempt_exit will not re-sell on the next retry cycle.
+                # Tokens are already gone; EXIT_BLOCKED is the correct visible end-state.
+                position.pending_exit_qty_atomic = 0
+                decisions.append(
+                    TradeDecision(
+                        action="SELL_SETTLEMENT_PENDING",
+                        token_mint=position.token_mint,
+                        symbol=position.symbol,
+                        reason="sell_proceeds_unknown",
+                        qty_atomic=sold_reconciled,
+                        metadata={
+                            "classification": SETTLEMENT_UNCONFIRMED,
+                            "signature": result.signature,
+                            "sold_atomic": sold_reconciled,
+                            "remaining_after": new_remaining,
+                        },
+                    )
+                )
+                return
             position.last_sell_signature = result.signature
             position.exit_retry_count = 0
             position.last_exit_attempt_at = now
@@ -673,7 +733,6 @@ class CreeperDripper:
                     )
                 )
                 self.events.emit("entry_failed", REJECT_NO_BUY_ROUTE, token_mint=candidate.address, symbol=candidate.symbol)
-                self.portfolio.consecutive_execution_failures += 1
                 continue
             buy_sanity_reason = _probe_sanity_reason(buy_probe)
             if buy_sanity_reason:
@@ -689,7 +748,6 @@ class CreeperDripper:
                     )
                 )
                 self.events.emit("entry_failed", buy_sanity_reason, token_mint=candidate.address, symbol=candidate.symbol, phase="pre_entry_probe")
-                self.portfolio.consecutive_execution_failures += 1
                 continue
             sell_probe = self.executor.quote_sell(candidate.address, max(1, buy_probe.out_amount_atomic))
             if not sell_probe.route_ok or not sell_probe.out_amount_atomic:
@@ -715,7 +773,6 @@ class CreeperDripper:
                     )
                 )
                 self.events.emit("entry_failed", REJECT_EXECUTION_ROUTE_MISSING, token_mint=candidate.address, symbol=candidate.symbol)
-                self.portfolio.consecutive_execution_failures += 1
                 continue
             sell_sanity_reason = _probe_sanity_reason(sell_probe)
             roundtrip_reason = _roundtrip_sanity_reason(buy_probe, sell_probe)
@@ -738,7 +795,6 @@ class CreeperDripper:
                     )
                 )
                 self.events.emit("entry_failed", sanity_reason, token_mint=candidate.address, symbol=candidate.symbol, phase="pre_entry_probe")
-                self.portfolio.consecutive_execution_failures += 1
                 continue
             self._write_entry_probe_artifact(candidate, now, buy_probe, sell_probe, "entry_probe_passed")
             execution, quote = self.executor.buy(candidate, size_sol)

@@ -740,7 +740,7 @@ class TradeExecutor:
                 n = int(str(val))
             except (TypeError, ValueError):
                 continue
-            if n >= 0:
+            if n > 0:
                 return n
         return None
 
