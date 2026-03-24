@@ -68,6 +68,8 @@ def load_portfolio(path: Path, initial_cash_sol: float) -> PortfolioState:
         safe_mode_active=bool(data.get("safe_mode_active", False)),
         safety_stop_reason=data.get("safety_stop_reason"),
         consecutive_execution_failures=int(data.get("consecutive_execution_failures", 0)),
+        entries_skipped_dry_run=int(data.get("entries_skipped_dry_run", 0)),
+        entries_skipped_live_disabled=int(data.get("entries_skipped_live_disabled", 0)),
     )
 
 

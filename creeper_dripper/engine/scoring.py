@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from creeper_dripper.config import Settings
 from creeper_dripper.errors import (
+    BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN,
     REJECT_BAD_BUY_SELL_RATIO,
     REJECT_FREEZABLE,
     REJECT_HIGH_BUY_IMPACT,
@@ -105,7 +106,9 @@ def rejection_reasons(candidate: TokenCandidate, settings: Settings) -> list[str
         reasons.append("reject_missing_address")
     if (candidate.liquidity_usd or 0.0) < settings.min_liquidity_usd:
         reasons.append(REJECT_LOW_LIQUIDITY)
-    if (candidate.exit_liquidity_usd or 0.0) < settings.min_exit_liquidity_usd:
+    if settings.require_birdeye_exit_liquidity and not candidate.exit_liquidity_available:
+        reasons.append(BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN)
+    if candidate.exit_liquidity_available and (candidate.exit_liquidity_usd or 0.0) < settings.min_exit_liquidity_usd:
         reasons.append(REJECT_LOW_EXIT_LIQUIDITY)
     if (candidate.volume_24h_usd or 0.0) < settings.min_volume_24h_usd:
         reasons.append(REJECT_LOW_VOLUME)

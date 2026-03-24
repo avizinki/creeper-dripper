@@ -30,6 +30,7 @@ class Settings:
     discovery_max_candidates: int
     min_liquidity_usd: float
     min_exit_liquidity_usd: float
+    require_birdeye_exit_liquidity: bool
     min_volume_24h_usd: float
     min_buy_sell_ratio: float
     min_discovery_score: float
@@ -117,6 +118,7 @@ def load_settings() -> Settings:
         discovery_max_candidates=env_int("DISCOVERY_MAX_CANDIDATES", 8),
         min_liquidity_usd=env_float("MIN_LIQUIDITY_USD", 80_000),
         min_exit_liquidity_usd=env_float("MIN_EXIT_LIQUIDITY_USD", 40_000),
+        require_birdeye_exit_liquidity=env_bool("REQUIRE_BIRDEYE_EXIT_LIQUIDITY", False),
         min_volume_24h_usd=env_float("MIN_VOLUME_24H_USD", 125_000),
         min_buy_sell_ratio=env_float("MIN_BUY_SELL_RATIO", 1.05),
         min_discovery_score=env_float("MIN_DISCOVERY_SCORE", 55),

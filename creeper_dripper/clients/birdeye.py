@@ -6,6 +6,7 @@ from typing import Any
 
 import requests
 
+from creeper_dripper.errors import BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
 from creeper_dripper.models import TokenCandidate
 
 LOGGER = logging.getLogger(__name__)
@@ -44,6 +45,13 @@ class BirdeyeClient:
                     raise RuntimeError(f"birdeye_unauthorized:{path}")
                 if response.status_code == 429:
                     raise RuntimeError(f"birdeye_rate_limited:{path}")
+                if response.status_code == 400:
+                    body = ""
+                    try:
+                        body = response.text
+                    except Exception:
+                        body = "<unavailable>"
+                    raise RuntimeError(f"birdeye_bad_request path={path} params={params} body={body}")
                 response.raise_for_status()
                 payload = response.json()
                 if not isinstance(payload, dict):
@@ -66,10 +74,11 @@ class BirdeyeClient:
         return payload.get("data", payload)
 
     def trending_tokens(self, *, limit: int = 25, sort_by: str = "rank") -> list[dict[str, Any]]:
+        effective_limit = min(limit, 20)
         payload = self._request(
             "GET",
             "/defi/token_trending",
-            params={"sort_by": sort_by, "sort_type": "asc", "offset": 0, "limit": limit, "interval": "24h"},
+            params={"sort_by": sort_by, "sort_type": "asc", "offset": 0, "limit": effective_limit},
         )
         data = self._data(payload)
         if isinstance(data, dict):
@@ -115,7 +124,18 @@ class BirdeyeClient:
         overview = self.token_overview(address)
         security = self.token_security(address)
         holders = self.token_holders(address)
-        exit_liquidity = self.token_exit_liquidity(address)
+        exit_liquidity: dict[str, Any] = {}
+        exit_liquidity_available = True
+        exit_liquidity_reason = None
+        try:
+            exit_liquidity = self.token_exit_liquidity(address)
+        except Exception as exc:
+            message = str(exc).lower()
+            if "chain solana not supported" in message or "chain not supported" in message:
+                exit_liquidity_available = False
+                exit_liquidity_reason = BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
+            else:
+                raise
         creation = self.token_creation_info(address)
 
         candidate = TokenCandidate(
@@ -126,6 +146,8 @@ class BirdeyeClient:
             price_usd=_floatish(overview.get("price") or overview.get("priceUsd") or seed.get("price")),
             liquidity_usd=_floatish(overview.get("liquidity") or overview.get("liquidityUsd") or seed.get("liquidity")),
             exit_liquidity_usd=_extract_exit_liquidity(exit_liquidity),
+            exit_liquidity_available=exit_liquidity_available,
+            exit_liquidity_reason=exit_liquidity_reason,
             volume_24h_usd=_floatish(overview.get("v24hUSD") or overview.get("volume24hUSD") or seed.get("volume24hUSD") or seed.get("volume24h")),
             volume_1h_usd=_floatish(_nested(overview, ["volume", "h1", "usd"]) or overview.get("v1hUSD") or seed.get("volume1hUSD")),
             change_1h_pct=_floatish(overview.get("priceChange1hPercent") or _nested(overview, ["priceChange", "h1"])),

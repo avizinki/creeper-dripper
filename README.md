@@ -60,16 +60,17 @@ Then edit `.env`:
 ## Commands
 
 - `creeper-dripper doctor`  
-  Non-trading health checks: config/env, wallet path, runtime write access, Birdeye auth, Jupiter reachability, and safe-mode state.
+  Non-trading health checks: config/env, mode flags (`DRY_RUN`, `LIVE_TRADING_ENABLED`), wallet path, runtime write access, Birdeye auth, Jupiter reachability, and safe-mode state.
 
 - `creeper-dripper status`  
-  Local runtime summary: open/partial/pending/blocked/closed counts, cash, safe mode, last cycle, failure counters, daily counters.
+  Local runtime summary: mode flags, open/partial/pending/blocked/closed counts, cash, safe mode, last cycle, failure counters, mode-skip counters, daily counters.
 
 - `creeper-dripper scan`  
   Discover and rank candidates, no trades.
 
 - `creeper-dripper run --once`  
   Single full cycle.
+  Prints effective mode and explicitly reports when entry execution is skipped by mode.
 
 - `creeper-dripper run`  
   Continuous loop.

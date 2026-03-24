@@ -13,6 +13,8 @@ class TokenCandidate:
     price_usd: float | None = None
     liquidity_usd: float | None = None
     exit_liquidity_usd: float | None = None
+    exit_liquidity_available: bool = True
+    exit_liquidity_reason: str | None = None
     volume_24h_usd: float | None = None
     volume_1h_usd: float | None = None
     change_1h_pct: float | None = None
@@ -64,6 +66,7 @@ class ExecutionResult:
     signature: str | None = None
     error: str | None = None
     is_partial: bool = False
+    diagnostic_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -131,6 +134,8 @@ class PortfolioState:
     safe_mode_active: bool = False
     safety_stop_reason: str | None = None
     consecutive_execution_failures: int = 0
+    entries_skipped_dry_run: int = 0
+    entries_skipped_live_disabled: int = 0
 
 
 @dataclass(slots=True)

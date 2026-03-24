@@ -9,12 +9,33 @@ from solders.message import to_bytes_versioned
 from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
-from creeper_dripper.models import JupiterExecuteResult, JupiterOrder, ProbeQuote
-from creeper_dripper.utils import b64, b64decode
+from creeper_dripper.models import JupiterOrder, ProbeQuote
+from creeper_dripper.utils import b64decode
 
 LOGGER = logging.getLogger(__name__)
 
-BASE_URL = "https://api.jup.ag/swap/v2"
+BASE_URL = "https://api.jup.ag/swap/v1"
+
+
+class JupiterBadRequestError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+        body: str | None = None,
+        status_code: int | None = None,
+    ):
+        self.endpoint = endpoint
+        self.params = params or {}
+        self.payload = payload or {}
+        self.body = body or ""
+        self.status_code = status_code or 400
+        super().__init__(
+            f"jupiter_bad_request endpoint={endpoint} status_code={self.status_code} "
+            f"params={self.params} payload={self.payload} body={self.body}"
+        )
 
 
 class JupiterClient:
@@ -24,6 +45,9 @@ class JupiterClient:
 
     def _get(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         response = self._session.get(f"{BASE_URL}{path}", params=params, timeout=20)
+        if response.status_code == 400:
+            body = response.text if response.text is not None else ""
+            raise JupiterBadRequestError(endpoint=path, params=params, body=body, status_code=response.status_code)
         response.raise_for_status()
         return response.json()
 
@@ -34,6 +58,9 @@ class JupiterClient:
             headers={**self._session.headers, "Content-Type": "application/json"},
             timeout=25,
         )
+        if response.status_code == 400:
+            body = response.text if response.text is not None else ""
+            raise JupiterBadRequestError(endpoint=path, payload=payload, body=body, status_code=response.status_code)
         response.raise_for_status()
         return response.json()
 
@@ -46,15 +73,13 @@ class JupiterClient:
         taker: str | None = None,
         slippage_bps: int | None = None,
     ) -> JupiterOrder:
-        params: dict[str, Any] = {
-            "inputMint": input_mint,
-            "outputMint": output_mint,
-            "amount": str(amount_atomic),
-        }
-        if taker:
-            params["taker"] = taker
-        if slippage_bps is not None:
-            params["slippageBps"] = str(slippage_bps)
+        params = self.build_order_params(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_atomic=amount_atomic,
+            taker=taker,
+            slippage_bps=slippage_bps,
+        )
         raw = self._get("/order", params=params)
         return JupiterOrder(
             request_id=str(raw.get("requestId") or ""),
@@ -64,6 +89,26 @@ class JupiterClient:
             mode=raw.get("mode"),
             raw=raw,
         )
+
+    @staticmethod
+    def build_order_params(
+        *,
+        input_mint: str,
+        output_mint: str,
+        amount_atomic: int,
+        taker: str | None = None,
+        slippage_bps: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "inputMint": input_mint,
+            "outputMint": output_mint,
+            "amount": str(amount_atomic),
+        }
+        if taker:
+            params["taker"] = taker
+        if slippage_bps is not None:
+            params["slippageBps"] = str(slippage_bps)
+        return params
 
     def probe_quote(
         self,
@@ -89,32 +134,23 @@ class JupiterClient:
             raw=order.raw,
         )
 
-    def execute_order(
+    def swap_transaction(
         self,
         *,
-        order: JupiterOrder,
-        owner: Keypair,
-    ) -> JupiterExecuteResult:
-        if not order.transaction_b64:
-            raise RuntimeError("Jupiter order response missing transaction")
-        raw_tx = VersionedTransaction.from_bytes(b64decode(order.transaction_b64))
-        signed_tx = _partially_sign_for_owner(raw_tx, owner)
-        result = self._post(
-            "/execute",
-            payload={
-                "signedTransaction": b64(bytes(signed_tx)),
-                "requestId": order.request_id,
-            },
-        )
-        return JupiterExecuteResult(
-            status=str(result.get("status") or "Failed"),
-            signature=result.get("signature"),
-            code=int(result.get("code", -1)),
-            input_amount_result=_intish(result.get("inputAmountResult")),
-            output_amount_result=_intish(result.get("outputAmountResult")),
-            error=result.get("error"),
-            raw=result,
-        )
+        quote_response: dict[str, Any],
+        user_public_key: str,
+        wrap_and_unwrap_sol: bool = True,
+    ) -> str:
+        payload: dict[str, Any] = {
+            "quoteResponse": quote_response,
+            "userPublicKey": str(user_public_key),
+            "wrapAndUnwrapSol": bool(wrap_and_unwrap_sol),
+        }
+        raw = self._post("/swap", payload=payload)
+        tx_b64 = raw.get("swapTransaction") or raw.get("transaction")
+        if not tx_b64:
+            raise RuntimeError("Jupiter /swap response missing swapTransaction")
+        return str(tx_b64)
 
 
 def _intish(value: Any) -> int | None:
