@@ -1,0 +1,144 @@
+{
+  "cycle_timestamp": "2026-03-24T22:23:45.620318+00:00",
+  "safe_mode_active": false,
+  "safety_stop_reason": null,
+  "summary": {
+    "timestamp": "2026-03-24T22:23:45.620318+00:00",
+    "seeds_total": 20,
+    "discovered_candidates": 20,
+    "prefiltered_candidates": 2,
+    "topn_candidates": 2,
+    "route_checked_candidates": 4,
+    "cache_hits": 952,
+    "cache_misses": 66,
+    "candidate_cache_hits": 700,
+    "candidate_cache_misses": 62,
+    "route_cache_hits": 252,
+    "route_cache_misses": 4,
+    "cache_debug_first_keys": [
+      "candidate:Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump",
+      "candidate:5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+      "candidate:98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g"
+    ],
+    "cache_debug_identity": {
+      "candidate_cache_id": 4449301712,
+      "route_cache_id": 4450897104
+    },
+    "cache_engine_identity": {
+      "candidate_cache_id": 4449301712,
+      "route_cache_id": 4450897104
+    },
+    "cache_debug_trace": {
+      "candidate": [
+        {
+          "op": "get",
+          "key": "candidate:Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump",
+          "result": "hit",
+          "lookup_ts": 279748.84661375,
+          "inserted_ts": 279711.896055708,
+          "expires_ts": 279831.896055708,
+          "cycle": "2026-03-24T22:23:46.271349+00:00"
+        },
+        {
+          "op": "get",
+          "key": "candidate:5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+          "result": "hit",
+          "lookup_ts": 279748.847451833,
+          "inserted_ts": 279711.896055708,
+          "expires_ts": 279831.896055708,
+          "cycle": "2026-03-24T22:23:46.271349+00:00"
+        },
+        {
+          "op": "get",
+          "key": "candidate:98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+          "result": "hit",
+          "lookup_ts": 279748.847728333,
+          "inserted_ts": 279711.896055708,
+          "expires_ts": 279831.896055708,
+          "cycle": "2026-03-24T22:23:46.271349+00:00"
+        }
+      ],
+      "route": [
+        {
+          "op": "get",
+          "key": "route:J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE:buy:1e7_1e8",
+          "result": "hit",
+          "lookup_ts": 279748.850849875,
+          "inserted_ts": 279711.896077208,
+          "expires_ts": 279801.896077208,
+          "cycle": "2026-03-24T22:23:46.271349+00:00"
+        },
+        {
+          "op": "get",
+          "key": "route:J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE:sell:gte_1e9",
+          "result": "hit",
+          "lookup_ts": 279748.850856375,
+          "inserted_ts": 279711.896077208,
+          "expires_ts": 279801.896077208,
+          "cycle": "2026-03-24T22:23:46.271349+00:00"
+        },
+        {
+          "op": "get",
+          "key": "route:5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA:buy:1e7_1e8",
+          "result": "hit",
+          "lookup_ts": 279748.850911041,
+          "inserted_ts": 279711.896077208,
+          "expires_ts": 279801.896077208,
+          "cycle": "2026-03-24T22:23:46.271349+00:00"
+        }
+      ]
+    },
+    "birdeye_candidate_build_calls": 0,
+    "jupiter_buy_probe_calls": 0,
+    "jupiter_sell_probe_calls": 0,
+    "discovery_cached": false,
+    "candidates_built": 12,
+    "candidates_accepted": 2,
+    "candidates_rejected_total": 31,
+    "rejection_counts": {
+      "reject_bad_buy_sell_ratio": 4,
+      "reject_low_score": 8,
+      "reject_token_too_old": 9,
+      "reject_low_liquidity": 9,
+      "reject_low_volume": 1
+    },
+    "open_positions": 2,
+    "partial_positions": 0,
+    "exit_pending_positions": 0,
+    "exit_blocked_positions": 0,
+    "entries_attempted": 0,
+    "entries_succeeded": 0,
+    "entries_blocked_pre_execution": 0,
+    "entries_order_failed": 0,
+    "entries_execute_failed": 0,
+    "entries_skipped_dry_run": 0,
+    "entries_skipped_live_disabled": 0,
+    "exits_attempted": 0,
+    "exits_succeeded": 0,
+    "execution_failures": 0,
+    "unknown_exits": 0,
+    "safe_mode_active": false
+  },
+  "top_rejection_reasons": [
+    {
+      "reason": "reject_token_too_old",
+      "count": 9
+    },
+    {
+      "reason": "reject_low_liquidity",
+      "count": 9
+    },
+    {
+      "reason": "reject_low_score",
+      "count": 8
+    },
+    {
+      "reason": "reject_bad_buy_sell_ratio",
+      "count": 4
+    },
+    {
+      "reason": "reject_low_volume",
+      "count": 1
+    }
+  ]
+}
