@@ -88,7 +88,7 @@ def _load_owner_if_configured(settings):
 
 def build_runtime(*, require_owner: bool, load_owner: bool):
     settings = load_settings()
-    setup_logging(settings.log_level)
+    setup_logging(settings.log_level, runtime_dir=settings.runtime_dir)
     owner = _load_owner_if_configured(settings) if load_owner else None
     if require_owner and owner is None:
         raise RuntimeError("Missing wallet credentials: set SOLANA_KEYPAIR_PATH (preferred) or BS58_PRIVATE_KEY")
@@ -206,11 +206,37 @@ def cmd_run(args: argparse.Namespace) -> int:
     recovery = engine.run_startup_recovery()
     if recovery:
         print(json.dumps({"startup_recovery": [asdict(d) for d in recovery]}, indent=2, default=str))
+    recovery_discrepancies = [d for d in recovery if d.reason == "recovery_wallet_gt_state"]
+    if recovery_discrepancies:
+        warning_payload = {
+            "warning": "DIRTY_WALLET_DETECTED_NOT_CLEAN_START",
+            "details": {
+                "recovery_wallet_gt_state_count": len(recovery_discrepancies),
+                "tokens": [
+                    {
+                        "symbol": d.symbol,
+                        "mint": d.token_mint,
+                        "state_qty": (d.metadata or {}).get("state_qty"),
+                        "wallet_qty": (d.metadata or {}).get("wallet_qty"),
+                    }
+                    for d in recovery_discrepancies
+                ],
+                "operator_actions": [
+                    "flatten wallet first for a true clean start",
+                    "or import/reconcile holdings into state before continuing",
+                ],
+            },
+        }
+        print(json.dumps(warning_payload, indent=2, default=str))
+        LOGGER.warning(
+            "DIRTY_WALLET_DETECTED_NOT_CLEAN_START recovery_wallet_gt_state_count=%s",
+            len(recovery_discrepancies),
+        )
     signal.signal(signal.SIGINT, _handle_sigint)
     signal.signal(signal.SIGTERM, _handle_sigint)
     next_run = time.monotonic()
     cycles = 0
-    requested_cycles = 1 if args.once else max(1, int(args.cycles))
+    requested_cycles = 1 if args.once else (max(1, int(args.cycles)) if args.cycles is not None else None)
     prev_cache_debug_keys: list[str] = []
     while not STOP:
         cycles += 1
@@ -222,6 +248,12 @@ def cmd_run(args: argparse.Namespace) -> int:
                 "status": p.status,
                 "last_price_usd": p.last_price_usd,
                 "peak_price_usd": p.peak_price_usd,
+                "last_mark_sol_per_token": p.last_mark_sol_per_token,
+                "peak_mark_sol_per_token": p.peak_mark_sol_per_token,
+                "current_estimated_value_sol": p.last_estimated_exit_value_sol,
+                "unrealized_pnl_sol": p.unrealized_pnl_sol,
+                "valuation_source": p.valuation_source,
+                "usd_mark_unavailable": p.usd_mark_unavailable,
             }
             for mint, p in engine.portfolio.open_positions.items()
         }
@@ -372,7 +404,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             }
         )
 
-        if cycles >= requested_cycles:
+        if requested_cycles is not None and cycles >= requested_cycles:
             break
         next_run += settings.poll_interval_seconds
         monotonic_sleep_until(next_run)
@@ -563,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run = sub.add_parser("run", help="Run trading engine cycle/loop")
     run.add_argument("--once", action="store_true", help="Run one cycle and exit")
-    run.add_argument("--cycles", type=int, default=1, help="Number of cycles to run sequentially")
+    run.add_argument("--cycles", type=int, default=None, help="Run this many cycles; omit to run continuously")
     run.set_defaults(func=cmd_run)
 
     quote = sub.add_parser("quote", help="Probe Jupiter buy/sell route")
