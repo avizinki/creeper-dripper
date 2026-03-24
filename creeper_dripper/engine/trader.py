@@ -6,6 +6,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 from creeper_dripper.clients.birdeye import BirdeyeClient
+from creeper_dripper.cache import TTLCache
 from creeper_dripper.config import SOL_MINT, Settings
 from creeper_dripper.errors import (
     EXEC_SKIPPED_DRY_RUN,
@@ -28,7 +29,7 @@ from creeper_dripper.errors import (
 )
 from creeper_dripper.engine.discovery import discover_candidates
 from creeper_dripper.execution.executor import TradeExecutor
-from creeper_dripper.models import PortfolioState, PositionState, TakeProfitStep, TokenCandidate, TradeDecision
+from creeper_dripper.models import PortfolioState, PositionState, ProbeQuote, TakeProfitStep, TokenCandidate, TradeDecision
 from creeper_dripper.observability import EventCollector
 from creeper_dripper.storage.recovery import run_startup_recovery
 from creeper_dripper.storage.state import save_portfolio, save_status_snapshot
@@ -56,6 +57,24 @@ class CreeperDripper:
         self._startup_recovery_done = False
         self.events = EventCollector()
         self._safety_diagnostics: dict | None = None
+        self._last_discovery_at: datetime | None = None
+        self._last_discovery_candidates: list[TokenCandidate] = []
+        self._last_discovery_summary: dict = {
+            "seeds_total": 0,
+            "candidates_built": 0,
+            "candidates_accepted": 0,
+            "candidates_rejected_total": 0,
+            "rejection_counts": {},
+        }
+        self._candidate_cache = TTLCache[TokenCandidate](settings.candidate_cache_ttl_seconds)
+        self._route_cache = TTLCache[ProbeQuote](settings.route_check_cache_ttl_seconds)
+        LOGGER.info(
+            "cache_engine_init: candidate_cache_id=%s route_cache_id=%s candidate_ttl_s=%s route_ttl_s=%s",
+            id(self._candidate_cache),
+            id(self._route_cache),
+            settings.candidate_cache_ttl_seconds,
+            settings.route_check_cache_ttl_seconds,
+        )
 
     def run_cycle(self) -> dict:
         now = utc_now_iso()
@@ -67,7 +86,7 @@ class CreeperDripper:
             for decision in recovery_decisions:
                 self.events.emit("recovery_action", decision.reason, action=decision.action, token_mint=decision.token_mint)
             self._startup_recovery_done = True
-        candidates, discovery_summary = discover_candidates(self.birdeye, self.executor.jupiter, self.settings)
+        candidates, discovery_summary = self._discover_with_cadence()
         market_data_checked_at = str(discovery_summary.get("market_data_checked_at") or utc_now_iso())
         safe_mode_reason = self._evaluate_safety(now, market_data_checked_at=market_data_checked_at)
         if safe_mode_reason:
@@ -97,6 +116,31 @@ class CreeperDripper:
             "summary": cycle_summary,
             "events": self.events.to_dicts(),
         }
+
+    def _discover_with_cadence(self) -> tuple[list[TokenCandidate], dict]:
+        now_dt = datetime.now(timezone.utc)
+        if self._last_discovery_at is not None:
+            elapsed = (now_dt - self._last_discovery_at).total_seconds()
+            if elapsed < self.settings.discovery_interval_seconds:
+                cached_summary = dict(self._last_discovery_summary)
+                cached_summary["discovery_cached"] = True
+                return list(self._last_discovery_candidates), cached_summary
+        candidates, summary = discover_candidates(
+            self.birdeye,
+            self.executor.jupiter,
+            self.settings,
+            candidate_cache=self._candidate_cache,
+            route_cache=self._route_cache,
+        )
+        summary["discovery_cached"] = False
+        summary["cache_engine_identity"] = {
+            "candidate_cache_id": id(self._candidate_cache),
+            "route_cache_id": id(self._route_cache),
+        }
+        self._last_discovery_at = now_dt
+        self._last_discovery_candidates = list(candidates)
+        self._last_discovery_summary = dict(summary)
+        return candidates, summary
 
     def run_startup_recovery(self) -> list[TradeDecision]:
         now = utc_now_iso()
@@ -651,6 +695,24 @@ class CreeperDripper:
         return {
             "timestamp": now,
             "seeds_total": discovery_summary.get("seeds_total", 0),
+            "discovered_candidates": discovery_summary.get("discovered_candidates", 0),
+            "prefiltered_candidates": discovery_summary.get("prefiltered_candidates", 0),
+            "topn_candidates": discovery_summary.get("topn_candidates", 0),
+            "route_checked_candidates": discovery_summary.get("route_checked_candidates", 0),
+            "cache_hits": discovery_summary.get("cache_hits", 0),
+            "cache_misses": discovery_summary.get("cache_misses", 0),
+            "candidate_cache_hits": discovery_summary.get("candidate_cache_hits", 0),
+            "candidate_cache_misses": discovery_summary.get("candidate_cache_misses", 0),
+            "route_cache_hits": discovery_summary.get("route_cache_hits", 0),
+            "route_cache_misses": discovery_summary.get("route_cache_misses", 0),
+            "cache_debug_first_keys": discovery_summary.get("cache_debug_first_keys", []),
+            "cache_debug_identity": discovery_summary.get("cache_debug_identity", {}),
+            "cache_engine_identity": discovery_summary.get("cache_engine_identity", {}),
+            "cache_debug_trace": discovery_summary.get("cache_debug_trace", {}),
+            "birdeye_candidate_build_calls": discovery_summary.get("birdeye_candidate_build_calls", 0),
+            "jupiter_buy_probe_calls": discovery_summary.get("jupiter_buy_probe_calls", 0),
+            "jupiter_sell_probe_calls": discovery_summary.get("jupiter_sell_probe_calls", 0),
+            "discovery_cached": bool(discovery_summary.get("discovery_cached", False)),
             "candidates_built": discovery_summary.get("candidates_built", 0),
             "candidates_accepted": discovery_summary.get("candidates_accepted", 0),
             "candidates_rejected_total": discovery_summary.get("candidates_rejected_total", 0),

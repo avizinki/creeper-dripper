@@ -5,9 +5,12 @@ import json
 import logging
 import os
 import signal
+import shutil
 import sys
 import time
 from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
 
 from creeper_dripper.clients.birdeye import BirdeyeClient
 from creeper_dripper.clients.jupiter import JupiterClient
@@ -21,6 +24,45 @@ from creeper_dripper.utils import atomic_write_json, monotonic_sleep_until, setu
 
 STOP = False
 LOGGER = logging.getLogger(__name__)
+
+
+def _safe_snapshot_copy(src: Path, dst: Path) -> None:
+    if not src.exists():
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+
+
+def _cycle_run_dir(runtime_dir: Path) -> Path:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out = runtime_dir / "cycle_runs" / ts
+    out.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def _copy_new_runtime_artifacts(runtime_dir: Path, run_dir: Path, cycle_id: int, seen: set[str], cycle_started_at: float) -> list[str]:
+    copied: list[str] = []
+    patterns = [
+        "entry_probe_*.json",
+        "tx_failure_*.json",
+        "exit_*.json",
+    ]
+    for pattern in patterns:
+        for src in runtime_dir.glob(pattern):
+            key = str(src.resolve())
+            if key in seen:
+                continue
+            try:
+                if src.stat().st_mtime < cycle_started_at:
+                    continue
+            except OSError:
+                continue
+            dst_name = f"cycle_{cycle_id}_{src.name}"
+            dst = run_dir / dst_name
+            _safe_snapshot_copy(src, dst)
+            seen.add(key)
+            copied.append(dst_name)
+    return copied
 
 
 def _candidate_score(candidate) -> float:
@@ -144,6 +186,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     settings = load_settings()
     require_owner = settings.live_trading_enabled and not settings.dry_run
     _settings, engine, *_rest = build_runtime(require_owner=require_owner, load_owner=require_owner)
+    run_dir = _cycle_run_dir(settings.runtime_dir)
+    observed_cycles: list[dict] = []
+    seen_artifacts: set[str] = set()
+    token_tracking: dict[str, dict] = {}
+    notable_events: list[dict] = []
     print(
         json.dumps(
             {
@@ -163,21 +210,219 @@ def cmd_run(args: argparse.Namespace) -> int:
     signal.signal(signal.SIGTERM, _handle_sigint)
     next_run = time.monotonic()
     cycles = 0
+    requested_cycles = 1 if args.once else max(1, int(args.cycles))
+    prev_cache_debug_keys: list[str] = []
     while not STOP:
         cycles += 1
+        cycle_started_mono = time.monotonic()
+        cycle_start_ts = datetime.now(timezone.utc).isoformat()
+        prev_positions = {
+            mint: {
+                "symbol": p.symbol,
+                "status": p.status,
+                "last_price_usd": p.last_price_usd,
+                "peak_price_usd": p.peak_price_usd,
+            }
+            for mint, p in engine.portfolio.open_positions.items()
+        }
         summary = engine.run_cycle()
+        cycle_end_ts = datetime.now(timezone.utc).isoformat()
         print(json.dumps(summary, indent=2, default=str))
         s = summary.get("summary", {})
+        runtime_cost_line = (
+            "runtime_cost: "
+            f"cache_hits={s.get('cache_hits', 0)} "
+            f"cache_misses={s.get('cache_misses', 0)} "
+            f"candidate_cache_hits={s.get('candidate_cache_hits', 0)} "
+            f"candidate_cache_misses={s.get('candidate_cache_misses', 0)} "
+            f"route_cache_hits={s.get('route_cache_hits', 0)} "
+            f"route_cache_misses={s.get('route_cache_misses', 0)} "
+            f"discovered={s.get('discovered_candidates', 0)} "
+            f"prefiltered={s.get('prefiltered_candidates', 0)} "
+            f"built={s.get('candidates_built', 0)} "
+            f"topN={s.get('topn_candidates', 0)} "
+            f"route_checked={s.get('route_checked_candidates', 0)} "
+            f"accepted={s.get('candidates_accepted', 0)} "
+            f"discovery_reused={s.get('discovery_cached', False)}"
+        )
+        print(runtime_cost_line)
+        LOGGER.info(runtime_cost_line)
+        cache_debug_first_keys = list(s.get("cache_debug_first_keys") or [])
+        repeated_with_prev_cycle = bool(set(cache_debug_first_keys) & set(prev_cache_debug_keys))
+        cache_debug_line = (
+            "cache_debug: "
+            f"first_keys={cache_debug_first_keys} "
+            f"repeat_with_prev_cycle={repeated_with_prev_cycle}"
+        )
+        print(cache_debug_line)
+        LOGGER.info(cache_debug_line)
+        identity = s.get("cache_debug_identity") or {}
+        engine_identity = s.get("cache_engine_identity") or {}
+        cache_identity_line = (
+            "cache_identity: "
+            f"engine_candidate_id={engine_identity.get('candidate_cache_id')} "
+            f"discover_candidate_id={identity.get('candidate_cache_id')} "
+            f"engine_route_id={engine_identity.get('route_cache_id')} "
+            f"discover_route_id={identity.get('route_cache_id')}"
+        )
+        print(cache_identity_line)
+        LOGGER.info(cache_identity_line)
+        cache_trace = s.get("cache_debug_trace") or {}
+        candidate_trace = list(cache_trace.get("candidate") or [])
+        route_trace = list(cache_trace.get("route") or [])
+        cache_trace_line = (
+            "cache_trace: "
+            f"candidate_first_ops={candidate_trace[:6]} "
+            f"route_first_ops={route_trace[:6]}"
+        )
+        print(cache_trace_line)
+        LOGGER.info(cache_trace_line)
+        prev_cache_debug_keys = cache_debug_first_keys
         if (s.get("entries_skipped_dry_run", 0) or 0) > 0 or (s.get("entries_skipped_live_disabled", 0) or 0) > 0:
             print(
                 "entry execution skipped by mode: "
                 f"dry_run={s.get('entries_skipped_dry_run', 0)}, "
                 f"live_disabled={s.get('entries_skipped_live_disabled', 0)}"
             )
-        if args.once:
+        cycle_id = cycles
+        _safe_snapshot_copy(settings.state_path, run_dir / f"state_cycle_{cycle_id}.json")
+        _safe_snapshot_copy(settings.runtime_dir / "status.json", run_dir / f"status_cycle_{cycle_id}.json")
+        _safe_snapshot_copy(settings.journal_path, run_dir / f"journal_cycle_{cycle_id}.jsonl")
+        atomic_write_json(run_dir / f"events_cycle_{cycle_id}.json", summary.get("events", []))
+        copied_artifacts = _copy_new_runtime_artifacts(
+            settings.runtime_dir,
+            run_dir,
+            cycle_id,
+            seen_artifacts,
+            cycle_started_mono,
+        )
+
+        decisions = summary.get("decisions", [])
+        for mint, pos in engine.portfolio.open_positions.items():
+            symbol = pos.symbol
+            track = token_tracking.setdefault(
+                mint,
+                {
+                    "symbol": symbol,
+                    "status_transitions": [pos.status],
+                    "start_price_usd": pos.last_price_usd,
+                    "end_price_usd": pos.last_price_usd,
+                    "peak_updates": 0,
+                    "exit_attempts": 0,
+                    "exit_outcomes": [],
+                    "recovery_discrepancies": 0,
+                },
+            )
+            old = prev_positions.get(mint)
+            if old and old.get("status") != pos.status:
+                track["status_transitions"].append(pos.status)
+            track["end_price_usd"] = pos.last_price_usd
+            if old and (pos.peak_price_usd or 0.0) > (old.get("peak_price_usd") or 0.0):
+                track["peak_updates"] += 1
+
+        for d in decisions:
+            action = d.get("action")
+            mint = d.get("token_mint")
+            if action == "SELL_ATTEMPT" and mint in token_tracking:
+                token_tracking[mint]["exit_attempts"] += 1
+            if action in {"SELL", "SELL_BLOCKED", "SELL_PENDING"} and mint in token_tracking:
+                token_tracking[mint]["exit_outcomes"].append(action)
+            if d.get("reason") == "recovery_wallet_gt_state" and mint in token_tracking:
+                token_tracking[mint]["recovery_discrepancies"] += 1
+
+            if action in {"SELL_BLOCKED", "SELL", "SELL_PENDING", "RECOVERY_DISCREPANCY", "BUY"}:
+                notable_events.append(
+                    {
+                        "cycle_id": cycle_id,
+                        "action": action,
+                        "symbol": d.get("symbol"),
+                        "reason": d.get("reason"),
+                        "classification": (d.get("metadata") or {}).get("classification"),
+                    }
+                )
+
+        observed_cycles.append(
+            {
+                "cycle_id": cycle_id,
+                "start_ts": cycle_start_ts,
+                "end_ts": cycle_end_ts,
+                "entries_attempted": s.get("entries_attempted", 0),
+                "entries_succeeded": s.get("entries_succeeded", 0),
+                "exits_attempted": s.get("exits_attempted", 0),
+                "exits_succeeded": s.get("exits_succeeded", 0),
+                "exit_blocked_positions": s.get("exit_blocked_positions", 0),
+                "execution_failures": s.get("execution_failures", 0),
+                "recovery_discrepancies": sum(1 for d in decisions if d.get("reason") == "recovery_wallet_gt_state"),
+                "cache_hits": s.get("cache_hits", 0),
+                "cache_misses": s.get("cache_misses", 0),
+                "candidate_cache_hits": s.get("candidate_cache_hits", 0),
+                "candidate_cache_misses": s.get("candidate_cache_misses", 0),
+                "route_cache_hits": s.get("route_cache_hits", 0),
+                "route_cache_misses": s.get("route_cache_misses", 0),
+                "discovered": s.get("discovered_candidates", 0),
+                "prefiltered": s.get("prefiltered_candidates", 0),
+                "built": s.get("candidates_built", 0),
+                "topN": s.get("topn_candidates", 0),
+                "route_checked": s.get("route_checked_candidates", 0),
+                "accepted": s.get("candidates_accepted", 0),
+                "discovery_reused": s.get("discovery_cached", False),
+                "cache_debug_first_keys": cache_debug_first_keys,
+                "cache_debug_repeat_with_prev_cycle": repeated_with_prev_cycle,
+                "copied_artifacts": copied_artifacts,
+            }
+        )
+
+        if cycles >= requested_cycles:
             break
         next_run += settings.poll_interval_seconds
         monotonic_sleep_until(next_run)
+
+    open_positions = list(engine.portfolio.open_positions.values())
+    blocked_positions = [p for p in open_positions if p.status == "EXIT_BLOCKED"]
+    blocked_symbols = [p.symbol for p in blocked_positions]
+
+    per_token = []
+    for mint, info in token_tracking.items():
+        start_price = info.get("start_price_usd")
+        end_price = info.get("end_price_usd")
+        price_change = None
+        if isinstance(start_price, (int, float)) and isinstance(end_price, (int, float)) and start_price:
+            price_change = ((end_price - start_price) / start_price) * 100.0
+        per_token.append(
+            {
+                "mint": mint,
+                "symbol": info.get("symbol"),
+                "status_transitions": info.get("status_transitions", []),
+                "price_change_pct": price_change,
+                "peak_updates": info.get("peak_updates", 0),
+                "exit_attempts": info.get("exit_attempts", 0),
+                "exit_outcomes": info.get("exit_outcomes", []),
+                "recovery_discrepancies": info.get("recovery_discrepancies", 0),
+            }
+        )
+
+    summary_payload = {
+        "run_dir": str(run_dir),
+        "total_cycles": len(observed_cycles),
+        "entries_attempted": sum(c.get("entries_attempted", 0) for c in observed_cycles),
+        "entries_succeeded": sum(c.get("entries_succeeded", 0) for c in observed_cycles),
+        "exits_attempted": sum(c.get("exits_attempted", 0) for c in observed_cycles),
+        "exits_succeeded": sum(c.get("exits_succeeded", 0) for c in observed_cycles),
+        "exit_blocked_count": len(blocked_positions),
+        "blocked_symbols": blocked_symbols,
+        "recovery_discrepancies": sum(c.get("recovery_discrepancies", 0) for c in observed_cycles),
+        "execution_failures": sum(c.get("execution_failures", 0) for c in observed_cycles),
+        "cycles": observed_cycles,
+        "per_token_tracking": per_token,
+        "focus_tracking": {
+            "69": next((x for x in per_token if x.get("symbol") == "69"), None),
+            "PRl": next((x for x in per_token if x.get("symbol") == "PRl"), None),
+            "Sandwich": next((x for x in per_token if x.get("symbol") == "Sandwich"), None),
+        },
+        "notable_events": notable_events[:50],
+    }
+    atomic_write_json(run_dir / "summary.json", summary_payload)
+    print(json.dumps({"cycle_run_summary_path": str(run_dir / "summary.json")}, indent=2, default=str))
     return 0
 
 
@@ -318,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run = sub.add_parser("run", help="Run trading engine cycle/loop")
     run.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    run.add_argument("--cycles", type=int, default=1, help="Number of cycles to run sequentially")
     run.set_defaults(func=cmd_run)
 
     quote = sub.add_parser("quote", help="Probe Jupiter buy/sell route")

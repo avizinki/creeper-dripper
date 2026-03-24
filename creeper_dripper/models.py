@@ -15,6 +15,7 @@ class TokenCandidate:
     exit_liquidity_usd: float | None = None
     exit_liquidity_available: bool = True
     exit_liquidity_reason: str | None = None
+    birdeye_exit_liquidity_supported: bool = True
     volume_24h_usd: float | None = None
     volume_1h_usd: float | None = None
     change_1h_pct: float | None = None
@@ -25,11 +26,18 @@ class TokenCandidate:
     holder_count: int | None = None
     top10_holder_percent: float | None = None
     age_hours: float | None = None
+    age_source: str | None = None
+    created_at_raw: str | None = None
     security_mint_mutable: bool | None = None
     security_freezable: bool | None = None
     jupiter_buy_out_amount: int | None = None
     jupiter_buy_price_impact_bps: float | None = None
     jupiter_sell_price_impact_bps: float | None = None
+    sell_route_available: bool = False
+    sell_quote_out_amount: int | None = None
+    sell_quote_price_impact_bps: float | None = None
+    sell_quote_success: bool = False
+    sell_route_quality: str | None = None
     discovery_score: float = 0.0
     reasons: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)

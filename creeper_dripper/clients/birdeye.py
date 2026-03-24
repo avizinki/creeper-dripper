@@ -126,6 +126,7 @@ class BirdeyeClient:
         holders = self.token_holders(address)
         exit_liquidity: dict[str, Any] = {}
         exit_liquidity_available = True
+        birdeye_exit_liquidity_supported = True
         exit_liquidity_reason = None
         try:
             exit_liquidity = self.token_exit_liquidity(address)
@@ -133,10 +134,12 @@ class BirdeyeClient:
             message = str(exc).lower()
             if "chain solana not supported" in message or "chain not supported" in message:
                 exit_liquidity_available = False
+                birdeye_exit_liquidity_supported = False
                 exit_liquidity_reason = BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
             else:
                 raise
         creation = self.token_creation_info(address)
+        age_hours, age_source, created_at_raw = _extract_age_info(creation)
 
         candidate = TokenCandidate(
             address=address,
@@ -148,6 +151,7 @@ class BirdeyeClient:
             exit_liquidity_usd=_extract_exit_liquidity(exit_liquidity),
             exit_liquidity_available=exit_liquidity_available,
             exit_liquidity_reason=exit_liquidity_reason,
+            birdeye_exit_liquidity_supported=birdeye_exit_liquidity_supported,
             volume_24h_usd=_floatish(overview.get("v24hUSD") or overview.get("volume24hUSD") or seed.get("volume24hUSD") or seed.get("volume24h")),
             volume_1h_usd=_floatish(_nested(overview, ["volume", "h1", "usd"]) or overview.get("v1hUSD") or seed.get("volume1hUSD")),
             change_1h_pct=_floatish(overview.get("priceChange1hPercent") or _nested(overview, ["priceChange", "h1"])),
@@ -156,7 +160,9 @@ class BirdeyeClient:
             sell_1h=_intish(overview.get("sell1h") or _nested(overview, ["trade", "sell1h"])),
             holder_count=_intish(overview.get("holder") or overview.get("holders") or holders.get("total")),
             top10_holder_percent=_extract_top10_holder_percent(holders),
-            age_hours=_extract_age_hours(creation),
+            age_hours=age_hours,
+            age_source=age_source,
+            created_at_raw=created_at_raw,
             security_mint_mutable=_boolish(security.get("is_mintable") or security.get("mintAuthorityEnabled") or security.get("mutableMetadata")),
             security_freezable=_boolish(security.get("is_freezable") or security.get("freezeAuthorityEnabled")),
             raw={
@@ -247,17 +253,15 @@ def _extract_top10_holder_percent(payload: dict[str, Any]) -> float | None:
     return total if count else None
 
 
-def _extract_age_hours(payload: dict[str, Any]) -> float | None:
-    ts = (
-        payload.get("blockUnixTime")
-        or payload.get("created_time")
-        or payload.get("createdAt")
-        or payload.get("created_at")
-    )
-    if ts is None:
-        return None
-    try:
-        unix_ts = float(ts)
-    except (TypeError, ValueError):
-        return None
-    return max(0.0, (time.time() - unix_ts) / 3600.0)
+def _extract_age_info(payload: dict[str, Any]) -> tuple[float | None, str | None, str | None]:
+    for key in ("blockUnixTime", "created_time", "createdAt", "created_at"):
+        ts = payload.get(key)
+        if ts is None:
+            continue
+        raw = str(ts)
+        try:
+            unix_ts = float(ts)
+        except (TypeError, ValueError):
+            return None, key, raw
+        return max(0.0, (time.time() - unix_ts) / 3600.0), key, raw
+    return None, None, None

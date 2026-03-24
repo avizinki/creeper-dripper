@@ -16,6 +16,12 @@ def _base_env(monkeypatch, tmp_path):
     monkeypatch.setenv("RUNTIME_DIR", str(tmp_path / "runtime"))
     monkeypatch.setenv("STATE_PATH", str(tmp_path / "runtime" / "state.json"))
     monkeypatch.setenv("JOURNAL_PATH", str(tmp_path / "runtime" / "journal.jsonl"))
+    monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("DISCOVERY_INTERVAL_SECONDS", "30")
+    monkeypatch.setenv("MAX_ACTIVE_CANDIDATES", "7")
+    monkeypatch.setenv("CANDIDATE_CACHE_TTL_SECONDS", "20")
+    monkeypatch.setenv("ROUTE_CHECK_CACHE_TTL_SECONDS", "15")
     monkeypatch.delenv("SOLANA_KEYPAIR_PATH", raising=False)
     monkeypatch.delenv("BS58_PRIVATE_KEY", raising=False)
 
@@ -30,6 +36,11 @@ def test_doctor_without_wallet_scan_safe(monkeypatch, tmp_path, capsys):
         jupiter_mod.JupiterClient,
         "probe_quote",
         lambda self, **kwargs: {"ok": True},
+    )
+    monkeypatch.setattr(
+        jupiter_mod.JupiterClient,
+        "check_swap_reachability",
+        lambda self: None,
     )
 
     code = main(["doctor"])

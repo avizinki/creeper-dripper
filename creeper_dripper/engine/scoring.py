@@ -11,12 +11,15 @@ from creeper_dripper.errors import (
     REJECT_LOW_LIQUIDITY,
     REJECT_LOW_SCORE,
     REJECT_LOW_VOLUME,
-    REJECT_MINTABLE,
+    REJECT_MINTABLE_MEMECOIN,
     REJECT_NO_SELL_ROUTE,
     REJECT_TOKEN_TOO_OLD,
 )
 from creeper_dripper.models import TokenCandidate
 from creeper_dripper.utils import clamp
+
+MAX_DISCOVERY_SELL_IMPACT_BPS = 200.0
+MAX_DISCOVERY_AGE_HOURS = 36.0
 
 
 def score_candidate(candidate: TokenCandidate, settings: Settings) -> TokenCandidate:
@@ -97,10 +100,10 @@ def score_candidate(candidate: TokenCandidate, settings: Settings) -> TokenCandi
 
 
 def passes_filters(candidate: TokenCandidate, settings: Settings) -> bool:
-    return len(rejection_reasons(candidate, settings)) == 0
+    return len(rejection_reasons(candidate, settings, include_route_checks=True)) == 0
 
 
-def rejection_reasons(candidate: TokenCandidate, settings: Settings) -> list[str]:
+def rejection_reasons(candidate: TokenCandidate, settings: Settings, *, include_route_checks: bool = True) -> list[str]:
     reasons: list[str] = []
     if not candidate.address:
         reasons.append("reject_missing_address")
@@ -114,18 +117,33 @@ def rejection_reasons(candidate: TokenCandidate, settings: Settings) -> list[str
         reasons.append(REJECT_LOW_VOLUME)
     if (candidate.buy_sell_ratio_1h or 0.0) < settings.min_buy_sell_ratio:
         reasons.append(REJECT_BAD_BUY_SELL_RATIO)
-    if settings.block_mutable_mint and candidate.security_mint_mutable:
-        reasons.append(REJECT_MINTABLE)
+    if settings.block_mutable_mint and candidate.security_mint_mutable and _is_memecoin_universe_candidate(candidate):
+        reasons.append(REJECT_MINTABLE_MEMECOIN)
     if settings.block_freezable and candidate.security_freezable:
         reasons.append(REJECT_FREEZABLE)
     if candidate.discovery_score < settings.min_discovery_score:
         reasons.append(REJECT_LOW_SCORE)
-    if settings.require_jup_sell_route and candidate.jupiter_sell_price_impact_bps is None:
-        reasons.append(REJECT_NO_SELL_ROUTE)
-    if candidate.jupiter_sell_price_impact_bps is not None and candidate.jupiter_sell_price_impact_bps > settings.max_acceptable_price_impact_bps:
-        reasons.append(REJECT_HIGH_SELL_IMPACT)
-    if candidate.jupiter_buy_price_impact_bps is not None and candidate.jupiter_buy_price_impact_bps > settings.max_acceptable_price_impact_bps:
-        reasons.append(REJECT_HIGH_BUY_IMPACT)
-    if candidate.age_hours is not None and candidate.age_hours > settings.max_token_age_hours:
+    if include_route_checks:
+        if settings.require_jup_sell_route and not candidate.sell_route_available:
+            reasons.append(REJECT_NO_SELL_ROUTE)
+        sell_impact = candidate.sell_quote_price_impact_bps
+        if sell_impact is None:
+            sell_impact = candidate.jupiter_sell_price_impact_bps
+        if sell_impact is not None and (
+            sell_impact > settings.max_acceptable_price_impact_bps or sell_impact > MAX_DISCOVERY_SELL_IMPACT_BPS
+        ):
+            reasons.append(REJECT_HIGH_SELL_IMPACT)
+        if candidate.jupiter_buy_price_impact_bps is not None and candidate.jupiter_buy_price_impact_bps > settings.max_acceptable_price_impact_bps:
+            reasons.append(REJECT_HIGH_BUY_IMPACT)
+    if candidate.age_hours is not None and (
+        candidate.age_hours > settings.max_token_age_hours or candidate.age_hours > MAX_DISCOVERY_AGE_HOURS
+    ):
         reasons.append(REJECT_TOKEN_TOO_OLD)
     return reasons
+
+
+def _is_memecoin_universe_candidate(candidate: TokenCandidate) -> bool:
+    mint = (candidate.address or "").lower()
+    symbol = (candidate.symbol or "").lower()
+    name = (candidate.name or "").lower()
+    return mint.endswith("pump") or "pump" in symbol or "pump" in name

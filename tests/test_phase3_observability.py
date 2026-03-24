@@ -304,7 +304,7 @@ def test_stale_diagnostics_included_in_safety_event(monkeypatch, tmp_path):
 
     old_checked = "2026-01-01T00:00:00+00:00"
 
-    def fake_discover(_b, _j, _s):
+    def fake_discover(_b, _j, _s, **_kwargs):
         return [], {
             "seeds_total": 0,
             "candidates_built": 0,

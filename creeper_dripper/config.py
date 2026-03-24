@@ -28,6 +28,13 @@ class Settings:
     journal_path: Path
     discovery_limit: int
     discovery_max_candidates: int
+    discovery_interval_seconds: int
+    max_active_candidates: int
+    candidate_cache_ttl_seconds: int
+    route_check_cache_ttl_seconds: int
+    prefilter_min_liquidity_usd: float
+    prefilter_max_age_hours: float
+    prefilter_min_recent_volume_usd: float
     min_liquidity_usd: float
     min_exit_liquidity_usd: float
     require_birdeye_exit_liquidity: bool
@@ -90,6 +97,14 @@ class Settings:
             errors.append("MAX_CONSECUTIVE_EXECUTION_FAILURES must be > 0")
         if self.max_exit_blocked_positions <= 0:
             errors.append("MAX_EXIT_BLOCKED_POSITIONS must be > 0")
+        if self.discovery_interval_seconds <= 0:
+            errors.append("DISCOVERY_INTERVAL_SECONDS must be > 0")
+        if self.max_active_candidates <= 0:
+            errors.append("MAX_ACTIVE_CANDIDATES must be > 0")
+        if self.candidate_cache_ttl_seconds <= 0:
+            errors.append("CANDIDATE_CACHE_TTL_SECONDS must be > 0")
+        if self.route_check_cache_ttl_seconds <= 0:
+            errors.append("ROUTE_CHECK_CACHE_TTL_SECONDS must be > 0")
         if errors:
             raise RuntimeError("Configuration validation failed:\n- " + "\n- ".join(errors))
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -102,6 +117,12 @@ def load_settings() -> Settings:
         load_dotenv(env_path, override=True)
 
     runtime_dir = Path(env_str("RUNTIME_DIR", "runtime"))
+
+    discovery_interval_seconds = _required_env_int("DISCOVERY_INTERVAL_SECONDS")
+    max_active_candidates = _required_env_int("MAX_ACTIVE_CANDIDATES")
+    candidate_cache_ttl_seconds = _required_env_int("CANDIDATE_CACHE_TTL_SECONDS")
+    route_check_cache_ttl_seconds = _required_env_int("ROUTE_CHECK_CACHE_TTL_SECONDS")
+
     settings = Settings(
         birdeye_api_key=env_str("BIRDEYE_API_KEY", ""),
         jupiter_api_key=env_str("JUPITER_API_KEY", ""),
@@ -116,6 +137,13 @@ def load_settings() -> Settings:
         journal_path=Path(env_str("JOURNAL_PATH", str(runtime_dir / "journal.jsonl"))),
         discovery_limit=env_int("DISCOVERY_LIMIT", 25),
         discovery_max_candidates=env_int("DISCOVERY_MAX_CANDIDATES", 8),
+        discovery_interval_seconds=discovery_interval_seconds,
+        max_active_candidates=max_active_candidates,
+        candidate_cache_ttl_seconds=candidate_cache_ttl_seconds,
+        route_check_cache_ttl_seconds=route_check_cache_ttl_seconds,
+        prefilter_min_liquidity_usd=env_float("PREFILTER_MIN_LIQUIDITY_USD", 50_000),
+        prefilter_max_age_hours=env_float("PREFILTER_MAX_AGE_HOURS", 48),
+        prefilter_min_recent_volume_usd=env_float("PREFILTER_MIN_RECENT_VOLUME_USD", 30_000),
         min_liquidity_usd=env_float("MIN_LIQUIDITY_USD", 80_000),
         min_exit_liquidity_usd=env_float("MIN_EXIT_LIQUIDITY_USD", 40_000),
         require_birdeye_exit_liquidity=env_bool("REQUIRE_BIRDEYE_EXIT_LIQUIDITY", False),
@@ -155,3 +183,13 @@ def load_settings() -> Settings:
     )
     settings.validate()
     return settings
+
+
+def _required_env_int(name: str) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        raise RuntimeError(f"Missing required environment value: {name}")
+    try:
+        return int(float(raw.strip()))
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid integer environment value for {name}: {raw}") from exc
