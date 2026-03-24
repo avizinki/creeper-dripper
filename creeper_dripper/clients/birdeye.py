@@ -31,15 +31,35 @@ class BirdeyeClient:
             time.sleep(self._min_interval_s - elapsed)
 
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        self._throttle()
         url = f"{BASE_URL}{path}"
-        response = self._session.request(method, url, params=params, timeout=20)
-        self._last_request = time.monotonic()
-        response.raise_for_status()
-        payload = response.json()
-        if isinstance(payload, dict) and payload.get("success") is False:
-            raise RuntimeError(f"Birdeye request failed for {path}: {payload}")
-        return payload
+        max_attempts = 3
+        backoff = 0.4
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._throttle()
+                response = self._session.request(method, url, params=params, timeout=20)
+                self._last_request = time.monotonic()
+                if response.status_code == 401:
+                    raise RuntimeError(f"birdeye_unauthorized:{path}")
+                if response.status_code == 429:
+                    raise RuntimeError(f"birdeye_rate_limited:{path}")
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise RuntimeError(f"birdeye_malformed_payload:{path}")
+                if payload.get("success") is False:
+                    raise RuntimeError(f"Birdeye request failed for {path}: {payload}")
+                return payload
+            except requests.exceptions.Timeout as exc:
+                last_exc = exc
+            except (requests.exceptions.RequestException, ValueError, RuntimeError) as exc:
+                last_exc = exc
+                if "birdeye_unauthorized" in str(exc):
+                    raise
+            if attempt < max_attempts:
+                time.sleep(backoff * attempt)
+        raise RuntimeError(f"Birdeye request failed after retries for {path}: {last_exc}")
 
     @staticmethod
     def _data(payload: dict[str, Any]) -> Any:
@@ -79,11 +99,6 @@ class BirdeyeClient:
         data = self._data(payload)
         return data if isinstance(data, dict) else {}
 
-    def token_top_traders(self, address: str) -> dict[str, Any]:
-        payload = self._request("GET", "/defi/v2/tokens/top_traders", params={"address": address, "time_frame": "24h", "sort_type": "desc", "sort_by": "volume", "offset": 0, "limit": 10})
-        data = self._data(payload)
-        return data if isinstance(data, dict) else {}
-
     def token_exit_liquidity(self, address: str) -> dict[str, Any]:
         payload = self._request("GET", "/defi/v3/token/exit-liquidity", params={"address": address})
         data = self._data(payload)
@@ -100,7 +115,6 @@ class BirdeyeClient:
         overview = self.token_overview(address)
         security = self.token_security(address)
         holders = self.token_holders(address)
-        top_traders = self.token_top_traders(address)
         exit_liquidity = self.token_exit_liquidity(address)
         creation = self.token_creation_info(address)
 
@@ -128,7 +142,6 @@ class BirdeyeClient:
                 "overview": overview,
                 "security": security,
                 "holders": holders,
-                "top_traders": top_traders,
                 "exit_liquidity": exit_liquidity,
                 "creation": creation,
             },

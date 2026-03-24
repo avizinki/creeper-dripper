@@ -17,6 +17,7 @@ USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 class Settings:
     birdeye_api_key: str
     jupiter_api_key: str
+    solana_keypair_path: Path | None
     bs58_private_key: str
     chain: str
     dry_run: bool
@@ -56,22 +57,40 @@ class Settings:
     force_full_exit_on_liquidity_break: bool
     liquidity_break_ratio: float
     exit_probe_fractions: list[float]
+    daily_realized_loss_cap_sol: float
+    max_consecutive_execution_failures: int
+    stale_market_data_minutes: int
+    unknown_exit_saturation_limit: int
+    max_exit_blocked_positions: int
     log_level: str
 
     def validate(self) -> None:
-        missing: list[str] = []
+        errors: list[str] = []
         if not self.birdeye_api_key:
-            missing.append("BIRDEYE_API_KEY")
+            errors.append("BIRDEYE_API_KEY is required")
         if not self.jupiter_api_key:
-            missing.append("JUPITER_API_KEY")
-        if not self.bs58_private_key:
-            missing.append("BS58_PRIVATE_KEY")
-        if missing:
-            raise RuntimeError(f"Missing required environment values: {', '.join(missing)}")
+            errors.append("JUPITER_API_KEY is required")
+        if self.solana_keypair_path:
+            if not self.solana_keypair_path.exists():
+                errors.append(f"SOLANA_KEYPAIR_PATH does not exist: {self.solana_keypair_path}")
+            if not self.solana_keypair_path.is_file():
+                errors.append(f"SOLANA_KEYPAIR_PATH is not a file: {self.solana_keypair_path}")
+            if not os.access(self.solana_keypair_path, os.R_OK):
+                errors.append(f"SOLANA_KEYPAIR_PATH is not readable: {self.solana_keypair_path}")
+        if self.live_trading_enabled and not self.dry_run and not self.solana_keypair_path and not self.bs58_private_key:
+            errors.append("Live mode requires wallet credentials: set SOLANA_KEYPAIR_PATH (preferred) or BS58_PRIVATE_KEY")
         if len(self.take_profit_levels_pct) != len(self.take_profit_fractions):
-            raise RuntimeError("TAKE_PROFIT_LEVELS_PCT and TAKE_PROFIT_FRACTIONS must have the same length")
+            errors.append("TAKE_PROFIT_LEVELS_PCT and TAKE_PROFIT_FRACTIONS must have the same length")
         if sum(self.take_profit_fractions) > 1.0:
-            raise RuntimeError("TAKE_PROFIT_FRACTIONS sum must be <= 1.0")
+            errors.append("TAKE_PROFIT_FRACTIONS sum must be <= 1.0")
+        if self.daily_realized_loss_cap_sol <= 0:
+            errors.append("DAILY_REALIZED_LOSS_CAP_SOL must be > 0")
+        if self.max_consecutive_execution_failures <= 0:
+            errors.append("MAX_CONSECUTIVE_EXECUTION_FAILURES must be > 0")
+        if self.max_exit_blocked_positions <= 0:
+            errors.append("MAX_EXIT_BLOCKED_POSITIONS must be > 0")
+        if errors:
+            raise RuntimeError("Configuration validation failed:\n- " + "\n- ".join(errors))
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -85,6 +104,7 @@ def load_settings() -> Settings:
     settings = Settings(
         birdeye_api_key=env_str("BIRDEYE_API_KEY", ""),
         jupiter_api_key=env_str("JUPITER_API_KEY", ""),
+        solana_keypair_path=Path(path_raw) if (path_raw := env_str("SOLANA_KEYPAIR_PATH", "")) else None,
         bs58_private_key=env_str("BS58_PRIVATE_KEY", ""),
         chain=env_str("CHAIN", "solana"),
         dry_run=env_bool("DRY_RUN", True),
@@ -124,6 +144,11 @@ def load_settings() -> Settings:
         force_full_exit_on_liquidity_break=env_bool("FORCE_FULL_EXIT_ON_LIQUIDITY_BREAK", True),
         liquidity_break_ratio=env_float("LIQUIDITY_BREAK_RATIO", 0.55),
         exit_probe_fractions=env_csv_floats("EXIT_PROBE_FRACTIONS", [0.1, 0.2, 0.35, 0.5, 1.0]),
+        daily_realized_loss_cap_sol=env_float("DAILY_REALIZED_LOSS_CAP_SOL", 1.0),
+        max_consecutive_execution_failures=env_int("MAX_CONSECUTIVE_EXECUTION_FAILURES", 6),
+        stale_market_data_minutes=env_int("STALE_MARKET_DATA_MINUTES", 10),
+        unknown_exit_saturation_limit=env_int("UNKNOWN_EXIT_SATURATION_LIMIT", 6),
+        max_exit_blocked_positions=env_int("MAX_EXIT_BLOCKED_POSITIONS", 5),
         log_level=env_str("LOG_LEVEL", "INFO"),
     )
     settings.validate()

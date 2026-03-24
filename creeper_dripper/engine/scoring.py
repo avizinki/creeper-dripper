@@ -1,6 +1,19 @@
 from __future__ import annotations
 
 from creeper_dripper.config import Settings
+from creeper_dripper.errors import (
+    REJECT_BAD_BUY_SELL_RATIO,
+    REJECT_FREEZABLE,
+    REJECT_HIGH_BUY_IMPACT,
+    REJECT_HIGH_SELL_IMPACT,
+    REJECT_LOW_EXIT_LIQUIDITY,
+    REJECT_LOW_LIQUIDITY,
+    REJECT_LOW_SCORE,
+    REJECT_LOW_VOLUME,
+    REJECT_MINTABLE,
+    REJECT_NO_SELL_ROUTE,
+    REJECT_TOKEN_TOO_OLD,
+)
 from creeper_dripper.models import TokenCandidate
 from creeper_dripper.utils import clamp
 
@@ -83,28 +96,33 @@ def score_candidate(candidate: TokenCandidate, settings: Settings) -> TokenCandi
 
 
 def passes_filters(candidate: TokenCandidate, settings: Settings) -> bool:
+    return len(rejection_reasons(candidate, settings)) == 0
+
+
+def rejection_reasons(candidate: TokenCandidate, settings: Settings) -> list[str]:
+    reasons: list[str] = []
     if not candidate.address:
-        return False
+        reasons.append("reject_missing_address")
     if (candidate.liquidity_usd or 0.0) < settings.min_liquidity_usd:
-        return False
+        reasons.append(REJECT_LOW_LIQUIDITY)
     if (candidate.exit_liquidity_usd or 0.0) < settings.min_exit_liquidity_usd:
-        return False
+        reasons.append(REJECT_LOW_EXIT_LIQUIDITY)
     if (candidate.volume_24h_usd or 0.0) < settings.min_volume_24h_usd:
-        return False
+        reasons.append(REJECT_LOW_VOLUME)
     if (candidate.buy_sell_ratio_1h or 0.0) < settings.min_buy_sell_ratio:
-        return False
+        reasons.append(REJECT_BAD_BUY_SELL_RATIO)
     if settings.block_mutable_mint and candidate.security_mint_mutable:
-        return False
+        reasons.append(REJECT_MINTABLE)
     if settings.block_freezable and candidate.security_freezable:
-        return False
+        reasons.append(REJECT_FREEZABLE)
     if candidate.discovery_score < settings.min_discovery_score:
-        return False
+        reasons.append(REJECT_LOW_SCORE)
     if settings.require_jup_sell_route and candidate.jupiter_sell_price_impact_bps is None:
-        return False
+        reasons.append(REJECT_NO_SELL_ROUTE)
     if candidate.jupiter_sell_price_impact_bps is not None and candidate.jupiter_sell_price_impact_bps > settings.max_acceptable_price_impact_bps:
-        return False
+        reasons.append(REJECT_HIGH_SELL_IMPACT)
     if candidate.jupiter_buy_price_impact_bps is not None and candidate.jupiter_buy_price_impact_bps > settings.max_acceptable_price_impact_bps:
-        return False
+        reasons.append(REJECT_HIGH_BUY_IMPACT)
     if candidate.age_hours is not None and candidate.age_hours > settings.max_token_age_hours:
-        return False
-    return True
+        reasons.append(REJECT_TOKEN_TOO_OLD)
+    return reasons
