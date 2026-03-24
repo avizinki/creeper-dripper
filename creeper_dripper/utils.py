@@ -13,6 +13,10 @@ from typing import Any, Iterable
 
 LOGGER = logging.getLogger("creeper_dripper")
 
+_LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+_RUNTIME_FILE_HANDLER_MARKER = "_creeper_dripper_runtime_logfile"
+_LOGFILE_MAX_BYTES = 10 * 1024 * 1024
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -134,11 +138,36 @@ def b64decode(data: str) -> bytes:
     return base64.b64decode(data.encode("utf-8"))
 
 
-def setup_logging(level: str) -> None:
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+def _maybe_rotate_logfile(path: Path, *, max_bytes: int) -> None:
+    if not path.exists():
+        return
+    try:
+        if path.stat().st_size <= max_bytes:
+            return
+    except OSError:
+        return
+    rotated = path.with_name(f"{path.name}.1")
+    if rotated.exists():
+        rotated.unlink()
+    path.rename(rotated)
+
+
+def setup_logging(level: str, *, runtime_dir: Path | None = None) -> None:
+    level_no = getattr(logging, level.upper(), logging.INFO)
+    logging.basicConfig(level=level_no, format=_LOG_FORMAT)
+    if runtime_dir is None:
+        return
+    root = logging.getLogger()
+    if any(getattr(h, _RUNTIME_FILE_HANDLER_MARKER, False) for h in root.handlers):
+        return
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    log_path = runtime_dir / "logfile.log"
+    _maybe_rotate_logfile(log_path, max_bytes=_LOGFILE_MAX_BYTES)
+    file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    setattr(file_handler, _RUNTIME_FILE_HANDLER_MARKER, True)
+    file_handler.setLevel(logging.NOTSET)
+    file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+    root.addHandler(file_handler)
 
 
 def mask_secret(secret: str) -> str:
