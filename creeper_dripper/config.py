@@ -120,8 +120,8 @@ def load_settings() -> Settings:
 
     discovery_interval_seconds = _required_env_int("DISCOVERY_INTERVAL_SECONDS")
     max_active_candidates = _required_env_int("MAX_ACTIVE_CANDIDATES")
-    candidate_cache_ttl_seconds = _required_env_int("CANDIDATE_CACHE_TTL_SECONDS")
-    route_check_cache_ttl_seconds = _required_env_int("ROUTE_CHECK_CACHE_TTL_SECONDS")
+    candidate_cache_ttl_seconds = _optional_env_int("CANDIDATE_CACHE_TTL_SECONDS", 120)
+    route_check_cache_ttl_seconds = _optional_env_int("ROUTE_CHECK_CACHE_TTL_SECONDS", 90)
 
     settings = Settings(
         birdeye_api_key=env_str("BIRDEYE_API_KEY", ""),
@@ -189,6 +189,16 @@ def _required_env_int(name: str) -> int:
     raw = os.getenv(name)
     if raw is None or not raw.strip():
         raise RuntimeError(f"Missing required environment value: {name}")
+    try:
+        return int(float(raw.strip()))
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid integer environment value for {name}: {raw}") from exc
+
+
+def _optional_env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
     try:
         return int(float(raw.strip()))
     except ValueError as exc:
