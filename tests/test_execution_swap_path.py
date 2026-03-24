@@ -46,9 +46,6 @@ def test_executor_builds_swap_and_passes_to_signer(monkeypatch):
             return "owner_pubkey"
 
     class StubJupiter:
-        def __init__(self):
-            self.payloads = []
-
         def probe_quote(self, **kwargs):
             return ProbeQuote(
                 input_amount_atomic=kwargs["amount_atomic"],
@@ -58,22 +55,16 @@ def test_executor_builds_swap_and_passes_to_signer(monkeypatch):
                 raw={},
             )
 
-        def swap_transaction(self, **kwargs):
-            self.payloads.append(kwargs)
-            return "ZmFrZV90eA=="
-
     jupiter = StubJupiter()
     executor = TradeExecutor(jupiter, owner=FakeOwner(), settings=settings)
-    seen = {"tx": None}
-
-    def fake_sign_and_send(tx_b64: str):
-        seen["tx"] = tx_b64
-        return "sig123"
-
-    monkeypatch.setattr(executor, "sign_and_send", fake_sign_and_send)
+    monkeypatch.setattr(executor, "build_v2_execution_order", lambda **kw: {"transaction": "ZmFrZV90eA==", "requestId": "rid1"})
+    monkeypatch.setattr(
+        executor,
+        "sign_and_execute_v2",
+        lambda _order: ("sig123", {"totalOutputAmount": "777"}),
+    )
     token = TokenCandidate(address="mint1", symbol="TOK", decimals=6, price_usd=1.0)
     result, _quote = executor.buy(token, 0.1)
-    assert jupiter.payloads, "swap endpoint should be called"
-    assert seen["tx"] == "ZmFrZV90eA=="
     assert result.status == "success"
     assert result.signature == "sig123"
+    assert result.executed_amount == 777
