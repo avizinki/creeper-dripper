@@ -176,6 +176,9 @@ class PortfolioState:
     opened_today_count: int
     opened_today_date: str | None = None
     last_cycle_at: str | None = None
+    # Hachi birth baseline (visibility/bootstrap only; never settlement truth).
+    hachi_birth_wallet_sol: float | None = None
+    hachi_birth_timestamp: str | None = None
     safe_mode_active: bool = False
     safety_stop_reason: str | None = None
     consecutive_execution_failures: int = 0

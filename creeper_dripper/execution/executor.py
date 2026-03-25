@@ -803,6 +803,31 @@ class TradeExecutor:
             LOGGER.warning("transaction status fetch failed for signature=%s: %s", signature, exc)
             return None
 
+    def native_sol_balance_lamports(self, owner_pubkey: str) -> int | None:
+        """
+        Visibility-only balance check (NOT settlement truth).
+
+        Uses Solana RPC getBalance to report native SOL lamports for the owner wallet.
+        """
+        pk = str(owner_pubkey or "").strip()
+        if not pk:
+            return None
+        try:
+            response = self._rpc.post(
+                self._rpc_url,
+                json={"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [pk]},
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            value = ((payload.get("result") or {}).get("value"))
+            if value is None:
+                return None
+            return int(value)
+        except Exception as exc:
+            LOGGER.warning("native_sol_balance_lamports failed owner=%s: %s", pk, exc)
+            return None
+
     def _quote_ok(self, quote: ProbeQuote) -> bool:
         if not quote.route_ok or not quote.out_amount_atomic:
             return False

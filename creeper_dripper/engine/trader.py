@@ -178,6 +178,9 @@ class CreeperDripper:
         self._candidate_cache = TTLCache[TokenCandidate](settings.candidate_cache_ttl_seconds)
         self._route_cache = TTLCache[ProbeQuote](settings.route_check_cache_ttl_seconds)
         self._cycle_in_run = 0
+        # Wallet snapshot (visibility/bootstrap only; never settlement truth).
+        self._wallet_available_sol: float | None = None
+        self._wallet_snapshot_at: str | None = None
         if self.settings.run_id:
             self.portfolio.run_id = self.settings.run_id
         LOGGER.info(
@@ -187,6 +190,48 @@ class CreeperDripper:
             settings.candidate_cache_ttl_seconds,
             settings.route_check_cache_ttl_seconds,
         )
+
+    def set_wallet_snapshot(self, *, available_sol: float | None, snapshot_at: str) -> None:
+        """Store visibility-only wallet snapshot for dynamic capacity decisions."""
+        self._wallet_available_sol = None if available_sol is None else float(available_sol)
+        self._wallet_snapshot_at = str(snapshot_at or "") or None
+
+    def _effective_max_open_positions(self) -> int:
+        """
+        Derive dynamic max open positions from Hachi birth baseline + current wallet snapshot.
+
+        Invariants:
+        - reserve is always respected (deployable_sol = max(0, available_sol - cash_reserve_sol))
+        - hard cap is always respected (<= HARD_MAX_OPEN_POSITIONS)
+        - dynamic capacity affects entries only (exits/recovery are unchanged)
+        - per-position sizing caps remain enforced elsewhere (BASE/MAX_POSITION_SIZE_SOL, MIN_ORDER_SIZE_SOL)
+
+        This is visibility/bootstrap only: it never treats wallet balances as settlement truth.
+        """
+        baseline = int(self.settings.max_open_positions)
+        hard_cap = int(getattr(self.settings, "hard_max_open_positions", baseline) or baseline)
+        if not getattr(self.settings, "dynamic_capacity_enabled", True):
+            return min(baseline, hard_cap)
+
+        available_sol = self._wallet_available_sol
+        if available_sol is None:
+            available_sol = float(self.portfolio.cash_sol)
+        reserve = float(self.settings.cash_reserve_sol)
+        deployable = max(0.0, available_sol - reserve)
+
+        birth_sol = getattr(self.settings, "hachi_birth_wallet_sol", None) or getattr(self.portfolio, "hachi_birth_wallet_sol", None)
+        dynamic_from_birth = baseline
+        try:
+            if birth_sol is not None and float(birth_sol) > 0:
+                scale = float(available_sol) / float(birth_sol)
+                dynamic_from_birth = max(1, int(baseline * scale))
+        except Exception:
+            dynamic_from_birth = baseline
+
+        denom = max(float(self.settings.base_position_size_sol), float(self.settings.min_order_size_sol), 1e-9)
+        funding_cap = int(deployable / denom) if deployable > 0 else 0
+        effective = min(hard_cap, max(baseline, min(dynamic_from_birth, funding_cap)))
+        return max(0, int(effective))
 
     def run_cycle(self) -> dict:
         now = utc_now_iso()
@@ -239,18 +284,28 @@ class CreeperDripper:
         cycle_summary = self._cycle_summary(now, discovery_summary, decisions)
         self._persist_cycle(now, decisions, cycle_summary)
         self.events.emit("cycle_summary", "ok", **cycle_summary)
+        effective_max_open_positions = self._effective_max_open_positions()
+        wallet_available_sol = self._wallet_available_sol
+        reserve = float(self.settings.cash_reserve_sol)
+        deployable_sol = None
+        if wallet_available_sol is not None:
+            deployable_sol = max(0.0, float(wallet_available_sol) - reserve)
         self.events.emit(
             "entry_capacity_mode_summary",
             "ok",
             mode=self.settings.entry_capacity_mode,
             open_positions=len(self.portfolio.open_positions),
-            max_open_positions=self.settings.max_open_positions,
-            slots_available=self.settings.max_open_positions - len(self.portfolio.open_positions),
+            max_open_positions=effective_max_open_positions,
+            slots_available=max(0, effective_max_open_positions - len(self.portfolio.open_positions)),
             opened_today_count=self.portfolio.opened_today_count,
             max_daily_new_positions=self.settings.max_daily_new_positions,
             early_risk_bucket_enabled=self.settings.early_risk_bucket_enabled,
             cash_sol=self.portfolio.cash_sol,
             cash_reserve_sol=self.settings.cash_reserve_sol,
+            wallet_available_sol=wallet_available_sol,
+            wallet_snapshot_at=self._wallet_snapshot_at,
+            hachi_birth_wallet_sol=getattr(self.settings, "hachi_birth_wallet_sol", None) or getattr(self.portfolio, "hachi_birth_wallet_sol", None),
+            deployable_sol=deployable_sol,
         )
         blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
         zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
@@ -1530,6 +1585,11 @@ class CreeperDripper:
 
     def _maybe_open_positions(self, candidates: list[TokenCandidate], decisions: list[TradeDecision], now: str) -> None:
         mode = str(getattr(self.settings, "entry_capacity_mode", "strict") or "strict")
+        effective_max_open_positions = self._effective_max_open_positions()
+        # Invariants:
+        # - dynamic capacity affects entries only (this function)
+        # - reserve floor is enforced before execution (blocked_cash_reserve)
+        # - per-position sizing caps are enforced via size_sol=min(base,max,early_risk_cap)
 
         def _emit_capacity_decision(*, candidate: TokenCandidate, allowed: bool, reason: str) -> None:
             candidate_type = "early_risk" if bool((candidate.raw or {}).get("early_risk_bucket")) else "standard"
@@ -1544,12 +1604,12 @@ class CreeperDripper:
                 mint=candidate.address,
                 symbol=candidate.symbol,
                 open_positions=len(self.portfolio.open_positions),
-                max_open_positions=self.settings.max_open_positions,
+                max_open_positions=effective_max_open_positions,
                 opened_today_count=self.portfolio.opened_today_count,
                 max_daily_new_positions=self.settings.max_daily_new_positions,
             )
 
-        if len(self.portfolio.open_positions) >= self.settings.max_open_positions:
+        if len(self.portfolio.open_positions) >= effective_max_open_positions:
             return
         if self.portfolio.opened_today_count >= self.settings.max_daily_new_positions:
             return
@@ -1560,7 +1620,7 @@ class CreeperDripper:
         ordered = [*([c for c in candidates if not _is_early(c)]), *([c for c in candidates if _is_early(c)])]
 
         for candidate in ordered:
-            if len(self.portfolio.open_positions) >= self.settings.max_open_positions:
+            if len(self.portfolio.open_positions) >= effective_max_open_positions:
                 break
             if candidate.address in self.portfolio.open_positions:
                 _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_already_open")
@@ -1743,7 +1803,7 @@ class CreeperDripper:
                     )
                 )
                 self.events.emit("entry_failed", SETTLEMENT_UNCONFIRMED, token_mint=candidate.address, symbol=candidate.symbol, phase="post_execute_settlement")
-                if len(self.portfolio.open_positions) >= self.settings.max_open_positions:
+                if len(self.portfolio.open_positions) >= self._effective_max_open_positions():
                     break
                 continue
 
@@ -1829,7 +1889,7 @@ class CreeperDripper:
             decisions.append(TradeDecision(action="BUY", token_mint=candidate.address, symbol=candidate.symbol, reason="discovery_entry", size_sol=size_sol, qty_atomic=qty_atomic, qty_ui=qty_ui, metadata={"score": candidate.discovery_score, "price_impact_bps": quote.price_impact_bps, "signature": execution.signature}))
             self.portfolio.consecutive_execution_failures = 0
             self.events.emit("entry_success", execution.diagnostic_code or "success", token_mint=candidate.address, qty_atomic=qty_atomic)
-            if len(self.portfolio.open_positions) >= self.settings.max_open_positions:
+            if len(self.portfolio.open_positions) >= self._effective_max_open_positions():
                 break
 
     def _write_entry_probe_artifact(

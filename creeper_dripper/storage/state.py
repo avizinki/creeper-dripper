@@ -154,6 +154,8 @@ def load_portfolio(path: Path, initial_cash_sol: float) -> PortfolioState:
         opened_today_count=int(data.get("opened_today_count", 0)),
         opened_today_date=data.get("opened_today_date"),
         last_cycle_at=data.get("last_cycle_at"),
+        hachi_birth_wallet_sol=(float(data.get("hachi_birth_wallet_sol")) if data.get("hachi_birth_wallet_sol") is not None else None),
+        hachi_birth_timestamp=data.get("hachi_birth_timestamp"),
         safe_mode_active=bool(data.get("safe_mode_active", False)),
         safety_stop_reason=data.get("safety_stop_reason"),
         consecutive_execution_failures=int(data.get("consecutive_execution_failures", 0)),

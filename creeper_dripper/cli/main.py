@@ -21,7 +21,7 @@ from creeper_dripper.engine.discovery import discover_candidates, serialize_cand
 from creeper_dripper.engine.trader import CreeperDripper
 from creeper_dripper.execution.executor import TradeExecutor
 from creeper_dripper.execution.wallet import load_keypair_from_base58, load_keypair_from_file
-from creeper_dripper.storage.state import load_portfolio
+from creeper_dripper.storage.state import load_portfolio, save_portfolio
 from creeper_dripper.utils import atomic_write_json, monotonic_sleep_until, setup_logging
 
 STOP = False
@@ -73,6 +73,7 @@ def _print_env_snapshot(settings) -> None:
             _format_env_snapshot_line("STATE_PATH", settings.state_path),
             _format_env_snapshot_line("JOURNAL_PATH", settings.journal_path),
             _format_env_snapshot_line("SOLANA_KEYPAIR_PATH", settings.solana_keypair_path or ""),
+            _format_env_snapshot_line("WALLET_ADDRESS", getattr(settings, "wallet_address", None) or ""),
             _format_env_snapshot_line("SOLANA_RPC_URL", os.getenv("SOLANA_RPC_URL", "")),
         ]
     )
@@ -108,6 +109,7 @@ def _print_env_snapshot(settings) -> None:
             _format_env_snapshot_line("REQUIRE_JUP_SELL_ROUTE", str(bool(settings.require_jup_sell_route)).lower()),
             _format_env_snapshot_line("PORTFOLIO_START_SOL", settings.portfolio_start_sol),
             _format_env_snapshot_line("MAX_OPEN_POSITIONS", settings.max_open_positions),
+            _format_env_snapshot_line("HARD_MAX_OPEN_POSITIONS", getattr(settings, "hard_max_open_positions", "")),
             _format_env_snapshot_line("ENTRY_CAPACITY_MODE", settings.entry_capacity_mode),
             _format_env_snapshot_line("BASE_POSITION_SIZE_SOL", settings.base_position_size_sol),
             _format_env_snapshot_line("MAX_POSITION_SIZE_SOL", settings.max_position_size_sol),
@@ -142,11 +144,107 @@ def _print_env_snapshot(settings) -> None:
             _format_env_snapshot_line("HACHI_EMERGENCY_PNL_PCT", settings.hachi_emergency_pnl_pct),
             _format_env_snapshot_line("HACHI_WEAKENING_DROP_PCT", settings.hachi_weakening_drop_pct),
             _format_env_snapshot_line("HACHI_COLLAPSE_DROP_PCT", settings.hachi_collapse_drop_pct),
+            _format_env_snapshot_line("DYNAMIC_CAPACITY_ENABLED", str(bool(getattr(settings, "dynamic_capacity_enabled", True))).lower()),
+            _format_env_snapshot_line("HACHI_BIRTH_WALLET_SOL", getattr(settings, "hachi_birth_wallet_sol", None)),
+            _format_env_snapshot_line("HACHI_BIRTH_TIMESTAMP", getattr(settings, "hachi_birth_timestamp", None)),
         ]
     )
     print("\n=== ENV SNAPSHOT (masked) ===")
     for line in lines:
         print(line)
+
+
+def _wallet_address_for_snapshot(settings) -> str | None:
+    """
+    Best-effort wallet address discovery for visibility-only snapshots.
+
+    Never used as settlement/execution truth. This is operator visibility/bootstrap only.
+    """
+    try:
+        if getattr(settings, "wallet_address", None):
+            return str(settings.wallet_address)
+        owner = _load_owner_if_configured(settings)
+        if owner is None:
+            return None
+        pubkey = getattr(owner, "pubkey", None)
+        if callable(pubkey):
+            return str(owner.pubkey())
+        return None
+    except Exception:
+        return None
+
+
+def _print_wallet_snapshot(*, settings, birdeye: BirdeyeClient, executor: TradeExecutor, wallet: str | None, header: str) -> None:
+    print(f"\n=== {header} ===")
+    print("note: visibility/bootstrap only (NOT settlement truth; NOT execution truth; does NOT modify state)")
+    if not wallet:
+        print("wallet_snapshot: n/a (wallet not configured)")
+        return
+    lamports = executor.native_sol_balance_lamports(wallet)
+    sol = None if lamports is None else (float(lamports) / 1_000_000_000.0)
+    try:
+        snap = birdeye.wallet_token_list(wallet)
+    except Exception as exc:
+        print(f"wallet_snapshot: failed wallet={wallet} error={type(exc).__name__}:{exc}")
+        return
+    items = snap.get("items") or []
+    total_usd = snap.get("totalUsd")
+    # Prefer excluding SOL/USDC from "holdings summary" so the output focuses on leftovers.
+    filtered = []
+    for it in items:
+        addr = str((it or {}).get("address") or "").strip()
+        if addr in {SOL_MINT, USDC_MINT}:
+            continue
+        filtered.append(it)
+    def _value_usd(it: dict) -> float:
+        try:
+            return float(it.get("valueUsd") or 0.0)
+        except Exception:
+            return 0.0
+    top = sorted(filtered, key=_value_usd, reverse=True)[:8]
+    print(f"wallet={wallet}")
+    print(f"wallet_native_sol_snapshot_rpc={('n/a' if sol is None else round(sol, 6))}")
+    print(f"wallet_token_count_birdeye={len(items)}")
+    print(f"wallet_total_usd_birdeye={('n/a' if total_usd is None else total_usd)}")
+    print("holdings_top:")
+    if not top:
+        print("  (none)")
+    for it in top:
+        sym = str(it.get('symbol') or '?')
+        addr = str(it.get('address') or '?')
+        ui = it.get("uiAmount")
+        vu = it.get("valueUsd")
+        print(f"  - {sym} {addr} ui={ui} usd={vu}")
+
+
+def _print_dynamic_capacity(
+    *,
+    settings,
+    engine: CreeperDripper | None,
+    wallet_available_sol: float | None,
+    header: str,
+) -> None:
+    print(f"\n=== {header} ===")
+    print("note: affects entries only (never exits; never settlement truth)")
+    birth_sol = None
+    birth_ts = None
+    effective_max = None
+    if engine is not None:
+        birth_sol = engine.portfolio.hachi_birth_wallet_sol
+        birth_ts = engine.portfolio.hachi_birth_timestamp
+        try:
+            effective_max = engine._effective_max_open_positions()
+        except Exception:
+            effective_max = None
+    reserve = float(settings.cash_reserve_sol)
+    deployable = None if wallet_available_sol is None else max(0.0, float(wallet_available_sol) - reserve)
+    print(f"dynamic_capacity_enabled={str(bool(getattr(settings, 'dynamic_capacity_enabled', True))).lower()}")
+    print(f"hard_max_open_positions={getattr(settings, 'hard_max_open_positions', None)}")
+    print(f"effective_max_open_positions={effective_max}")
+    print(f"hachi_birth_wallet_sol={getattr(settings, 'hachi_birth_wallet_sol', None) or birth_sol}")
+    print(f"hachi_birth_timestamp={getattr(settings, 'hachi_birth_timestamp', None) or birth_ts}")
+    print(f"current_wallet_sol_snapshot={wallet_available_sol}")
+    print(f"deployable_sol={deployable}")
 
 
 
@@ -329,7 +427,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     settings.run_log_path = settings.run_dir / "logfile.log"
     setup_logging(settings.log_level, runtime_dir=settings.runtime_dir, run_log_path=settings.run_log_path)
     require_owner = settings.live_trading_enabled and not settings.dry_run
-    _settings, engine, *_rest = build_runtime(
+    _settings, engine, executor, birdeye, owner = build_runtime(
         require_owner=require_owner,
         load_owner=require_owner,
         settings=settings,
@@ -372,6 +470,46 @@ def cmd_run(args: argparse.Namespace) -> int:
             default=str,
         )
     )
+    # One-time wallet snapshot on startup (visibility only; never used as settlement truth)
+    wallet = None
+    try:
+        wallet = str(owner.pubkey()) if owner is not None else None
+    except Exception:
+        wallet = None
+    _print_wallet_snapshot(
+        settings=settings,
+        birdeye=birdeye,
+        executor=executor,
+        wallet=wallet,
+        header="STARTUP WALLET SNAPSHOT (visibility only)",
+    )
+    # Seed dynamic capacity snapshot + Hachi birth baseline (visibility/bootstrap only).
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        lamports = executor.native_sol_balance_lamports(wallet) if wallet else None
+        available_sol = None if lamports is None else float(lamports) / 1_000_000_000.0
+        engine.set_wallet_snapshot(available_sol=available_sol, snapshot_at=now)
+        birth_sol = settings.hachi_birth_wallet_sol
+        birth_ts = settings.hachi_birth_timestamp
+        if engine.portfolio.hachi_birth_wallet_sol is None and birth_sol is not None:
+            engine.portfolio.hachi_birth_wallet_sol = float(birth_sol)
+            engine.portfolio.hachi_birth_timestamp = birth_ts or now
+            save_portfolio(settings.state_path, engine.portfolio)
+        elif engine.portfolio.hachi_birth_wallet_sol is None and available_sol is not None:
+            engine.portfolio.hachi_birth_wallet_sol = float(available_sol)
+            engine.portfolio.hachi_birth_timestamp = now
+            save_portfolio(settings.state_path, engine.portfolio)
+    except Exception as exc:
+        LOGGER.warning("startup_wallet_snapshot_seed_failed: %s", exc)
+    try:
+        _print_dynamic_capacity(
+            settings=settings,
+            engine=engine,
+            wallet_available_sol=locals().get("available_sol", None),
+            header="STARTUP DYNAMIC CAPACITY (entries only)",
+        )
+    except Exception as exc:
+        LOGGER.warning("startup_dynamic_capacity_print_failed: %s", exc)
     recovery = engine.run_startup_recovery()
     if recovery:
         print(json.dumps({"startup_recovery": [asdict(d) for d in recovery]}, indent=2, default=str))
@@ -741,6 +879,25 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         ok = False
 
     print(json.dumps({"ok": ok, "checks": checks}, indent=2, default=str))
+    # Wallet snapshot (visibility only; never used as settlement truth)
+    wallet = _wallet_address_for_snapshot(settings)
+    executor = TradeExecutor(jupiter, owner=None, settings=settings)
+    _print_wallet_snapshot(
+        settings=settings,
+        birdeye=birdeye,
+        executor=executor,
+        wallet=wallet,
+        header="WALLET SNAPSHOT (visibility only)",
+    )
+    # Dynamic capacity (computed from current visibility-only wallet snapshot)
+    lamports = executor.native_sol_balance_lamports(wallet) if wallet else None
+    wallet_sol = None if lamports is None else float(lamports) / 1_000_000_000.0
+    _print_dynamic_capacity(
+        settings=settings,
+        engine=None,
+        wallet_available_sol=wallet_sol,
+        header="DYNAMIC CAPACITY (entries only; visibility-derived)",
+    )
     _print_env_snapshot(settings)
     return 0 if ok else 1
 
@@ -798,6 +955,122 @@ def cmd_status(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cleanup_dust(_args: argparse.Namespace) -> int:
+    """
+    Cleanup dust / leftovers in the wallet.
+
+    Visibility/bootstrap only: uses Birdeye wallet snapshot to enumerate holdings.
+    Execution truth remains Jupiter-only (no wallet balance settlement truth).
+    """
+    settings = load_settings()
+    # We only require owner if this command can actually execute sells.
+    require_owner = settings.live_trading_enabled and not settings.dry_run
+    settings, engine, executor, birdeye, owner = build_runtime(require_owner=require_owner, load_owner=True, settings=settings)
+    wallet = None
+    try:
+        wallet = str(owner.pubkey()) if owner is not None else _wallet_address_for_snapshot(settings)
+    except Exception:
+        wallet = _wallet_address_for_snapshot(settings)
+    if not wallet:
+        raise RuntimeError("cleanup-dust requires a configured wallet (SOLANA_KEYPAIR_PATH preferred)")
+
+    snap = birdeye.wallet_token_list(wallet)
+    items = list(snap.get("items") or [])
+    portfolio = engine.portfolio
+    open_mints = set(portfolio.open_positions.keys())
+
+    leftovers: list[dict] = []
+    for it in items:
+        addr = str((it or {}).get("address") or "").strip()
+        if not addr or addr in {SOL_MINT, USDC_MINT}:
+            continue
+        ui_amt = it.get("uiAmount") or 0.0
+        try:
+            ui_amt = float(ui_amt)
+        except Exception:
+            ui_amt = 0.0
+        if ui_amt <= 0:
+            continue
+        if addr in open_mints:
+            continue
+        leftovers.append(it)
+
+    # Safety: keep cleanup conservative; do not liquidate large holdings automatically.
+    DUST_VALUE_USD = 1.0
+    MAX_AUTO_SELL_VALUE_USD = 50.0
+
+    sold: list[dict] = []
+    archived: list[dict] = []
+    still_blocked: list[dict] = []
+
+    for it in leftovers:
+        mint = str(it.get("address") or "").strip()
+        symbol = str(it.get("symbol") or "?").strip() or "?"
+        balance = it.get("balance")
+        try:
+            amount_atomic = int(balance)
+        except Exception:
+            amount_atomic = 0
+        value_usd = it.get("valueUsd")
+        try:
+            value_usd_f = float(value_usd) if value_usd is not None else 0.0
+        except Exception:
+            value_usd_f = 0.0
+
+        if value_usd_f > 0.0 and value_usd_f <= DUST_VALUE_USD:
+            archived.append({"mint": mint, "symbol": symbol, "reason": "dust", "value_usd": value_usd_f, "amount_atomic": amount_atomic})
+            continue
+
+        # One final route check + optional one-time sell.
+        try:
+            probe = executor.quote_sell(mint, max(1, amount_atomic))
+        except Exception as exc:
+            still_blocked.append({"mint": mint, "symbol": symbol, "reason": "quote_exception", "error": str(exc), "value_usd": value_usd_f})
+            continue
+
+        if not probe.route_ok or not probe.out_amount_atomic:
+            archived.append({"mint": mint, "symbol": symbol, "reason": "no_route", "value_usd": value_usd_f, "amount_atomic": amount_atomic})
+            continue
+
+        if value_usd_f > MAX_AUTO_SELL_VALUE_USD:
+            still_blocked.append({"mint": mint, "symbol": symbol, "reason": "tradable_but_too_large_for_auto_cleanup", "value_usd": value_usd_f, "amount_atomic": amount_atomic})
+            continue
+
+        result, _q = executor.sell(mint, max(1, amount_atomic))
+        if result.status == "success" or result.status == "skipped":
+            sold.append({"mint": mint, "symbol": symbol, "status": result.status, "diagnostic_code": result.diagnostic_code, "signature": result.signature, "value_usd": value_usd_f, "amount_atomic": amount_atomic})
+        else:
+            still_blocked.append({"mint": mint, "symbol": symbol, "status": result.status, "diagnostic_code": result.diagnostic_code, "error": result.error, "value_usd": value_usd_f, "amount_atomic": amount_atomic})
+
+    # Archive report for operator evidence (non-destructive; no retries).
+    try:
+        ts = datetime.now(timezone.utc).isoformat()
+        archive_path = settings.runtime_dir / "dust_cleanup_archive.json"
+        payload = {
+            "timestamp": ts,
+            "wallet": wallet,
+            "sold": sold,
+            "archived": archived,
+            "still_blocked": still_blocked,
+        }
+        atomic_write_json(archive_path, payload)
+    except Exception as exc:
+        LOGGER.warning("dust_cleanup_archive_write_failed: %s", exc)
+
+    summary = {
+        "wallet": wallet,
+        "leftovers_seen": len(leftovers),
+        "sold": len(sold),
+        "archived": len(archived),
+        "still_blocked": len(still_blocked),
+        "sold_items": sold,
+        "archived_items": archived,
+        "still_blocked_items": still_blocked,
+    }
+    print(json.dumps(summary, indent=2, default=str))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="creeper-dripper")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -822,6 +1095,9 @@ def main(argv: list[str] | None = None) -> int:
 
     status = sub.add_parser("status", help="Show concise local runtime status")
     status.set_defaults(func=cmd_status)
+
+    cleanup = sub.add_parser("cleanup-dust", help="Cleanup wallet leftovers/dust (one-shot, conservative)")
+    cleanup.set_defaults(func=cmd_cleanup_dust)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

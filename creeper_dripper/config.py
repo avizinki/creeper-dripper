@@ -19,6 +19,7 @@ class Settings:
     jupiter_api_key: str
     solana_keypair_path: Path | None
     bs58_private_key: str
+    wallet_address: str | None
     chain: str
     dry_run: bool
     live_trading_enabled: bool
@@ -47,6 +48,7 @@ class Settings:
     require_jup_sell_route: bool
     portfolio_start_sol: float
     max_open_positions: int
+    hard_max_open_positions: int
     base_position_size_sol: float
     max_position_size_sol: float
     cash_reserve_sol: float
@@ -102,6 +104,10 @@ class Settings:
     # collapsing: drop >= hachi_collapse_drop_pct (e.g. 8%)
     hachi_weakening_drop_pct: float = 4.0
     hachi_collapse_drop_pct: float = 8.0
+    # Dynamic capacity scaling (visibility/bootstrap only; never settlement truth).
+    dynamic_capacity_enabled: bool = True
+    hachi_birth_wallet_sol: float | None = None
+    hachi_birth_timestamp: str | None = None
     run_id: str | None = None
     run_dir: Path | None = None
     run_log_path: Path | None = None
@@ -135,6 +141,10 @@ class Settings:
             errors.append("MAX_CONSECUTIVE_EXECUTION_FAILURES must be > 0")
         if self.max_exit_blocked_positions <= 0:
             errors.append("MAX_EXIT_BLOCKED_POSITIONS must be > 0")
+        if self.hard_max_open_positions <= 0:
+            errors.append("HARD_MAX_OPEN_POSITIONS must be > 0")
+        if self.hard_max_open_positions < self.max_open_positions:
+            errors.append("HARD_MAX_OPEN_POSITIONS must be >= MAX_OPEN_POSITIONS")
         if self.discovery_interval_seconds <= 0:
             errors.append("DISCOVERY_INTERVAL_SECONDS must be > 0")
         if self.max_active_candidates <= 0:
@@ -176,6 +186,7 @@ def load_settings() -> Settings:
         jupiter_api_key=env_str("JUPITER_API_KEY", ""),
         solana_keypair_path=Path(path_raw) if (path_raw := env_str("SOLANA_KEYPAIR_PATH", "")) else None,
         bs58_private_key=env_str("BS58_PRIVATE_KEY", ""),
+        wallet_address=(env_str("WALLET_ADDRESS", "").strip() or None),
         chain=env_str("CHAIN", "solana"),
         dry_run=env_bool("DRY_RUN", True),
         live_trading_enabled=env_bool("LIVE_TRADING_ENABLED", False),
@@ -204,6 +215,7 @@ def load_settings() -> Settings:
         require_jup_sell_route=env_bool("REQUIRE_JUP_SELL_ROUTE", True),
         portfolio_start_sol=env_float("PORTFOLIO_START_SOL", 5.0),
         max_open_positions=env_int("MAX_OPEN_POSITIONS", 4),
+        hard_max_open_positions=env_int("HARD_MAX_OPEN_POSITIONS", env_int("MAX_OPEN_POSITIONS", 4)),
         base_position_size_sol=env_float("BASE_POSITION_SIZE_SOL", 0.2),
         max_position_size_sol=env_float("MAX_POSITION_SIZE_SOL", 0.5),
         cash_reserve_sol=env_float("CASH_RESERVE_SOL", 0.25),
@@ -246,6 +258,9 @@ def load_settings() -> Settings:
         hachi_emergency_pnl_pct=env_float("HACHI_EMERGENCY_PNL_PCT", -12.0),
         hachi_weakening_drop_pct=env_float("HACHI_WEAKENING_DROP_PCT", 4.0),
         hachi_collapse_drop_pct=env_float("HACHI_COLLAPSE_DROP_PCT", 8.0),
+        dynamic_capacity_enabled=env_bool("DYNAMIC_CAPACITY_ENABLED", True),
+        hachi_birth_wallet_sol=(env_float("HACHI_BIRTH_WALLET_SOL", 0.0) or None),
+        hachi_birth_timestamp=(env_str("HACHI_BIRTH_TIMESTAMP", "").strip() or None),
         run_id=None,
         run_dir=None,
         run_log_path=None,

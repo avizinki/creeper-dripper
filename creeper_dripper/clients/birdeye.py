@@ -93,6 +93,23 @@ class BirdeyeClient:
         items = data.get("items") if isinstance(data, dict) else data
         return list(items or [])
 
+    def wallet_token_list(self, wallet: str, *, ui_amount_mode: str = "scaled") -> dict[str, Any]:
+        """
+        Wallet portfolio snapshot (visibility only; NOT execution truth).
+
+        Birdeye docs (deprecated endpoint): GET /v1/wallet/token_list?wallet=<addr>&ui_amount_mode=scaled|raw
+        """
+        wallet = str(wallet or "").strip()
+        if not wallet:
+            raise ValueError("wallet is required")
+        payload = self._request(
+            "GET",
+            "/v1/wallet/token_list",
+            params={"wallet": wallet, "ui_amount_mode": ui_amount_mode},
+        )
+        data = self._data(payload)
+        return data if isinstance(data, dict) else {}
+
     def token_overview(self, address: str) -> dict[str, Any]:
         payload = self._request("GET", "/defi/token_overview", params={"address": address})
         data = self._data(payload)
