@@ -451,6 +451,8 @@ class CreeperDripper:
     def _evaluate_exit_rules(self, position: PositionState, candidate: TokenCandidate, decisions: list[TradeDecision], now: str) -> None:
         if position.status not in {"OPEN", "PARTIAL"}:
             return
+        tp_thresholds = ",".join(f"{step.trigger_pct:.2f}%" for step in position.take_profit_steps)
+        decision_taken = "none"
         ensure_entry_sol_mark(position)
         age_minutes = _age_minutes(position.opened_at)
         if not is_valid_sol_mark(position.entry_mark_sol_per_token) or not is_valid_sol_mark(position.last_mark_sol_per_token):
@@ -463,35 +465,110 @@ class CreeperDripper:
                 age_minutes,
             )
             if age_minutes >= self.settings.time_stop_minutes:
+                decision_taken = "time_stop_no_valuation"
                 self._start_exit(position, position.remaining_qty_atomic, "time_stop_no_valuation", decisions, now)
+            LOGGER.info(
+                "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=%s decision=%s reason=%s",
+                position.token_mint,
+                position.symbol,
+                position.entry_mark_sol_per_token,
+                position.last_mark_sol_per_token,
+                "n/a",
+                "n/a",
+                tp_thresholds or "none",
+                str(decision_taken != "none").lower(),
+                decision_taken,
+                "invalid_marks",
+            )
             return
         entry_s = float(position.entry_mark_sol_per_token)
         last_s = float(position.last_mark_sol_per_token)
         pnl_pct = (last_s / entry_s - 1.0) * 100.0
+        current_pnl_pct = pnl_pct
         liquidity_ratio = None
         if position.exit_liquidity_at_entry_usd and position.last_exit_liquidity_usd:
             liquidity_ratio = position.last_exit_liquidity_usd / max(position.exit_liquidity_at_entry_usd, 1.0)
 
         if self.settings.force_full_exit_on_liquidity_break and liquidity_ratio is not None and liquidity_ratio < self.settings.liquidity_break_ratio:
+            decision_taken = "liquidity_break"
             self._start_exit(position, position.remaining_qty_atomic, "liquidity_break", decisions, now)
+            LOGGER.info(
+                "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=true decision=%s reason=liquidity_ratio_below_threshold",
+                position.token_mint,
+                position.symbol,
+                position.entry_mark_sol_per_token,
+                position.last_mark_sol_per_token,
+                current_pnl_pct,
+                pnl_pct,
+                tp_thresholds or "none",
+                decision_taken,
+            )
             return
 
         if self._evaluate_jsds_liquidity(position, decisions, now):
+            decision_taken = "liquidity_jsds"
+            LOGGER.info(
+                "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=true decision=%s reason=jsds_liquidity_rule",
+                position.token_mint,
+                position.symbol,
+                position.entry_mark_sol_per_token,
+                position.last_mark_sol_per_token,
+                current_pnl_pct,
+                pnl_pct,
+                tp_thresholds or "none",
+                decision_taken,
+            )
             return
 
         if pnl_pct <= -abs(position.stop_loss_pct):
+            decision_taken = "stop_loss"
             self._start_exit(position, position.remaining_qty_atomic, "stop_loss", decisions, now)
+            LOGGER.info(
+                "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=true decision=%s reason=stop_loss",
+                position.token_mint,
+                position.symbol,
+                position.entry_mark_sol_per_token,
+                position.last_mark_sol_per_token,
+                current_pnl_pct,
+                pnl_pct,
+                tp_thresholds or "none",
+                decision_taken,
+            )
             return
 
         if pnl_pct >= position.trailing_arm_pct:
             peak_s = float(position.peak_mark_sol_per_token) if is_valid_sol_mark(position.peak_mark_sol_per_token) else last_s
             trail_floor = peak_s * (1.0 - position.trailing_stop_pct / 100.0)
             if last_s <= trail_floor:
+                decision_taken = "trailing_stop"
                 self._start_exit(position, position.remaining_qty_atomic, "trailing_stop", decisions, now)
+                LOGGER.info(
+                    "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=true decision=%s reason=trailing_stop",
+                    position.token_mint,
+                    position.symbol,
+                    position.entry_mark_sol_per_token,
+                    position.last_mark_sol_per_token,
+                    current_pnl_pct,
+                    pnl_pct,
+                    tp_thresholds or "none",
+                    decision_taken,
+                )
                 return
 
         if age_minutes >= self.settings.time_stop_minutes and pnl_pct < 12.0:
+            decision_taken = "time_stop"
             self._start_exit(position, position.remaining_qty_atomic, "time_stop", decisions, now)
+            LOGGER.info(
+                "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=true decision=%s reason=time_stop",
+                position.token_mint,
+                position.symbol,
+                position.entry_mark_sol_per_token,
+                position.last_mark_sol_per_token,
+                current_pnl_pct,
+                pnl_pct,
+                tp_thresholds or "none",
+                decision_taken,
+            )
             return
 
         for step in position.take_profit_steps:
@@ -501,9 +578,46 @@ class CreeperDripper:
                 qty = max(1, int(position.remaining_qty_atomic * step.fraction))
                 triggered = self._start_exit(position, qty, f"take_profit_{int(step.trigger_pct)}", decisions, now)
                 if triggered:
+                    decision_taken = "take_profit"
                     step.done = True
+                    LOGGER.info(
+                        "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=true decision=%s reason=tp_threshold_hit tp_trigger=%s",
+                        position.token_mint,
+                        position.symbol,
+                        position.entry_mark_sol_per_token,
+                        position.last_mark_sol_per_token,
+                        current_pnl_pct,
+                        pnl_pct,
+                        tp_thresholds or "none",
+                        decision_taken,
+                        f"{step.trigger_pct:.2f}%",
+                    )
                     if position.status != "OPEN":
                         return
+            else:
+                LOGGER.info(
+                    "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=false decision=none reason=below_threshold tp_trigger=%s",
+                    position.token_mint,
+                    position.symbol,
+                    position.entry_mark_sol_per_token,
+                    position.last_mark_sol_per_token,
+                    current_pnl_pct,
+                    pnl_pct,
+                    tp_thresholds or "none",
+                    f"{step.trigger_pct:.2f}%",
+                )
+
+        if decision_taken == "none":
+            LOGGER.info(
+                "event=exit_eval_debug mint=%s symbol=%s entry_mark_sol_per_token=%s last_mark_sol_per_token=%s current_pnl_pct=%s computed_pnl_pct=%s take_profit_thresholds=%s triggered=false decision=none reason=no_exit_rule_triggered",
+                position.token_mint,
+                position.symbol,
+                position.entry_mark_sol_per_token,
+                position.last_mark_sol_per_token,
+                current_pnl_pct,
+                pnl_pct,
+                tp_thresholds or "none",
+            )
 
     def _start_exit(self, position: PositionState, qty_atomic: int, reason: str, decisions: list[TradeDecision], now: str) -> bool:
         if position.status == "EXIT_PENDING":
