@@ -3,6 +3,8 @@ STATE_NON_PUBKEY_MINT_DROPPED = "state_non_pubkey_mint_dropped"
 EXIT_UNKNOWN_PENDING_RECONCILE = "exit_unknown_pending_reconcile"
 EXIT_RECONCILED_CLOSED = "exit_reconciled_closed"
 EXIT_RECONCILED_PARTIAL = "exit_reconciled_partial"
+# Recovery invariant: tx confirmation alone is not settlement truth in Jupiter-only mode.
+EXIT_TX_CONFIRMED_NEEDS_SETTLEMENT = "exit_tx_confirmed_needs_settlement"
 # Position status when Jupiter/execution settlement is ambiguous (not a hard execution failure).
 POSITION_RECONCILE_PENDING = "RECONCILE_PENDING"
 # Execution returned a signature but executed token amounts could not be confirmed from primary+fallback chain.

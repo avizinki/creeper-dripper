@@ -4,6 +4,7 @@ import logging
 
 from creeper_dripper.errors import (
     EXIT_RECONCILED_CLOSED,
+    EXIT_TX_CONFIRMED_NEEDS_SETTLEMENT,
     EXIT_UNKNOWN_PENDING_RECONCILE,
     POSITION_RECONCILE_PENDING,
 )
@@ -63,6 +64,27 @@ def run_startup_recovery(portfolio: PortfolioState, executor, now: str) -> list[
             )
             LOGGER.info(
                 "startup_recovery_exit_confirmed mint=%s position_id=%s signature=%s",
+                mint,
+                position.position_id or mint,
+                position.pending_exit_signature,
+            )
+
+        elif next_status == POSITION_RECONCILE_PENDING:
+            # Tx confirmed, but we do not have settlement truth recorded internally.
+            # Keep the position visible/auditable for operator intervention.
+            position.status = POSITION_RECONCILE_PENDING
+            position.reconcile_context = "exit"
+            decisions.append(
+                TradeDecision(
+                    action="RECOVERY_EXIT",
+                    token_mint=mint,
+                    symbol=position.symbol,
+                    reason=reason or EXIT_TX_CONFIRMED_NEEDS_SETTLEMENT,
+                    metadata={"startup_recovery": True, "tx_status": "success"},
+                )
+            )
+            LOGGER.warning(
+                "startup_recovery_tx_confirmed_needs_settlement mint=%s position_id=%s signature=%s",
                 mint,
                 position.position_id or mint,
                 position.pending_exit_signature,

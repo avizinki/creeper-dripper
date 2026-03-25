@@ -4,7 +4,12 @@ import json
 
 from creeper_dripper.config import load_settings
 from creeper_dripper.engine.trader import CreeperDripper
-from creeper_dripper.errors import EXIT_RECONCILED_CLOSED, EXIT_UNKNOWN_PENDING_RECONCILE, POSITION_RECONCILE_PENDING
+from creeper_dripper.errors import (
+    EXIT_RECONCILED_CLOSED,
+    EXIT_TX_CONFIRMED_NEEDS_SETTLEMENT,
+    EXIT_UNKNOWN_PENDING_RECONCILE,
+    POSITION_RECONCILE_PENDING,
+)
 from creeper_dripper.models import ExecutionResult, PortfolioState, PositionState, ProbeQuote
 from creeper_dripper.storage.state import load_portfolio, new_portfolio, save_portfolio
 from creeper_dripper.utils import utc_now_iso
@@ -81,8 +86,8 @@ def _position(now: str) -> PositionState:
     )
 
 
-def test_startup_recovery_closes_exit_pending_when_tx_confirmed(monkeypatch, tmp_path):
-    """EXIT_PENDING position with confirmed tx is closed on startup — Jupiter/tx truth only."""
+def test_startup_recovery_tx_confirmed_without_settlement_truth_does_not_close(monkeypatch, tmp_path):
+    """tx_status=success is not settlement truth; EXIT_PENDING must not be closed on startup."""
     settings = _settings(monkeypatch, tmp_path)
     now = utc_now_iso()
     portfolio: PortfolioState = new_portfolio(5.0)
@@ -91,6 +96,30 @@ def test_startup_recovery_closes_exit_pending_when_tx_confirmed(monkeypatch, tmp
     pos.pending_exit_qty_atomic = 100
     pos.pending_exit_reason = "stop_loss"
     pos.pending_exit_signature = "confirmed-sig"
+    portfolio.open_positions[pos.token_mint] = pos
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status="success"), portfolio)
+    decisions = engine.run_startup_recovery()
+    assert pos.token_mint in portfolio.open_positions
+    assert portfolio.open_positions[_VALID_TEST_MINT].status == POSITION_RECONCILE_PENDING
+    assert portfolio.open_positions[_VALID_TEST_MINT].reconcile_context == "exit"
+    assert portfolio.open_positions[_VALID_TEST_MINT].pending_exit_signature == "confirmed-sig"
+    assert portfolio.open_positions[_VALID_TEST_MINT].remaining_qty_atomic == 100
+    assert any(d.reason == EXIT_TX_CONFIRMED_NEEDS_SETTLEMENT for d in decisions)
+
+
+def test_startup_recovery_tx_confirmed_with_internal_full_exit_truth_allows_close(monkeypatch, tmp_path):
+    """If the position already records a full exit (remaining=0), tx success may finalize closure."""
+    settings = _settings(monkeypatch, tmp_path)
+    now = utc_now_iso()
+    portfolio: PortfolioState = new_portfolio(5.0)
+    pos = _position(now)
+    pos.status = "EXIT_PENDING"
+    pos.remaining_qty_atomic = 0
+    pos.remaining_qty_ui = 0.0
+    pos.pending_exit_qty_atomic = 0
+    pos.pending_exit_reason = "stop_loss"
+    pos.pending_exit_signature = "confirmed-sig"
+    pos.last_sell_signature = "confirmed-sig"
     portfolio.open_positions[pos.token_mint] = pos
     engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status="success"), portfolio)
     decisions = engine.run_startup_recovery()
@@ -301,8 +330,10 @@ def test_startup_recovery_reconcile_pending_exit_tx_confirmed(monkeypatch, tmp_p
     portfolio.open_positions[pos.token_mint] = pos
     engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status="success"), portfolio)
     decisions = engine.run_startup_recovery()
-    assert _VALID_TEST_MINT not in portfolio.open_positions
-    assert any(d.reason == EXIT_RECONCILED_CLOSED for d in decisions)
+    assert _VALID_TEST_MINT in portfolio.open_positions
+    assert portfolio.open_positions[_VALID_TEST_MINT].status == POSITION_RECONCILE_PENDING
+    assert portfolio.open_positions[_VALID_TEST_MINT].reconcile_context == "exit"
+    assert any(d.reason == EXIT_TX_CONFIRMED_NEEDS_SETTLEMENT for d in decisions)
 
 
 def test_startup_recovery_reconcile_pending_exit_failed_prevents_double_sell(monkeypatch, tmp_path):
