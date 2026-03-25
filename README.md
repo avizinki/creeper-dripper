@@ -17,7 +17,14 @@ Production-minded Solana momentum trader with:
 - Providers are fixed:
   - Birdeye
   - Jupiter
-  - Solana RPC (wallet and tx/balance truth only)
+  - Solana RPC (tx lifecycle only: broadcast + signature status; not wallet-balance settlement truth)
+
+## Truth model (Jupiter-only settlement)
+
+- **Settlement quantities**: Jupiter `/execute` response, with controlled fallbacks (order in/out metadata, then requested qty as last resort)
+- **Tx confirmation**: Solana RPC `getSignatureStatuses`
+- **Wallet balances**: not used for automatic quantity reconciliation in Jupiter-only mode
+  - “Dirty wallet” situations require operator action (flatten wallet / import+reconcile holdings), not automatic wallet-based correction
 
 ## Requirements
 
