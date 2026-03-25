@@ -186,7 +186,7 @@ def load_settings() -> Settings:
     project_root = Path.cwd()
     env_path = project_root / ".env"
     if env_path.exists():
-        load_dotenv(env_path, override=True)
+        load_dotenv(env_path, override=False)
 
     runtime_dir = Path(env_str("RUNTIME_DIR", "runtime"))
 

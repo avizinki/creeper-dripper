@@ -1,44 +1,92 @@
 {
-  "task_id": "T-001-fix-per-run-logfile-creation",
-  "title": "Fix per-run logfile creation (T-001)",
+  "task_id": "T-002",
+  "title": "Align Hachi dripper tests with engine TP-level gating",
   "status": "ready_for_cursor_validation",
-  "summary": "Makes the per-run logfile reliably exist after setup_logging() returns. Two-part fix: (1) ensure_parent + touch before the deduplication guard so the file is always created on disk; (2) make the deduplication guard path-specific (baseFilename comparison) so each unique run_log_path registers its own handler instead of being silently blocked by a prior test's handler.",
-  "files_changed": [
-    "creeper_dripper/utils.py"
-  ],
-  "why_safe": [
-    "No trading logic changed — only logging setup",
-    "touch(exist_ok=True) is a no-op if file already exists, so production runs are unaffected",
-    "Guard change is strictly more correct: same path still deduplicates, different paths now register independently",
-    "No Birdeye or Jupiter calls involved — zero CU impact",
-    "No runtime/, state, journal, or position logic touched"
-  ],
+  "verdict": "tests_were_correct_engine_config_loading_was_wrong",
+
+  "root_cause": {
+    "summary": "load_dotenv(override=True) in config.py overwrites monkeypatch.setenv values, making test fixture settings ineffective.",
+    "detail": [
+      "Tests in test_hachi_brain.py call monkeypatch.setenv('TAKE_PROFIT_LEVELS_PCT', '0,25,60,120,250') to set a 0% first TP level so fresh positions are eligible for drips.",
+      "load_settings() then calls load_dotenv(env_path, override=True), which reads .env (TAKE_PROFIT_LEVELS_PCT=25,60,120,250) and overwrites the monkeypatch value.",
+      "After stomping, tp_levels = [25.0, 60.0, 120.0, 250.0]. For pnl_pct=10.0, current_tp_level stays at -1 (no level reached, since 10 < 25). The TP gate sees current_tp_level < 0 → eligible_tp = False → emits DRIPPER_WAIT.",
+      "Tests correctly expected DRIPPER_CHUNK_SELECTED. The engine TP-gate logic is correct. The problem is configuration loading order."
+    ],
+    "affected_tests": [
+      "test_profit_harvest_flat_momentum_uses_normal_chunk (G-1)",
+      "test_neutral_flat_uses_conservative_chunk (G-2)",
+      "test_accounting_correct_after_adaptive_chunk (G-5)",
+      "test_profit_collapsing_uses_aggressive_chunk (G-8)",
+      "test_momentum_state_persisted_after_cycle (G-9)"
+    ],
+    "not_affected": [
+      "G-3 (test_deterioration_weakening_uses_aggressive_chunk): already expects DRIPPER_WAIT — passes regardless.",
+      "G-4 / G-4b: URGENCY_OVERRIDE_FULL bypasses TP gate entirely — passes regardless.",
+      "G-6 / G-7 / G-10 / G-11: use _evaluate_exit_rules path or test timing gate independently — not sensitive to TP levels value."
+    ]
+  },
+
+  "engine_verdict": {
+    "is_engine_logic_wrong": false,
+    "explanation": "The TP-gate logic in _run_hachi_dripper is correct and intentional: gate drips to once per TP level, preventing repeated liquidation of a runner at the same price band. The engine emitting DRIPPER_WAIT when no TP level has been crossed is the expected production behaviour."
+  },
+
+  "tests_verdict": {
+    "were_tests_wrong": false,
+    "explanation": "The tests correctly model the intended behaviour. Commit 779be4a updated the fixture to set TAKE_PROFIT_LEVELS_PCT=0,25,60,120,250 specifically to make pnl_pct < 25% eligible via the 0% sentinel level. The intent was correct; the mechanism (monkeypatch.setenv) was silently defeated by load_dotenv(override=True) loading .env after monkeypatch had already set the env var."
+  },
+
+  "fix_applied": {
+    "file": "creeper_dripper/config.py",
+    "line": 189,
+    "change": "load_dotenv(env_path, override=True)  →  load_dotenv(env_path, override=False)",
+    "rationale": [
+      "override=False means pre-existing os.environ values (set by monkeypatch.setenv in tests) take precedence over .env file values.",
+      "In production, no env vars are pre-set before load_settings() is called, so override=False vs True makes no functional difference to live trading.",
+      "In tests, monkeypatch.setenv values now correctly win over .env, restoring test fixture isolation."
+    ],
+    "production_impact": "None. Production runs with no pre-existing env vars set, so .env is still the sole source of truth for all settings.",
+    "trading_behaviour_impact": "None. No trading logic changed. Only test isolation restored.",
+    "cu_impact": "None. No Birdeye or API call paths touched."
+  },
+
   "required_validation": [
     {
-      "name": "target_test",
-      "command": ".venv/bin/python -m pytest -xvs tests/test_run_id_observability.py::test_setup_logging_creates_per_run_logfile"
-    },
-    {
-      "name": "full_observability_suite",
-      "command": ".venv/bin/python -m pytest -xvs tests/test_run_id_observability.py"
+      "name": "hachi_brain",
+      "command": ".venv/bin/python -m pytest tests/test_hachi_brain.py -v"
     }
   ],
   "optional_validation": [
     {
-      "name": "full_test_suite",
-      "command": ".venv/bin/python -m pytest -q tests/"
+      "name": "full_suite_regression",
+      "command": ".venv/bin/python -m pytest --tb=short -q tests/"
     }
   ],
-  "expected_results": [
-    "target_test: PASSED",
-    "full_observability_suite: all tests pass",
-    "full_test_suite: 203+ passed (one fewer failure than freeze baseline of 202 passed / 5 failed)"
+
+  "files_changed": [
+    "creeper_dripper/config.py"
   ],
-  "commit_message": "fix: make per-run logfile exist synchronously after setup_logging() (T-001)\n\nFixes AUD-002. touch() the file before the deduplication guard so it\nexists on disk regardless. Also makes the guard path-specific so test\nisolation works correctly when multiple tests call setup_logging() with\ndifferent tmp_path values in the same pytest session.",
-  "docs_to_update": [],
-  "notes_for_cursor": [
-    "Only creeper_dripper/utils.py should be dirty",
-    "Do not include runtime/, logs/, .env, __pycache__, or any cache files",
-    "The change is lines 171-187 in utils.py (7 lines replaced with 12 lines)"
-  ]
+
+  "validation_for_cursor": {
+    "run_command": ".venv/bin/python -m pytest tests/test_hachi_brain.py -v",
+    "expected_previously_failing_now_passing": [
+      "test_profit_harvest_flat_momentum_uses_normal_chunk",
+      "test_neutral_flat_uses_conservative_chunk",
+      "test_accounting_correct_after_adaptive_chunk",
+      "test_profit_collapsing_uses_aggressive_chunk",
+      "test_momentum_state_persisted_after_cycle"
+    ],
+    "expected_still_passing": [
+      "test_deterioration_weakening_uses_aggressive_chunk",
+      "test_emergency_pnl_triggers_full_exit_override",
+      "test_deterioration_collapsing_triggers_full_exit_override",
+      "test_hard_stop_loss_overrides_hachi_dripper",
+      "test_legacy_tp_ladder_unchanged_when_hachi_disabled",
+      "test_timing_gate_blocks_non_emergency",
+      "test_hachi_state_eval_emitted_every_cycle"
+    ],
+    "full_suite_regression_check": ".venv/bin/python -m pytest --tb=short -q (expect 207 passed, 0 or 1 failed — only test_setup_logging_creates_per_run_logfile may remain as a known pre-existing failure if T-001 is not yet applied)"
+  },
+
+  "commit_message": "fix: restore test fixture isolation in load_settings() (T-002)\n\nChanges load_dotenv(override=True) to override=False so that env vars\nalready set in os.environ (e.g. via pytest monkeypatch) are not\noverwritten by .env file values. Production behaviour is unchanged:\nno env vars are pre-set before load_settings() in a live run, so .env\nremains the sole source of truth. Fixes G-1/G-2/G-5/G-8/G-9 failures\nin test_hachi_brain.py."
 }
