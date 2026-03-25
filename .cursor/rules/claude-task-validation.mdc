@@ -1,19 +1,24 @@
 ---
-description: T-001 — when claude_task_result.json is ready_for_cursor_validation, run gate; never bypass
+description: Audit backlog — one task at a time; gate with --include-optional; never bypass
 alwaysApply: true
 ---
 
-# Claude task → Cursor validation
+# Audit backlog → Cursor validation
 
-When Claude writes `docs/workflow/claude_task_result.json` for **T-001** (e.g. `task_id` starts with `T-001-`) with `"status": "ready_for_cursor_validation"`, run:
+**Workflow (strict sequence)**
+
+- **One task at a time** — validate and commit only what Claude prepared in `docs/workflow/claude_task_result.json` for that task.
+- **No bypassing the gate** — do not `git commit` the same changes without running the tool.
+- **No batching unrelated fixes** — dirty paths outside `files_changed` / `docs_to_update` / `docs/workflow/` must be cleared before the gate (stash, move, or separate commit).
+
+When `docs/workflow/claude_task_result.json` has `"status": "ready_for_cursor_validation"`, run:
 
 ```bash
-.venv/bin/python tools/cursor_validation_gate.py
+.venv/bin/python tools/cursor_validation_gate.py --include-optional
 ```
 
-- **Do not bypass the gate** (no manual `git commit` of the same changes without running the tool).
-- **Commit only if validation passes** (use `--no-commit` only when you intentionally need validation without a commit).
+**If validation passes:** the tool commits via `commit_message` when there is something to stage. Report the commit hash, then **wait for the next task** (Claude updates the JSON for the next item).
 
-The tool runs `required_validation` in `.venv` (loads `.env` when present), gatekeeps the working tree against `files_changed` / `docs_to_update` / `docs/workflow/`, writes `docs/workflow/cursor_validation_result.json`, and commits using `commit_message` only when checks pass. Add `--include-optional` only when the task requires optional validations.
+**If validation fails:** do **not** commit. Failure details are in `docs/workflow/cursor_validation_result.json`. Claude fixes **only that task** and re-sets `ready_for_cursor_validation`.
 
-Other tasks: same procedure; match `task_id` / title in the JSON.
+**Do not re-run the gate** on a clean tree for an already-landed task while `status` stays `ready_for_cursor_validation` — that can create empty or doc-only duplicate commits. After a successful gate, Claude should advance `status` / `task_id` for the next backlog item.
