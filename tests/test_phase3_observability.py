@@ -17,6 +17,7 @@ from creeper_dripper.utils import utc_now_iso
 
 
 def _settings(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BIRDEYE_API_KEY", "x")
     monkeypatch.setenv("JUPITER_API_KEY", "x")
     monkeypatch.setenv("RUNTIME_DIR", str(tmp_path))
@@ -29,7 +30,7 @@ def test_rejection_reason_emission(monkeypatch, tmp_path):
     settings = _settings(monkeypatch, tmp_path)
     c = TokenCandidate(address="m", symbol="S", liquidity_usd=1.0)
     reasons = rejection_reasons(c, settings)
-    assert REJECT_LOW_LIQUIDITY in reasons
+    assert REJECT_LOW_LIQUIDITY not in reasons
 
 
 def test_birdeye_retry_behavior(monkeypatch):

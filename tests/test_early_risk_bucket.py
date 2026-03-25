@@ -24,21 +24,19 @@ class DummyBirdeye:
         return []
 
     def build_candidate(self, seed: dict):
-        # Weak signals: bad ratio + low score; hard safety still OK.
+        # Low liquidity should downgrade to early-risk, not hard-reject.
         c = TokenCandidate(
             address=seed["address"],
             symbol=seed["symbol"],
             decimals=6,
-            liquidity_usd=200_000,
+            liquidity_usd=10_000,
             exit_liquidity_usd=150_000,
             volume_24h_usd=500_000,
-            buy_sell_ratio_1h=0.4,
+            buy_sell_ratio_1h=2.0,
             age_hours=12.0,
             security_mint_mutable=False,
             security_freezable=False,
         )
-        # Make sure it's "below score" even after score_candidate runs.
-        c.discovery_score = 0.0
         return c
 
 
@@ -76,4 +74,5 @@ def test_early_risk_bucket_accepts_soft_rejects(monkeypatch, tmp_path):
     assert summary["jupiter_buy_probe_calls"] >= 1
     assert len(accepted) >= 1
     assert accepted[0].raw.get("early_risk_bucket") is True
+    assert "soft_low_liquidity" in (accepted[0].raw.get("early_risk_soft_rejects") or [])
 

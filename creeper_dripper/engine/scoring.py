@@ -33,9 +33,20 @@ def score_candidate(candidate: TokenCandidate, settings: Settings) -> TokenCandi
     top10 = candidate.top10_holder_percent
     age_h = candidate.age_hours
 
-    if liq >= settings.min_liquidity_usd:
-        score += clamp((liq / settings.min_liquidity_usd) * 12.0, 0.0, 18.0)
-        reasons.append("spot_liquidity")
+    liq_min = float(settings.min_liquidity_usd or 0.0)
+    liquidity_score_delta = 0.0
+    if liq_min > 0.0:
+        if liq >= liq_min:
+            liquidity_score_delta = clamp((liq / liq_min) * 12.0, 0.0, 18.0)
+            score += liquidity_score_delta
+            reasons.append("spot_liquidity")
+        else:
+            # Liquidity is important but not a blunt early gate; penalize instead.
+            liquidity_score_delta = -clamp((1.0 - (liq / liq_min)) * 12.0, 0.0, 12.0)
+            score += liquidity_score_delta
+            reasons.append("spot_liquidity_low")
+    if candidate.raw is not None:
+        candidate.raw["liquidity_score_delta"] = round(float(liquidity_score_delta), 4)
     if exit_liq >= settings.min_exit_liquidity_usd:
         score += clamp((exit_liq / settings.min_exit_liquidity_usd) * 14.0, 0.0, 20.0)
         reasons.append("exit_liquidity")
@@ -54,13 +65,24 @@ def score_candidate(candidate: TokenCandidate, settings: Settings) -> TokenCandi
     else:
         score -= clamp(abs(change_1h) * 0.5, 0.0, 10.0)
 
+    # Age influences score/ranking only (not normal eligibility).
+    # Bands are intentionally coarse to avoid overfitting and to keep Jupiter probe truth as the real gate.
     if age_h is not None:
-        if age_h <= settings.max_token_age_hours:
-            score += 8.0
-            reasons.append("fresh")
+        if age_h <= 24.0:
+            score += 10.0
+            reasons.append("age_very_fresh")
+        elif age_h <= 72.0:
+            score += 6.0
+            reasons.append("age_fresh")
+        elif age_h <= 168.0:
+            score += 2.0
+            reasons.append("age_recent")
+        elif age_h <= 720.0:
+            score -= 2.0
+            reasons.append("age_older")
         else:
             score -= 6.0
-            reasons.append("stale")
+            reasons.append("age_old")
 
     if top10 is not None:
         if top10 <= 25.0:
@@ -106,8 +128,6 @@ def rejection_reasons(candidate: TokenCandidate, settings: Settings, *, include_
     reasons: list[str] = []
     if not candidate.address:
         reasons.append("reject_missing_address")
-    if (candidate.liquidity_usd or 0.0) < settings.min_liquidity_usd:
-        reasons.append(REJECT_LOW_LIQUIDITY)
     if settings.require_birdeye_exit_liquidity and not candidate.exit_liquidity_available:
         reasons.append(BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN)
     if candidate.exit_liquidity_available and (candidate.exit_liquidity_usd or 0.0) < settings.min_exit_liquidity_usd:
@@ -136,10 +156,9 @@ def rejection_reasons(candidate: TokenCandidate, settings: Settings, *, include_
             reasons.append(REJECT_HIGH_SELL_IMPACT)
         if candidate.jupiter_buy_price_impact_bps is not None and candidate.jupiter_buy_price_impact_bps > settings.max_acceptable_price_impact_bps:
             reasons.append(REJECT_HIGH_BUY_IMPACT)
-    # Age is a soft signal (scoring penalty) until a hard cap.
-    # This keeps discovery yield higher while still rejecting extremely old tokens.
-    hard_cap = float(getattr(settings, "max_token_age_hours_hard", settings.max_token_age_hours) or settings.max_token_age_hours)
-    if candidate.age_hours is not None and candidate.age_hours > hard_cap:
+    # Age is not a standard eligibility gate. Keep only an extreme anti-garbage hard cap.
+    hard_cap = float(getattr(settings, "max_token_age_hours_hard", 0.0) or 0.0)
+    if hard_cap > 0 and candidate.age_hours is not None and candidate.age_hours > hard_cap:
         reasons.append(REJECT_TOKEN_TOO_OLD)
     return reasons
 

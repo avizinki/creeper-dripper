@@ -159,8 +159,6 @@ class Settings:
             errors.append("DISCOVERY_SEED_LIMIT must be > 0")
         if self.max_token_age_hours_hard <= 0:
             errors.append("MAX_TOKEN_AGE_HOURS_HARD must be > 0")
-        if self.max_token_age_hours_hard < self.max_token_age_hours:
-            errors.append("MAX_TOKEN_AGE_HOURS_HARD must be >= MAX_TOKEN_AGE_HOURS")
         if self.exit_blocked_retry_cycles <= 0:
             errors.append("EXIT_BLOCKED_RETRY_CYCLES must be > 0")
         if self.exit_blocked_micro_probe_cycles <= 0:
@@ -219,7 +217,8 @@ def load_settings() -> Settings:
         min_buy_sell_ratio=env_float("MIN_BUY_SELL_RATIO", 1.05),
         min_discovery_score=env_float("MIN_DISCOVERY_SCORE", 55),
         max_token_age_hours=env_float("MAX_TOKEN_AGE_HOURS", 72),
-        max_token_age_hours_hard=env_float("MAX_TOKEN_AGE_HOURS_HARD", 720),
+        # Age is a scoring factor; hard cap is extreme anti-garbage only.
+        max_token_age_hours_hard=env_float("MAX_TOKEN_AGE_HOURS_HARD", 20_000),
         block_mutable_mint=env_bool("BLOCK_MUTABLE_MINT", True),
         block_freezable=env_bool("BLOCK_FREEZABLE", True),
         require_jup_sell_route=env_bool("REQUIRE_JUP_SELL_ROUTE", True),

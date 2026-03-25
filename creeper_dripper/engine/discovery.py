@@ -368,12 +368,46 @@ def discover_candidates(
         )
         candidate = score_candidate(candidate, settings)
         reasons = rejection_reasons(candidate, settings, include_route_checks=True)
+        liq = float(candidate.liquidity_usd or 0.0)
+        liq_min = float(settings.min_liquidity_usd or 0.0)
+        liquidity_soft = bool(liq_min > 0.0 and liq < liq_min)
+        if liquidity_soft:
+            candidate.raw["liquidity_soft_below_min"] = True
+            candidate.raw["liquidity_soft_min_usd"] = liq_min
         if not reasons and passes_filters(candidate, settings):
+            if liquidity_soft and settings.early_risk_bucket_enabled:
+                candidate.raw["early_risk_bucket"] = True
+                candidate.raw["early_risk_soft_rejects"] = ["soft_low_liquidity"]
+                candidates.append(candidate)
+                events.emit(
+                    "candidate_accepted",
+                    "early_risk_bucket",
+                    mint=candidate.address,
+                    symbol=candidate.symbol,
+                    score=candidate.discovery_score,
+                    soft_rejects="soft_low_liquidity",
+                    liquidity_usd=liq,
+                    min_liquidity_usd=liq_min,
+                    liquidity_score_delta=(candidate.raw or {}).get("liquidity_score_delta"),
+                )
+                continue
             candidates.append(candidate)
-            events.emit("candidate_accepted", "ok", mint=candidate.address, symbol=candidate.symbol, score=candidate.discovery_score)
+            events.emit(
+                "candidate_accepted",
+                "ok",
+                mint=candidate.address,
+                symbol=candidate.symbol,
+                score=candidate.discovery_score,
+                liquidity_usd=liq,
+                min_liquidity_usd=liq_min,
+                liquidity_soft=liquidity_soft,
+                liquidity_score_delta=(candidate.raw or {}).get("liquidity_score_delta"),
+            )
             continue
         if settings.early_risk_bucket_enabled:
             soft = [r for r in reasons if r in _EARLY_RISK_SOFT_REJECTS]
+            if liquidity_soft:
+                soft.append("soft_low_liquidity")
             hard = [r for r in reasons if r not in _EARLY_RISK_SOFT_REJECTS]
             if soft and not hard and candidate.discovery_score >= settings.early_risk_min_score_floor:
                 candidate.raw["early_risk_bucket"] = True
@@ -386,6 +420,9 @@ def discover_candidates(
                     symbol=candidate.symbol,
                     score=candidate.discovery_score,
                     soft_rejects=",".join(soft),
+                    liquidity_usd=liq,
+                    min_liquidity_usd=liq_min,
+                    liquidity_score_delta=(candidate.raw or {}).get("liquidity_score_delta"),
                 )
                 continue
         for reason in reasons:
@@ -468,13 +505,6 @@ def _dedupe_by_address(items: Iterable[dict]) -> list[dict]:
 
 
 def _seed_prefilter(seed: dict, settings: Settings) -> str | None:
-    liq = _as_float(
-        seed.get("liquidity")
-        or seed.get("liquidityUsd")
-        or seed.get("liquidity_usd")
-    )
-    if liq is not None and liq < settings.prefilter_min_liquidity_usd:
-        return "reject_low_liquidity"
     vol = _as_float(
         seed.get("volume24hUSD")
         or seed.get("volume24h")
@@ -483,9 +513,6 @@ def _seed_prefilter(seed: dict, settings: Settings) -> str | None:
     )
     if vol is not None and vol < settings.prefilter_min_recent_volume_usd:
         return "reject_low_volume"
-    age_hours = _seed_age_hours(seed)
-    if age_hours is not None and age_hours > settings.prefilter_max_age_hours:
-        return "reject_token_too_old"
     return None
 
 
