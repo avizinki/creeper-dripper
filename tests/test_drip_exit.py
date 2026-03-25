@@ -37,7 +37,11 @@ def _settings(monkeypatch, tmp_path, *, drip_enabled: bool = True):
     monkeypatch.setenv("DRIP_EXIT_ENABLED", "true" if drip_enabled else "false")
     monkeypatch.setenv("DRIP_CHUNK_PCTS", "0.10,0.25,0.50")
     monkeypatch.setenv("DRIP_MIN_CHUNK_WAIT_SECONDS", "30")
-    return load_settings()
+    settings = load_settings()
+    # Force-assign so load_dotenv(override=True) from .env doesn't stomp test values.
+    settings.drip_exit_enabled = drip_enabled
+    settings.hachi_dripper_enabled = False  # drip_exit tests must not run hachi path
+    return settings
 
 
 def _position(*, remaining: int = 1000, entry_sol: float = 1.0) -> PositionState:

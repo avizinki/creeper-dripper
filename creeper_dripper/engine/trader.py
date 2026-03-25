@@ -30,6 +30,16 @@ from creeper_dripper.errors import (
     STATE_SAVE_FAILED,
 )
 from creeper_dripper.engine.discovery import discover_candidates
+from creeper_dripper.engine.hachi_brain import (
+    URGENCY_OVERRIDE_FULL,
+    apply_urgency_to_chunk,
+    chunk_wait_seconds,
+    classify_momentum,
+    classify_pnl_zone,
+    compute_pnl_pct,
+    override_reason,
+    select_urgency,
+)
 from creeper_dripper.engine.position_pricing import (
     SOURCE_JUPITER_SELL,
     VALUATION_STATUS_NO_ROUTE,
@@ -632,20 +642,106 @@ class CreeperDripper:
             )
 
     def _run_hachi_dripper(self, position: PositionState, decisions: list[TradeDecision], now: str) -> bool:
-        """Hachi-style dripper: probe Jupiter sell quotes every cycle for OPEN/PARTIAL positions.
+        """Hachi dripper with PnL-zone + momentum decision brain.
 
-        Executes a small chunk when route quality is acceptable — no TP threshold
-        required before first sell activity.  Jupiter quote is the sole source of
-        truth for sellability; Birdeye liquidity is never consulted here.
+        Every cycle for OPEN/PARTIAL positions:
+          1. Classify current PnL into a zone (profit_harvest / neutral /
+             deterioration / emergency).
+          2. Classify cycle-over-cycle mark movement into a momentum state
+             (improving / flat / weakening / collapsing).
+          3. Map (zone, momentum) → urgency level.
+          4. Emergency / collapse urgency bypasses the timing gate and fires a
+             full-exit override immediately — no more blind dripping while
+             deeply negative.
+          5. For non-emergency urgency, probe Jupiter quotes and pick chunk size
+             based on urgency (conservative → smallest, normal → near-equal
+             largest, aggressive → biggest available).
+          6. Scale next-chunk wait time with urgency (shorter when aggressive).
+          7. Persist momentum state on position for next cycle.
 
-        Returns True if a sell chunk was dispatched this cycle.
+        Jupiter quote is the sole source of truth for sellability.
+        Birdeye liquidity is never consulted here.
+        Hard exits from _evaluate_exit_rules always take priority over this method.
+
+        Returns True if a sell chunk (or full exit) was dispatched this cycle.
         """
         pos_id = position.position_id or position.token_mint
         remaining = position.remaining_qty_atomic
         if remaining <= 0:
             return False
 
-        # Timing gate: pace chunks so we don't drain the position in a single cycle.
+        # ------------------------------------------------------------------
+        # 1-3. Brain: PnL zone + momentum + urgency (always evaluated first,
+        #      even before the timing gate, so emergencies can bypass it).
+        # ------------------------------------------------------------------
+        pnl_pct = compute_pnl_pct(position)
+        momentum = classify_momentum(position, self.settings)
+        if pnl_pct is not None:
+            pnl_zone = classify_pnl_zone(pnl_pct, self.settings)
+        else:
+            pnl_zone = "unknown"
+        urgency = select_urgency(pnl_zone, momentum) if pnl_pct is not None else "conservative"
+
+        # Persist for observability / next-cycle comparison.
+        position.last_hachi_pnl_pct = pnl_pct
+        position.last_hachi_momentum_state = momentum
+
+        LOGGER.info(
+            "event=hachi_state_eval mint=%s position_id=%s pnl_pct=%s pnl_zone=%s "
+            "momentum_state=%s urgency=%s remaining=%s entry_sol=%s",
+            position.token_mint,
+            pos_id,
+            round(pnl_pct, 2) if pnl_pct is not None else "n/a",
+            pnl_zone,
+            momentum,
+            urgency,
+            remaining,
+            round(position.entry_sol, 6),
+        )
+
+        # ------------------------------------------------------------------
+        # 4. Emergency / momentum-collapse override: bypass timing gate and
+        #    sell everything immediately.
+        # ------------------------------------------------------------------
+        if urgency == URGENCY_OVERRIDE_FULL:
+            exit_reason = override_reason(pnl_zone, momentum)
+            LOGGER.info(
+                "event=dripper_override_hard_exit mint=%s position_id=%s reason=%s "
+                "pnl_pct=%s momentum_state=%s pnl_zone=%s chunks_done=%s",
+                position.token_mint,
+                pos_id,
+                exit_reason,
+                round(pnl_pct, 2) if pnl_pct is not None else "n/a",
+                momentum,
+                pnl_zone,
+                position.drip_chunks_done,
+            )
+            decisions.append(
+                TradeDecision(
+                    action="DRIPPER_OVERRIDE_HARD_EXIT",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason=exit_reason,
+                    qty_atomic=remaining,
+                    metadata={
+                        "override_reason": exit_reason,
+                        "pnl_pct": pnl_pct,
+                        "momentum_state": momentum,
+                        "pnl_zone": pnl_zone,
+                        "chunks_done_before_override": position.drip_chunks_done,
+                    },
+                )
+            )
+            # Clear timing gate so _start_exit override-detection doesn't double-emit.
+            position.drip_next_chunk_at = None
+            # Update previous mark before exiting so state is clean if recovery occurs.
+            position.previous_mark_sol_per_token = float(position.last_mark_sol_per_token)
+            self._start_exit(position, remaining, exit_reason, decisions, now)
+            return True
+
+        # ------------------------------------------------------------------
+        # Timing gate: only for non-emergency urgency.
+        # ------------------------------------------------------------------
         if position.drip_next_chunk_at and not _retry_due(position.drip_next_chunk_at, now):
             LOGGER.info(
                 "event=dripper_wait mint=%s position_id=%s drip_next_chunk_at=%s chunks_done=%s",
@@ -666,10 +762,14 @@ class CreeperDripper:
                     },
                 )
             )
+            # Still update previous mark so momentum tracking stays accurate.
+            position.previous_mark_sol_per_token = float(position.last_mark_sol_per_token)
             return False
 
-        # Probe each configured chunk size against Jupiter.
-        candidates: list[tuple[int, float, float | None]] = []  # (qty, sol_out_per_token, impact_bps)
+        # ------------------------------------------------------------------
+        # 5. Probe Jupiter sell quotes for each configured chunk fraction.
+        # ------------------------------------------------------------------
+        candidates: list[tuple[int, float, float | None]] = []  # (qty, sol_out/token, impact_bps)
         for pct in self.settings.drip_chunk_pcts:
             chunk_qty = max(1, int(remaining * pct))
             try:
@@ -699,7 +799,27 @@ class CreeperDripper:
             len(candidates),
         )
 
-        if not candidates:
+        # ------------------------------------------------------------------
+        # Apply brain chunk policy: urgency → chosen chunk size.
+        # ------------------------------------------------------------------
+        chosen_qty, selection_reason = apply_urgency_to_chunk(
+            urgency, candidates, remaining, self.settings
+        )
+
+        LOGGER.info(
+            "event=hachi_chunk_policy mint=%s position_id=%s urgency=%s chosen_chunk=%s "
+            "selection_reason=%s viable_candidates=%s pnl_zone=%s momentum=%s",
+            position.token_mint,
+            pos_id,
+            urgency,
+            chosen_qty,
+            selection_reason,
+            len(candidates),
+            pnl_zone,
+            momentum,
+        )
+
+        if chosen_qty is None:
             LOGGER.info(
                 "event=dripper_wait mint=%s position_id=%s reason=no_executable_chunk remaining=%s",
                 position.token_mint,
@@ -714,22 +834,24 @@ class CreeperDripper:
                     reason="no_executable_chunk",
                 )
             )
+            position.previous_mark_sol_per_token = float(position.last_mark_sol_per_token)
             return False
 
-        # Select largest chunk among near-equal efficiency (fewer total cycles, same SOL out).
-        best_efficiency = max(c[1] for c in candidates)
-        threshold = best_efficiency * (1.0 - self.settings.drip_near_equal_band)
-        near_equal = [(qty, eff, imp) for qty, eff, imp in candidates if eff >= threshold]
-        chosen_qty, chosen_eff, chosen_impact = max(near_equal, key=lambda x: x[0])
+        # Derive chosen_eff / chosen_impact for logging from candidates (best match by qty).
+        _cmap = {qty: (eff, imp) for qty, eff, imp in candidates}
+        chosen_eff, chosen_impact = _cmap.get(chosen_qty, (0.0, None))
 
         LOGGER.info(
-            "event=dripper_chunk_selected mint=%s position_id=%s chunk_qty=%s efficiency=%s impact_bps=%s chunks_done_so_far=%s",
+            "event=dripper_chunk_selected mint=%s position_id=%s chunk_qty=%s efficiency=%s "
+            "impact_bps=%s chunks_done_so_far=%s urgency=%s selection_reason=%s",
             position.token_mint,
             pos_id,
             chosen_qty,
             round(chosen_eff, 8),
             chosen_impact,
             position.drip_chunks_done,
+            urgency,
+            selection_reason,
         )
         decisions.append(
             TradeDecision(
@@ -738,11 +860,20 @@ class CreeperDripper:
                 symbol=position.symbol,
                 reason="hachi_dripper",
                 qty_atomic=chosen_qty,
-                metadata={"efficiency": round(chosen_eff, 10), "impact_bps": chosen_impact},
+                metadata={
+                    "efficiency": round(chosen_eff, 10),
+                    "impact_bps": chosen_impact,
+                    "urgency": urgency,
+                    "pnl_zone": pnl_zone,
+                    "momentum": momentum,
+                    "selection_reason": selection_reason,
+                },
             )
         )
 
-        # Execute the chunk; inspect decisions to detect whether the sell settled.
+        # ------------------------------------------------------------------
+        # Execute the chunk; inspect decisions to detect whether sell settled.
+        # ------------------------------------------------------------------
         decisions_before = len(decisions)
         self._start_exit(position, chosen_qty, "hachi_dripper", decisions, now)
 
@@ -754,16 +885,18 @@ class CreeperDripper:
             )
             position.drip_chunks_done += 1
             if position.status != "CLOSED":
-                position.drip_next_chunk_at = _next_normal_retry_at(
-                    now, self.settings.drip_min_chunk_wait_seconds
-                )
+                # Scale inter-chunk wait by urgency: conservative → longer, aggressive → shorter.
+                wait_s = chunk_wait_seconds(urgency, self.settings.drip_min_chunk_wait_seconds)
+                position.drip_next_chunk_at = _next_normal_retry_at(now, wait_s)
             LOGGER.info(
-                "event=dripper_chunk_executed mint=%s position_id=%s chunks_done=%s sold_qty=%s next_chunk_at=%s",
+                "event=dripper_chunk_executed mint=%s position_id=%s chunks_done=%s sold_qty=%s "
+                "next_chunk_at=%s urgency=%s",
                 position.token_mint,
                 pos_id,
                 position.drip_chunks_done,
                 sold_qty,
                 position.drip_next_chunk_at,
+                urgency,
             )
             decisions.append(
                 TradeDecision(
@@ -775,6 +908,9 @@ class CreeperDripper:
                     metadata={
                         "chunks_done": position.drip_chunks_done,
                         "next_chunk_at": position.drip_next_chunk_at,
+                        "urgency": urgency,
+                        "pnl_zone": pnl_zone,
+                        "momentum": momentum,
                     },
                 )
             )
@@ -786,6 +922,10 @@ class CreeperDripper:
                 sold_qty=sold_qty,
             )
 
+        # ------------------------------------------------------------------
+        # 7. Persist mark for next cycle's momentum comparison.
+        # ------------------------------------------------------------------
+        position.previous_mark_sol_per_token = float(position.last_mark_sol_per_token)
         return sell_executed
 
     def _start_exit(self, position: PositionState, qty_atomic: int, reason: str, decisions: list[TradeDecision], now: str) -> bool:

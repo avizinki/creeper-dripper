@@ -1,0 +1,117 @@
+{
+  "report_date": "2026-03-25",
+  "base_commit": "d277ed0",
+  "base_commit_message": "feat: replace TP-ladder exit gate with Hachi-style Jupiter-quote dripper",
+  "environment": {
+    "python": "3.11.15",
+    "pytest": "9.0.2",
+    "venv": ".venv",
+    "command": ".venv/bin/pytest -q"
+  },
+  "summary": {
+    "passed": 140,
+    "failed": 13,
+    "regressions": 0,
+    "pre_existing_failures": 13
+  },
+  "pre_existing_failures": [
+    {
+      "id": "A-1",
+      "test": "test_jupiter_swap_endpoint_returns_transaction",
+      "file": "tests/test_execution_swap_path.py",
+      "error_type": "TypeError",
+      "root_cause": "JupiterClient.swap_transaction() signature mismatch — test uses 'input_mint' kwarg that was removed"
+    },
+    {
+      "id": "A-2",
+      "test": "test_discovery_strict_mode_rejects_when_exit_liquidity_unavailable",
+      "file": "tests/test_exit_liquidity_fallback.py",
+      "error_type": "AssertionError",
+      "root_cause": "build_candidate does not reject when token_exit_liquidity raises RuntimeError — strict-mode guard missing"
+    },
+    {
+      "id": "A-3",
+      "test": "test_jsds_missing_entry_baseline_only_streak_hard",
+      "file": "tests/test_jsds_liquidity.py",
+      "error_type": "AssertionError",
+      "root_cause": ".env HACHI_DRIPPER_ENABLED=true causes DRIPPER_WAIT emission; test predates Hachi and expects empty decisions"
+    },
+    {
+      "id": "A-4",
+      "test": "test_jsds_deterioration_watch_logs_only",
+      "file": "tests/test_jsds_liquidity.py",
+      "error_type": "AssertionError",
+      "root_cause": "Same as A-3: .env HACHI_DRIPPER_ENABLED=true pollutes test environment"
+    },
+    {
+      "id": "A-5",
+      "test": "test_jupiter_client_preserves_400_response_body",
+      "file": "tests/test_jupiter_probe_classification.py",
+      "error_type": "AttributeError",
+      "root_cause": "JupiterClient method or attribute removed/renamed since test was written"
+    },
+    {
+      "id": "A-6",
+      "test": "test_curl_proofed_success_params_match_app_params",
+      "file": "tests/test_jupiter_probe_classification.py",
+      "error_type": "AttributeError",
+      "root_cause": "Same as A-5"
+    },
+    {
+      "id": "A-7",
+      "test": "test_top_candidates_seen_serializes_correctly",
+      "file": "tests/test_scan_persistence.py",
+      "error_type": "RuntimeError",
+      "root_cause": "Configuration validation failed: Live mode requires wallet credentials — _base_env missing BS58_PRIVATE_KEY"
+    },
+    {
+      "id": "A-8",
+      "test": "test_zero_accepted_writes_empty_scan_latest",
+      "file": "tests/test_scan_persistence.py",
+      "error_type": "RuntimeError",
+      "root_cause": "Same as A-7"
+    },
+    {
+      "id": "A-9",
+      "test": "test_scan_summary_updated_incrementally",
+      "file": "tests/test_scan_persistence.py",
+      "error_type": "RuntimeError",
+      "root_cause": "Same as A-7"
+    },
+    {
+      "id": "A-10",
+      "test": "test_keyboard_interrupt_writes_valid_partial_files",
+      "file": "tests/test_scan_persistence.py",
+      "error_type": "RuntimeError",
+      "root_cause": "Same as A-7"
+    },
+    {
+      "id": "A-11",
+      "test": "test_accepted_candidates_persist_before_completion",
+      "file": "tests/test_scan_persistence.py",
+      "error_type": "RuntimeError",
+      "root_cause": "Same as A-7"
+    },
+    {
+      "id": "A-12",
+      "test": "test_summary_serialization_failure_does_not_erase_accepted_candidates",
+      "file": "tests/test_scan_persistence.py",
+      "error_type": "RuntimeError",
+      "root_cause": "Same as A-7"
+    },
+    {
+      "id": "A-13",
+      "test": "test_score_candidate_rewards_good_structure",
+      "file": "tests/test_scoring.py",
+      "error_type": "AssertionError",
+      "root_cause": "passes_filters() returns False — filter thresholds in .env are stricter than test's hardcoded values"
+    }
+  ],
+  "regressions": [],
+  "new_tests": [
+    {"file": "tests/test_hachi_brain.py", "count": 38, "all_pass": true},
+    {"file": "tests/test_hachi_dripper.py", "count": 18, "all_pass": true},
+    {"file": "tests/test_drip_exit.py", "count": 6, "all_pass": true}
+  ],
+  "conclusion": "Zero regressions introduced. 140 tests pass. 13 pre-existing failures unchanged from base commit."
+}

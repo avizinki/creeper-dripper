@@ -39,7 +39,10 @@ def _settings(monkeypatch, tmp_path, *, hachi_enabled: bool = True, max_impact: 
     monkeypatch.setenv("DRIP_CHUNK_PCTS", "0.10,0.25,0.50")
     monkeypatch.setenv("DRIP_MIN_CHUNK_WAIT_SECONDS", "30")
     monkeypatch.setenv("DRIP_NEAR_EQUAL_BAND", "0.002")
-    return load_settings()
+    settings = load_settings()
+    # Force-assign in case load_dotenv(override=True) stomps on monkeypatched values.
+    settings.hachi_dripper_enabled = hachi_enabled
+    return settings
 
 
 def _position(

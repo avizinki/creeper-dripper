@@ -150,6 +150,12 @@ class PositionState:
     drip_qty_remaining_atomic: int | None = None
     drip_chunks_done: int = 0
     drip_next_chunk_at: str | None = None
+    # Hachi brain state: persisted across cycles for momentum tracking.
+    # previous_mark_sol_per_token is the mark from the previous dripper cycle;
+    # compared against last_mark_sol_per_token to derive momentum direction.
+    previous_mark_sol_per_token: float = 0.0
+    last_hachi_pnl_pct: float | None = None
+    last_hachi_momentum_state: str | None = None
 
 
 @dataclass(slots=True)

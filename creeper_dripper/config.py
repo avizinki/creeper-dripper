@@ -81,6 +81,20 @@ class Settings:
     # required before first sell activity.
     hachi_dripper_enabled: bool = False
     hachi_max_price_impact_bps: int = 900
+    # Hachi brain: PnL-zone thresholds (all in %).
+    # profit_harvest zone: pnl >= hachi_profit_harvest_min_pct  → normal harvest
+    # neutral zone:        hachi_neutral_floor_pct <= pnl < profit_harvest_min → conservative
+    # deterioration zone:  hachi_emergency_pnl_pct <= pnl < neutral_floor → aggressive exit
+    # emergency zone:      pnl < hachi_emergency_pnl_pct → immediate full exit override
+    hachi_profit_harvest_min_pct: float = 5.0
+    hachi_neutral_floor_pct: float = -3.0
+    hachi_emergency_pnl_pct: float = -12.0
+    # Hachi brain: momentum thresholds.
+    # Measured as % change from previous cycle's mark to current mark.
+    # weakening: drop >= hachi_weakening_drop_pct (e.g. 4%)
+    # collapsing: drop >= hachi_collapse_drop_pct (e.g. 8%)
+    hachi_weakening_drop_pct: float = 4.0
+    hachi_collapse_drop_pct: float = 8.0
     run_id: str | None = None
     run_dir: Path | None = None
     run_log_path: Path | None = None
@@ -199,6 +213,11 @@ def load_settings() -> Settings:
         drip_min_chunk_wait_seconds=env_int("DRIP_MIN_CHUNK_WAIT_SECONDS", 30),
         hachi_dripper_enabled=env_bool("HACHI_DRIPPER_ENABLED", False),
         hachi_max_price_impact_bps=env_int("HACHI_MAX_PRICE_IMPACT_BPS", 900),
+        hachi_profit_harvest_min_pct=env_float("HACHI_PROFIT_HARVEST_MIN_PCT", 5.0),
+        hachi_neutral_floor_pct=env_float("HACHI_NEUTRAL_FLOOR_PCT", -3.0),
+        hachi_emergency_pnl_pct=env_float("HACHI_EMERGENCY_PNL_PCT", -12.0),
+        hachi_weakening_drop_pct=env_float("HACHI_WEAKENING_DROP_PCT", 4.0),
+        hachi_collapse_drop_pct=env_float("HACHI_COLLAPSE_DROP_PCT", 8.0),
         run_id=None,
         run_dir=None,
         run_log_path=None,
