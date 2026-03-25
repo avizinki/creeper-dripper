@@ -884,12 +884,23 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
 
     try:
         portfolio = load_portfolio(settings.state_path, settings.portfolio_start_sol)
+        # Doctor is not an active run loop; stale-market safe-mode should not persist outside a run.
+        ignored_stale = False
+        if portfolio.safe_mode_active and portfolio.safety_stop_reason == SAFETY_STALE_MARKET_DATA:
+            portfolio.safe_mode_active = False
+            portfolio.safety_stop_reason = None
+            ignored_stale = True
+            try:
+                save_portfolio(settings.state_path, portfolio)
+            except Exception as exc:
+                LOGGER.warning("doctor_clear_stale_market_safe_mode_failed: %s", exc)
         checks.append(
             {
                 "check": "safe_mode_state",
                 "ok": True,
                 "safe_mode_active": portfolio.safe_mode_active,
                 "safety_stop_reason": portfolio.safety_stop_reason,
+                "ignored_stale_market_data_outside_run": ignored_stale,
             }
         )
     except Exception as exc:
