@@ -150,6 +150,30 @@ def test_run_cycle_surfaces_discovery_failure_in_summary(monkeypatch, tmp_path):
     assert any(e.get("event_type") == "discovery_failed" for e in out.get("events", []))
 
 
+def test_entry_capacity_mode_summary_emitted(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("ENTRY_CAPACITY_MODE", "balanced")
+    settings = load_settings()
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(), new_portfolio(5.0))
+    out = engine.run_cycle()
+    events = out.get("events", [])
+    ev = next((e for e in events if e.get("event_type") == "entry_capacity_mode_summary"), None)
+    assert ev is not None
+    md = ev.get("metadata") or {}
+    assert md.get("mode") == "balanced"
+    for key in (
+        "open_positions",
+        "max_open_positions",
+        "slots_available",
+        "opened_today_count",
+        "max_daily_new_positions",
+        "early_risk_bucket_enabled",
+        "cash_sol",
+        "cash_reserve_sol",
+    ):
+        assert key in md
+
+
 def test_jupiter_diagnostic_reason_mapping():
     raw = SimpleNamespace(output_amount_result=None, input_amount_result=None, signature=None, error="boom")
     res = TradeExecutor._normalize_execution_result(raw, requested_amount=10)

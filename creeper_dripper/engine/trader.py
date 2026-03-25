@@ -196,6 +196,19 @@ class CreeperDripper:
         cycle_summary = self._cycle_summary(now, discovery_summary, decisions)
         self._persist_cycle(now, decisions, cycle_summary)
         self.events.emit("cycle_summary", "ok", **cycle_summary)
+        self.events.emit(
+            "entry_capacity_mode_summary",
+            "ok",
+            mode=self.settings.entry_capacity_mode,
+            open_positions=len(self.portfolio.open_positions),
+            max_open_positions=self.settings.max_open_positions,
+            slots_available=self.settings.max_open_positions - len(self.portfolio.open_positions),
+            opened_today_count=self.portfolio.opened_today_count,
+            max_daily_new_positions=self.settings.max_daily_new_positions,
+            early_risk_bucket_enabled=self.settings.early_risk_bucket_enabled,
+            cash_sol=self.portfolio.cash_sol,
+            cash_reserve_sol=self.settings.cash_reserve_sol,
+        )
         return {
             "timestamp": now,
             "cash_sol": round(self.portfolio.cash_sol, 6),
@@ -1337,20 +1350,62 @@ class CreeperDripper:
                 LOGGER.warning("sell_no_signature_blocked position_id=%s status=%s", position.position_id or position.token_mint, result.status)
 
     def _maybe_open_positions(self, candidates: list[TokenCandidate], decisions: list[TradeDecision], now: str) -> None:
+        mode = str(getattr(self.settings, "entry_capacity_mode", "strict") or "strict")
+
+        def _emit_capacity_decision(*, candidate: TokenCandidate, allowed: bool, reason: str) -> None:
+            candidate_type = "early_risk" if bool((candidate.raw or {}).get("early_risk_bucket")) else "standard"
+            self.events.emit(
+                "entry_capacity_decision",
+                reason,
+                mode=mode,
+                candidate_type=candidate_type,
+                allowed=bool(allowed),
+                blocked=not bool(allowed),
+                reason=reason,
+                mint=candidate.address,
+                symbol=candidate.symbol,
+                open_positions=len(self.portfolio.open_positions),
+                max_open_positions=self.settings.max_open_positions,
+                opened_today_count=self.portfolio.opened_today_count,
+                max_daily_new_positions=self.settings.max_daily_new_positions,
+            )
+
         if len(self.portfolio.open_positions) >= self.settings.max_open_positions:
             return
         if self.portfolio.opened_today_count >= self.settings.max_daily_new_positions:
             return
-        for candidate in candidates:
+
+        def _is_early(c: TokenCandidate) -> bool:
+            return bool((c.raw or {}).get("early_risk_bucket"))
+
+        ordered = [*([c for c in candidates if not _is_early(c)]), *([c for c in candidates if _is_early(c)])]
+
+        for candidate in ordered:
+            if len(self.portfolio.open_positions) >= self.settings.max_open_positions:
+                break
             if candidate.address in self.portfolio.open_positions:
+                _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_already_open")
                 continue
             if _cooldown_active(self.portfolio.cooldowns.get(candidate.address), self.settings.cooldown_minutes_after_exit):
+                _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_cooldown_active")
                 continue
             size_sol = min(self.settings.base_position_size_sol, self.settings.max_position_size_sol)
             early_risk = bool((candidate.raw or {}).get("early_risk_bucket"))
+
+            if early_risk:
+                if mode == "strict" and len(self.portfolio.open_positions) > 1:
+                    _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_strict_early_risk_open_positions_gt_1")
+                    continue
+                # balanced/fill_slots: early-risk allowed only after standard ordering (handled by ordered list)
+                if self.settings.early_risk_bucket_enabled:
+                    size_sol = min(size_sol, float(self.settings.early_risk_position_size_sol))
+
+            _emit_capacity_decision(candidate=candidate, allowed=True, reason="allowed")
+
             if early_risk and self.settings.early_risk_bucket_enabled:
                 size_sol = min(size_sol, float(self.settings.early_risk_position_size_sol))
             if self.portfolio.cash_sol - size_sol < self.settings.cash_reserve_sol:
+                _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_cash_reserve")
                 continue
             buy_probe = self.executor.quote_buy(candidate, size_sol)
             if not buy_probe.route_ok or not buy_probe.out_amount_atomic:

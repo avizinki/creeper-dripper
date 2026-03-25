@@ -51,6 +51,7 @@ class Settings:
     max_position_size_sol: float
     cash_reserve_sol: float
     min_order_size_sol: float
+    entry_capacity_mode: str
     early_risk_bucket_enabled: bool
     early_risk_position_size_sol: float
     early_risk_min_score_floor: float
@@ -104,6 +105,10 @@ class Settings:
 
     def validate(self) -> None:
         errors: list[str] = []
+        if self.entry_capacity_mode not in {"strict", "balanced", "fill_slots"}:
+            raise ValueError(
+                f"Invalid ENTRY_CAPACITY_MODE: {self.entry_capacity_mode}. Allowed: strict, balanced, fill_slots"
+            )
         if not self.birdeye_api_key:
             errors.append("BIRDEYE_API_KEY is required")
         if not self.jupiter_api_key:
@@ -192,6 +197,7 @@ def load_settings() -> Settings:
         max_position_size_sol=env_float("MAX_POSITION_SIZE_SOL", 0.5),
         cash_reserve_sol=env_float("CASH_RESERVE_SOL", 0.25),
         min_order_size_sol=env_float("MIN_ORDER_SIZE_SOL", 0.03),
+        entry_capacity_mode=env_str("ENTRY_CAPACITY_MODE", "strict"),
         early_risk_bucket_enabled=env_bool("EARLY_RISK_BUCKET_ENABLED", False),
         early_risk_position_size_sol=env_float("EARLY_RISK_POSITION_SIZE_SOL", env_float("MIN_ORDER_SIZE_SOL", 0.03)),
         early_risk_min_score_floor=env_float("EARLY_RISK_MIN_SCORE_FLOOR", 0.0),

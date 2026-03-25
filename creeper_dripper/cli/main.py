@@ -108,6 +108,7 @@ def _print_env_snapshot(settings) -> None:
             _format_env_snapshot_line("REQUIRE_JUP_SELL_ROUTE", str(bool(settings.require_jup_sell_route)).lower()),
             _format_env_snapshot_line("PORTFOLIO_START_SOL", settings.portfolio_start_sol),
             _format_env_snapshot_line("MAX_OPEN_POSITIONS", settings.max_open_positions),
+            _format_env_snapshot_line("ENTRY_CAPACITY_MODE", settings.entry_capacity_mode),
             _format_env_snapshot_line("BASE_POSITION_SIZE_SOL", settings.base_position_size_sol),
             _format_env_snapshot_line("MAX_POSITION_SIZE_SOL", settings.max_position_size_sol),
             _format_env_snapshot_line("CASH_RESERVE_SOL", settings.cash_reserve_sol),
