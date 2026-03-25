@@ -233,6 +233,48 @@ class CreeperDripper:
         effective = min(hard_cap, max(baseline, min(dynamic_from_birth, funding_cap)))
         return max(0, int(effective))
 
+    def _effective_max_daily_new_positions(self) -> int:
+        """
+        Derive max new entries per day from the same birth-baseline + deployable model as open slots.
+
+        Invariants:
+        - HARD_MAX_DAILY_NEW_POSITIONS is never exceeded
+        - cannot exceed effective max open positions (cannot meaningfully exceed total slot count)
+        - with deployable > 0, at least 1 new entry/day when dynamic capacity is enabled
+        - when dynamic capacity is disabled or wallet snapshot unavailable, falls back to static MAX_DAILY_NEW_POSITIONS
+          (same as using baseline + hard cap without birth scaling)
+        """
+        baseline = int(self.settings.max_daily_new_positions)
+        hard_cap = int(getattr(self.settings, "hard_max_daily_new_positions", baseline) or baseline)
+        if not getattr(self.settings, "dynamic_capacity_enabled", True):
+            return min(baseline, hard_cap)
+
+        available_sol = self._wallet_available_sol
+        if available_sol is None:
+            available_sol = float(self.portfolio.cash_sol)
+        reserve = float(self.settings.cash_reserve_sol)
+        deployable = max(0.0, available_sol - reserve)
+
+        birth_sol = getattr(self.settings, "hachi_birth_wallet_sol", None) or getattr(self.portfolio, "hachi_birth_wallet_sol", None)
+        dynamic_from_birth = baseline
+        try:
+            if birth_sol is not None and float(birth_sol) > 0:
+                scale = float(available_sol) / float(birth_sol)
+                dynamic_from_birth = max(1, int(baseline * scale))
+        except Exception:
+            dynamic_from_birth = baseline
+
+        denom = max(float(self.settings.base_position_size_sol), float(self.settings.min_order_size_sol), 1e-9)
+        funding_cap = int(deployable / denom) if deployable > 0 else 0
+
+        effective_open = self._effective_max_open_positions()
+        effective = min(hard_cap, max(baseline, min(dynamic_from_birth, funding_cap)))
+        effective = min(effective, effective_open)
+        effective = max(0, int(effective))
+        if deployable > 0:
+            effective = min(hard_cap, max(1, effective))
+        return effective
+
     def run_cycle(self) -> dict:
         now = utc_now_iso()
         self._cycle_in_run += 1
@@ -290,6 +332,7 @@ class CreeperDripper:
         deployable_sol = None
         if wallet_available_sol is not None:
             deployable_sol = max(0.0, float(wallet_available_sol) - reserve)
+        effective_max_daily_new_positions = self._effective_max_daily_new_positions()
         self.events.emit(
             "entry_capacity_mode_summary",
             "ok",
@@ -299,6 +342,11 @@ class CreeperDripper:
             slots_available=max(0, effective_max_open_positions - len(self.portfolio.open_positions)),
             opened_today_count=self.portfolio.opened_today_count,
             max_daily_new_positions=self.settings.max_daily_new_positions,
+            hard_max_daily_new_positions=int(
+                getattr(self.settings, "hard_max_daily_new_positions", self.settings.max_daily_new_positions)
+                or self.settings.max_daily_new_positions
+            ),
+            effective_max_daily_new_positions=effective_max_daily_new_positions,
             early_risk_bucket_enabled=self.settings.early_risk_bucket_enabled,
             cash_sol=self.portfolio.cash_sol,
             cash_reserve_sol=self.settings.cash_reserve_sol,
@@ -1678,6 +1726,7 @@ class CreeperDripper:
     def _maybe_open_positions(self, candidates: list[TokenCandidate], decisions: list[TradeDecision], now: str) -> None:
         mode = str(getattr(self.settings, "entry_capacity_mode", "strict") or "strict")
         effective_max_open_positions = self._effective_max_open_positions()
+        effective_max_daily_new_positions = self._effective_max_daily_new_positions()
         # Invariants:
         # - dynamic capacity affects entries only (this function)
         # - reserve floor is enforced before execution (blocked_cash_reserve)
@@ -1699,11 +1748,12 @@ class CreeperDripper:
                 max_open_positions=effective_max_open_positions,
                 opened_today_count=self.portfolio.opened_today_count,
                 max_daily_new_positions=self.settings.max_daily_new_positions,
+                effective_max_daily_new_positions=effective_max_daily_new_positions,
             )
 
         if len(self.portfolio.open_positions) >= effective_max_open_positions:
             return
-        if self.portfolio.opened_today_count >= self.settings.max_daily_new_positions:
+        if self.portfolio.opened_today_count >= effective_max_daily_new_positions:
             return
 
         def _is_early(c: TokenCandidate) -> bool:
@@ -2156,6 +2206,21 @@ class CreeperDripper:
         entries_execute_failed = sum(1 for d in decisions if d.action == "BUY_SKIP" and d.metadata.get("phase") == "execute")
         # execution_failures already excludes mode-gated skips.
         unknown_exits = sum(1 for d in decisions if d.action == "SELL_PENDING")
+        available_sol = self._wallet_available_sol
+        if available_sol is None:
+            available_sol = float(self.portfolio.cash_sol)
+        birth_sol = getattr(self.settings, "hachi_birth_wallet_sol", None) or getattr(self.portfolio, "hachi_birth_wallet_sol", None)
+        hachi_capacity_scale: float | None = None
+        try:
+            if birth_sol is not None and float(birth_sol) > 0:
+                hachi_capacity_scale = float(available_sol) / float(birth_sol)
+        except Exception:
+            hachi_capacity_scale = None
+        effective_max_daily_new_positions = self._effective_max_daily_new_positions()
+        hard_max_daily_new_positions = int(
+            getattr(self.settings, "hard_max_daily_new_positions", self.settings.max_daily_new_positions)
+            or self.settings.max_daily_new_positions
+        )
         return {
             "run_id": self.settings.run_id,
             "cycle_in_run": self._cycle_in_run,
@@ -2201,6 +2266,11 @@ class CreeperDripper:
             "exits_succeeded": exits_succeeded,
             "execution_failures": execution_failures,
             "unknown_exits": unknown_exits,
+            "max_daily_new_positions": self.settings.max_daily_new_positions,
+            "hard_max_daily_new_positions": hard_max_daily_new_positions,
+            "effective_max_daily_new_positions": effective_max_daily_new_positions,
+            "opened_today_count": self.portfolio.opened_today_count,
+            "hachi_capacity_scale": hachi_capacity_scale,
             "safe_mode_active": self.portfolio.safe_mode_active,
         }
 

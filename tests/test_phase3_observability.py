@@ -172,6 +172,8 @@ def test_entry_capacity_mode_summary_emitted(monkeypatch, tmp_path):
         "slots_available",
         "opened_today_count",
         "max_daily_new_positions",
+        "hard_max_daily_new_positions",
+        "effective_max_daily_new_positions",
         "early_risk_bucket_enabled",
         "cash_sol",
         "cash_reserve_sol",

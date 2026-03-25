@@ -60,6 +60,7 @@ class Settings:
     early_risk_position_size_sol: float
     early_risk_min_score_floor: float
     max_daily_new_positions: int
+    hard_max_daily_new_positions: int
     cooldown_minutes_after_exit: int
     default_slippage_bps: int
     max_acceptable_price_impact_bps: int
@@ -169,6 +170,10 @@ class Settings:
             errors.append("ZOMBIE_RETRY_INTERVAL_CYCLES must be > 0")
         if self.early_risk_bucket_enabled and self.early_risk_position_size_sol < self.min_order_size_sol:
             errors.append("EARLY_RISK_POSITION_SIZE_SOL must be >= MIN_ORDER_SIZE_SOL when EARLY_RISK_BUCKET_ENABLED=true")
+        if self.hard_max_daily_new_positions < 1:
+            errors.append("HARD_MAX_DAILY_NEW_POSITIONS must be >= 1")
+        if self.hard_max_daily_new_positions < self.max_daily_new_positions:
+            errors.append("HARD_MAX_DAILY_NEW_POSITIONS must be >= MAX_DAILY_NEW_POSITIONS")
         if errors:
             raise RuntimeError("Configuration validation failed:\n- " + "\n- ".join(errors))
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -181,6 +186,8 @@ def load_settings() -> Settings:
         load_dotenv(env_path, override=True)
 
     runtime_dir = Path(env_str("RUNTIME_DIR", "runtime"))
+
+    _max_daily_new_positions = env_int("MAX_DAILY_NEW_POSITIONS", 6)
 
     discovery_interval_seconds = _required_env_int("DISCOVERY_INTERVAL_SECONDS")
     max_active_candidates = _required_env_int("MAX_ACTIVE_CANDIDATES")
@@ -233,7 +240,8 @@ def load_settings() -> Settings:
         early_risk_bucket_enabled=env_bool("EARLY_RISK_BUCKET_ENABLED", False),
         early_risk_position_size_sol=env_float("EARLY_RISK_POSITION_SIZE_SOL", env_float("MIN_ORDER_SIZE_SOL", 0.03)),
         early_risk_min_score_floor=env_float("EARLY_RISK_MIN_SCORE_FLOOR", 0.0),
-        max_daily_new_positions=env_int("MAX_DAILY_NEW_POSITIONS", 6),
+        max_daily_new_positions=_max_daily_new_positions,
+        hard_max_daily_new_positions=env_int("HARD_MAX_DAILY_NEW_POSITIONS", _max_daily_new_positions),
         cooldown_minutes_after_exit=env_int("COOLDOWN_MINUTES_AFTER_EXIT", 20),
         default_slippage_bps=env_int("DEFAULT_SLIPPAGE_BPS", 250),
         max_acceptable_price_impact_bps=env_int("MAX_ACCEPTABLE_PRICE_IMPACT_BPS", 900),

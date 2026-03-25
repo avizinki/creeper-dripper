@@ -118,6 +118,7 @@ def _print_env_snapshot(settings) -> None:
             _format_env_snapshot_line("CASH_RESERVE_SOL", settings.cash_reserve_sol),
             _format_env_snapshot_line("MIN_ORDER_SIZE_SOL", settings.min_order_size_sol),
             _format_env_snapshot_line("MAX_DAILY_NEW_POSITIONS", settings.max_daily_new_positions),
+            _format_env_snapshot_line("HARD_MAX_DAILY_NEW_POSITIONS", getattr(settings, "hard_max_daily_new_positions", "")),
             _format_env_snapshot_line("COOLDOWN_MINUTES_AFTER_EXIT", settings.cooldown_minutes_after_exit),
             _format_env_snapshot_line("DEFAULT_SLIPPAGE_BPS", settings.default_slippage_bps),
             _format_env_snapshot_line("MAX_ACCEPTABLE_PRICE_IMPACT_BPS", settings.max_acceptable_price_impact_bps),
@@ -219,12 +220,54 @@ def _print_wallet_snapshot(*, settings, birdeye: BirdeyeClient, executor: TradeE
         print(f"  - {sym} {addr} ui={ui} usd={vu}")
 
 
+def _visibility_effective_max_daily_new_positions(
+    *,
+    settings,
+    wallet_available_sol: float | None,
+    portfolio_cash_sol: float,
+    birth_sol: float | None,
+    effective_max_open: int | None,
+) -> int | None:
+    """Match CreeperDripper._effective_max_daily_new_positions when engine is unavailable."""
+    try:
+        baseline = int(settings.max_daily_new_positions)
+        hard_cap = int(getattr(settings, "hard_max_daily_new_positions", baseline) or baseline)
+        if not bool(getattr(settings, "dynamic_capacity_enabled", True)):
+            return min(baseline, hard_cap)
+
+        available_sol = wallet_available_sol
+        if available_sol is None:
+            available_sol = float(portfolio_cash_sol)
+        reserve = float(settings.cash_reserve_sol)
+        deployable = max(0.0, float(available_sol) - reserve)
+
+        bsol = birth_sol
+        dynamic_from_birth = baseline
+        if bsol is not None and float(bsol) > 0:
+            dynamic_from_birth = max(1, int(baseline * (float(available_sol) / float(bsol))))
+
+        denom = max(float(settings.base_position_size_sol), float(settings.min_order_size_sol), 1e-9)
+        funding_cap = int(deployable / denom) if deployable > 0 else 0
+
+        eo = int(effective_max_open) if effective_max_open is not None else None
+        effective = min(hard_cap, max(baseline, min(dynamic_from_birth, funding_cap)))
+        if eo is not None:
+            effective = min(effective, eo)
+        effective = max(0, int(effective))
+        if deployable > 0:
+            effective = min(hard_cap, max(1, effective))
+        return effective
+    except Exception:
+        return None
+
+
 def _print_dynamic_capacity(
     *,
     settings,
     engine: CreeperDripper | None,
     wallet_available_sol: float | None,
     header: str,
+    portfolio=None,
 ) -> None:
     print(f"\n=== {header} ===")
     print("note: affects entries only (never exits; never settlement truth)")
@@ -259,9 +302,43 @@ def _print_dynamic_capacity(
                 effective_max = min(hard_cap, max(baseline, min(dynamic_from_birth, funding_cap)))
         except Exception:
             effective_max = None
+    pf = portfolio if portfolio is not None else (engine.portfolio if engine is not None else None)
+    pcash = float(pf.cash_sol) if pf is not None else None
+    birth_for_daily = getattr(settings, "hachi_birth_wallet_sol", None) or birth_sol
+    effective_daily = None
+    if engine is not None:
+        try:
+            effective_daily = engine._effective_max_daily_new_positions()
+        except Exception:
+            effective_daily = None
+    elif pcash is not None:
+        effective_daily = _visibility_effective_max_daily_new_positions(
+            settings=settings,
+            wallet_available_sol=wallet_available_sol,
+            portfolio_cash_sol=pcash,
+            birth_sol=birth_for_daily,
+            effective_max_open=effective_max,
+        )
     print(f"dynamic_capacity_enabled={str(bool(getattr(settings, 'dynamic_capacity_enabled', True))).lower()}")
     print(f"hard_max_open_positions={getattr(settings, 'hard_max_open_positions', None)}")
     print(f"effective_max_open_positions={effective_max}")
+    print(f"max_daily_new_positions={settings.max_daily_new_positions}")
+    print(f"hard_max_daily_new_positions={getattr(settings, 'hard_max_daily_new_positions', None)}")
+    print(f"effective_max_daily_new_positions={effective_daily}")
+    if pf is not None:
+        print(f"opened_today_count={pf.opened_today_count}")
+        print(f"opened_today_date={pf.opened_today_date}")
+    try:
+        av = wallet_available_sol
+        if av is None and pf is not None:
+            av = float(pf.cash_sol)
+        bs = birth_for_daily
+        if av is not None and bs is not None and float(bs) > 0:
+            print(f"hachi_capacity_scale={float(av) / float(bs)}")
+        else:
+            print("hachi_capacity_scale=n/a")
+    except Exception:
+        print("hachi_capacity_scale=n/a")
     print(f"hachi_birth_wallet_sol={getattr(settings, 'hachi_birth_wallet_sol', None) or birth_sol}")
     print(f"hachi_birth_timestamp={getattr(settings, 'hachi_birth_timestamp', None) or birth_ts}")
     print(f"current_wallet_sol_snapshot={wallet_available_sol}")
@@ -623,6 +700,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             engine=engine,
             wallet_available_sol=locals().get("available_sol", None),
             header="STARTUP DYNAMIC CAPACITY (entries only)",
+            portfolio=engine.portfolio,
         )
     except Exception as exc:
         LOGGER.warning("startup_dynamic_capacity_print_failed: %s", exc)
@@ -993,6 +1071,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         checks.append({"check": "jupiter_execution_reachable_v1_swap", "ok": False, "endpoint": "POST /swap/v1/swap", "error": str(exc)})
         ok = False
 
+    portfolio = None
     try:
         portfolio = load_portfolio(settings.state_path, settings.portfolio_start_sol)
         # Doctor is not an active run loop; stale-market safe-mode should not persist outside a run.
@@ -1062,6 +1141,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         engine=None,
         wallet_available_sol=wallet_sol,
         header="DYNAMIC CAPACITY (entries only; visibility-derived)",
+        portfolio=portfolio,
     )
     _print_env_snapshot(settings)
     return 0 if ok else 1

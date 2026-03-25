@@ -123,6 +123,11 @@
     </section>
 
     <section>
+      <h2>Daily entry capacity</h2>
+      <div class="grid" id="daily-capacity"></div>
+    </section>
+
+    <section>
       <h2>Positions</h2>
       <div style="overflow-x:auto">
         <table>
@@ -194,6 +199,10 @@
           return;
         }
         const state = await stateRes.json();
+        let summaryJson = null;
+        if (summaryRes.ok) {
+          summaryJson = await summaryRes.json();
+        }
 
         const positions = state.open_positions || {};
         const list = Object.values(positions);
@@ -216,6 +225,25 @@
           ([k, v]) =>
             `<div class="stat"><label>${k}</label><span>${fmt(v)}</span></div>`
         ).join("");
+
+        if (summaryJson) {
+          const latest = summaryJson.latest || {};
+          const scale = latest.hachi_capacity_scale;
+          const scaleStr =
+            scale != null && Number.isFinite(Number(scale)) ? Number(scale).toFixed(3) : "N/A";
+          document.getElementById("daily-capacity").innerHTML = [
+            ["effective_max_daily_new_positions", latest.effective_max_daily_new_positions],
+            ["hard_max_daily_new_positions", latest.hard_max_daily_new_positions],
+            ["opened_today_count", latest.opened_today_count],
+            ["hachi_capacity_scale (available/birth)", scaleStr],
+          ].map(
+            ([k, v]) =>
+              `<div class="stat"><label>${k}</label><span>${fmt(v)}</span></div>`
+          ).join("");
+        } else {
+          document.getElementById("daily-capacity").innerHTML =
+            `<div class="err">GET /summary failed: ${summaryRes.status}</div>`;
+        }
 
         const tbody = document.getElementById("positions");
         tbody.innerHTML = list
@@ -249,12 +277,11 @@
           document.getElementById("events").innerHTML = `<div class="err">GET /events failed: ${eventsRes.status}</div>`;
         }
 
-        if (summaryRes.ok) {
-          const sj = await summaryRes.json();
-          const recent = sj.recent || [];
+        if (summaryJson) {
+          const recent = summaryJson.recent || [];
           const box = document.getElementById("summaries");
           if (!recent.length) {
-            box.innerHTML = "<pre>" + JSON.stringify(sj.latest || {}, null, 2) + "</pre>";
+            box.innerHTML = "<pre>" + JSON.stringify(summaryJson.latest || {}, null, 2) + "</pre>";
           } else {
             box.innerHTML = recent
               .slice(-10)
