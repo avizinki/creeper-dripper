@@ -159,9 +159,18 @@ class CreeperDripper:
         try:
             candidates, discovery_summary = self._discover_with_cadence()
         except Exception as exc:
-            LOGGER.error("event=discovery_failed error=%s", exc, exc_info=True)
+            LOGGER.error("event=discovery_failed error_type=%s error=%s", type(exc).__name__, exc, exc_info=True)
             candidates = []
             discovery_summary = self._failed_discovery_summary()
+            discovery_summary["discovery_failed"] = True
+            discovery_summary["discovery_error_type"] = type(exc).__name__
+            discovery_summary["discovery_error"] = str(exc)
+            self.events.emit(
+                "discovery_failed",
+                "exception",
+                error_type=discovery_summary["discovery_error_type"],
+                error=discovery_summary["discovery_error"],
+            )
         _checked_at_raw = discovery_summary.get("market_data_checked_at")
         if not _checked_at_raw:
             # Discovery failed — use last known successful timestamp so stale-data gate fires correctly.
@@ -1752,6 +1761,9 @@ class CreeperDripper:
             "run_id": self.settings.run_id,
             "cycle_in_run": self._cycle_in_run,
             "timestamp": now,
+            "discovery_failed": bool(discovery_summary.get("discovery_failed", False)),
+            "discovery_error_type": discovery_summary.get("discovery_error_type"),
+            "discovery_error": discovery_summary.get("discovery_error"),
             "seeds_total": discovery_summary.get("seeds_total", 0),
             "discovered_candidates": discovery_summary.get("discovered_candidates", 0),
             "prefiltered_candidates": discovery_summary.get("prefiltered_candidates", 0),

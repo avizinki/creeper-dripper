@@ -133,6 +133,23 @@ def test_cycle_summary_counts(monkeypatch, tmp_path):
     assert "reject_low_liquidity" in summary["rejection_counts"]
 
 
+def test_run_cycle_surfaces_discovery_failure_in_summary(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(), portfolio)
+
+    def _boom():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(engine, "_discover_with_cadence", _boom)
+    out = engine.run_cycle()
+    summary = out["summary"]
+    assert summary["discovery_failed"] is True
+    assert summary["discovery_error_type"] == "RuntimeError"
+    assert summary["discovery_error"] == "boom"
+    assert any(e.get("event_type") == "discovery_failed" for e in out.get("events", []))
+
+
 def test_jupiter_diagnostic_reason_mapping():
     raw = SimpleNamespace(output_amount_result=None, input_amount_result=None, signature=None, error="boom")
     res = TradeExecutor._normalize_execution_result(raw, requested_amount=10)
