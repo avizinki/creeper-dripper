@@ -56,6 +56,12 @@ def test_solana_exit_liquidity_skipped_before_http_call(monkeypatch):
 
 def test_discovery_fallback_allows_candidate_when_exit_liquidity_unavailable(monkeypatch):
     settings = _settings(monkeypatch, require_exit=False)
+    real = BirdeyeClient("x", min_interval_s=0.0, chain="solana")
+    monkeypatch.setattr(
+        real,
+        "token_overview",
+        lambda address: {"decimals": 6, "price": 1.0, "liquidity": 250000, "v24hUSD": 500000, "buy1h": 15, "sell1h": 5},
+    )
 
     class StubBirdeye:
         def trending_tokens(self, limit=25):
@@ -64,28 +70,19 @@ def test_discovery_fallback_allows_candidate_when_exit_liquidity_unavailable(mon
         def new_listings(self, limit=10):
             return []
 
-        def build_candidate(self, seed):
-            raise RuntimeError("patched")
+        def build_candidate_light(self, seed):
+            return real.build_candidate_light(seed)
 
-        def build_candidate(self, seed):
-            return BirdeyeClient("x").build_candidate(seed)
-
-    # Build candidate via real builder but patched to unsupported exit-liquidity.
-    real = BirdeyeClient("x", min_interval_s=0.0)
-    monkeypatch.setattr(real, "token_overview", lambda address: {"decimals": 6, "price": 1.0, "liquidity": 250000, "v24hUSD": 500000, "buy1h": 15, "sell1h": 5})
-    monkeypatch.setattr(real, "token_security", lambda address: {})
-    monkeypatch.setattr(real, "token_holders", lambda address: {})
-    monkeypatch.setattr(real, "token_creation_info", lambda address: {})
-    monkeypatch.setattr(real, "token_exit_liquidity", lambda address: (_ for _ in ()).throw(RuntimeError('{"success":false,"message":"Chain solana not supported"}')))
+        def enrich_candidate_heavy(self, candidate):
+            # For this test we don't need heavy enrichment; pass-through.
+            return candidate
 
     class StubJupiter:
         def probe_quote(self, **kwargs):
             return ProbeQuote(input_amount_atomic=kwargs["amount_atomic"], out_amount_atomic=1000000, price_impact_bps=100.0, route_ok=True, raw={})
 
-    # Inject patched builder instance.
+    # New two-phase discovery calls build_candidate_light then (optionally) enrich_candidate_heavy.
     birdeye = StubBirdeye()
-    monkeypatch.setattr(birdeye, "build_candidate", real.build_candidate, raising=False)
-
     candidates, _summary = discover_candidates(birdeye, StubJupiter(), settings)
     assert len(candidates) == 1
     assert candidates[0].exit_liquidity_available is False
@@ -93,6 +90,12 @@ def test_discovery_fallback_allows_candidate_when_exit_liquidity_unavailable(mon
 
 def test_discovery_strict_mode_rejects_when_exit_liquidity_unavailable(monkeypatch):
     settings = _settings(monkeypatch, require_exit=True)
+    real = BirdeyeClient("x", min_interval_s=0.0, chain="solana")
+    monkeypatch.setattr(
+        real,
+        "token_overview",
+        lambda address: {"decimals": 6, "price": 1.0, "liquidity": 250000, "v24hUSD": 500000, "buy1h": 15, "sell1h": 5},
+    )
 
     class StubBirdeye:
         def trending_tokens(self, limit=25):
@@ -101,15 +104,9 @@ def test_discovery_strict_mode_rejects_when_exit_liquidity_unavailable(monkeypat
         def new_listings(self, limit=10):
             return []
 
-    real = BirdeyeClient("x", min_interval_s=0.0)
-    monkeypatch.setattr(real, "token_overview", lambda address: {"decimals": 6, "price": 1.0, "liquidity": 250000, "v24hUSD": 500000, "buy1h": 15, "sell1h": 5})
-    monkeypatch.setattr(real, "token_security", lambda address: {})
-    monkeypatch.setattr(real, "token_holders", lambda address: {})
-    monkeypatch.setattr(real, "token_creation_info", lambda address: {})
-    monkeypatch.setattr(real, "token_exit_liquidity", lambda address: (_ for _ in ()).throw(RuntimeError('{"success":false,"message":"Chain solana not supported"}')))
-
     birdeye = StubBirdeye()
-    monkeypatch.setattr(birdeye, "build_candidate", real.build_candidate, raising=False)
+    monkeypatch.setattr(birdeye, "build_candidate_light", lambda seed: real.build_candidate_light(seed), raising=False)
+    monkeypatch.setattr(birdeye, "enrich_candidate_heavy", lambda c: c, raising=False)
 
     class StubJupiter:
         def probe_quote(self, **kwargs):

@@ -42,7 +42,7 @@ def test_seed_prefilter_skips_expensive_candidate_build(monkeypatch, tmp_path):
         def new_listings(self, limit=10):
             return []
 
-        def build_candidate(self, seed):
+        def build_candidate_light(self, seed):
             build_calls["n"] += 1
             return TokenCandidate(
                 address=seed["address"],
@@ -55,6 +55,9 @@ def test_seed_prefilter_skips_expensive_candidate_build(monkeypatch, tmp_path):
                 buy_sell_ratio_1h=1.5,
                 age_hours=10,
             )
+
+        def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
+            return candidate
 
     class StubJupiter:
         def probe_quote(self, **kwargs):
@@ -83,7 +86,7 @@ def test_topn_cap_limits_route_checks(monkeypatch, tmp_path):
         def new_listings(self, limit=10):
             return []
 
-        def build_candidate(self, seed):
+        def build_candidate_light(self, seed):
             idx = int(seed["address"][1:])
             return TokenCandidate(
                 address=seed["address"],
@@ -96,6 +99,9 @@ def test_topn_cap_limits_route_checks(monkeypatch, tmp_path):
                 buy_sell_ratio_1h=1.5,
                 age_hours=5,
             )
+
+        def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
+            return candidate
 
     calls = {"n": 0}
 
@@ -172,7 +178,7 @@ def test_discovery_shared_cache_persists_across_calls(monkeypatch, tmp_path):
         def new_listings(self, limit=10):
             return []
 
-        def build_candidate(self, seed):
+        def build_candidate_light(self, seed):
             build_calls["n"] += 1
             return TokenCandidate(
                 address=seed["address"],
@@ -183,6 +189,9 @@ def test_discovery_shared_cache_persists_across_calls(monkeypatch, tmp_path):
                 buy_sell_ratio_1h=1.5,
                 age_hours=5,
             )
+
+        def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
+            return candidate
 
     class StubJupiter:
         def probe_quote(self, **kwargs):
@@ -255,11 +264,26 @@ def test_discovery_reuse_does_not_block_held_position_marking(monkeypatch, tmp_p
                 raw={},
             )
 
+        def sell(self, token_mint: str, amount_atomic: int):
+            # Used only to prevent crashes in exit-evaluation tests.
+            quote = self.quote_sell(token_mint, amount_atomic)
+            from creeper_dripper.models import ExecutionResult
+
+            return (
+                ExecutionResult(
+                    status="skipped",
+                    requested_amount=max(1, amount_atomic),
+                    diagnostic_code="execute_skipped_dry_run",
+                    error="sell_not_executed_dry_run",
+                ),
+                quote,
+            )
+
         def transaction_status(self, _sig):
             return None
 
     class StubBirdeye:
-        def build_candidate(self, seed):
+        def build_candidate_light(self, seed):
             return TokenCandidate(
                 address=seed["address"],
                 symbol=seed["symbol"],
@@ -270,6 +294,13 @@ def test_discovery_reuse_does_not_block_held_position_marking(monkeypatch, tmp_p
                 buy_sell_ratio_1h=1.2,
                 age_hours=5,
             )
+
+        def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
+            return candidate
+
+        def build_candidate(self, seed):
+            # Some engine paths still call the compatibility method name.
+            return self.build_candidate_light(seed)
 
     engine = CreeperDripper(settings, StubBirdeye(), DummyExecutor(), portfolio)
     engine._last_discovery_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)

@@ -26,7 +26,7 @@ def test_jupiter_400_buy_probe_classified_and_body_preserved(monkeypatch):
         def new_listings(self, limit=10):
             return []
 
-        def build_candidate(self, seed):
+        def build_candidate_light(self, seed):
             from creeper_dripper.models import TokenCandidate
 
             return TokenCandidate(
@@ -40,6 +40,9 @@ def test_jupiter_400_buy_probe_classified_and_body_preserved(monkeypatch):
                 exit_liquidity_available=False,
                 exit_liquidity_reason="birdeye_exit_liquidity_unsupported_chain",
             )
+
+        def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
+            return candidate
 
     class StubJupiter:
         def __init__(self):

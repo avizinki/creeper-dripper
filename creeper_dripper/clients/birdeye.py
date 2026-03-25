@@ -242,12 +242,11 @@ class BirdeyeClient:
         data = self._data(payload)
         return data if isinstance(data, dict) else {}
 
-    def build_candidate(self, seed: dict[str, Any]) -> TokenCandidate:
+    def build_candidate_light(self, seed: dict[str, Any]) -> TokenCandidate:
         address = str(seed.get("address") or seed.get("token_address") or seed.get("mint") or "").strip()
         symbol = str(seed.get("symbol") or seed.get("baseSymbol") or "?").strip() or "?"
         overview = self.token_overview(address)
-        security = self.token_security(address)
-        holders = self.token_holders(address)
+        # Phase 1 (cheap): overview-only build to enable early filtering.
         exit_liquidity: dict[str, Any] = {}
         # Proven by direct probe: `/defi/v3/token/exit-liquidity` returns 400 "Chain solana not supported"
         # on Solana for our integration. Skip entirely to avoid CU waste and retry amplification.
@@ -259,19 +258,8 @@ class BirdeyeClient:
             exit_liquidity_available = False
             birdeye_exit_liquidity_supported = False
             exit_liquidity_reason = "birdeye_exit_liquidity_skipped_unsupported_chain"
-        else:
-            try:
-                exit_liquidity = self.token_exit_liquidity(address)
-            except Exception as exc:
-                message = str(exc).lower()
-                if "chain solana not supported" in message or "chain not supported" in message:
-                    exit_liquidity_available = False
-                    birdeye_exit_liquidity_supported = False
-                    exit_liquidity_reason = BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
-                else:
-                    raise
-        creation = self.token_creation_info(address)
-        age_hours, age_source, created_at_raw = _extract_age_info(creation)
+        # Non-solana chains may choose to consult exit-liquidity in heavy enrichment if needed.
+        age_hours, age_source, created_at_raw = None, None, None
 
         candidate = TokenCandidate(
             address=address,
@@ -290,26 +278,61 @@ class BirdeyeClient:
             change_24h_pct=_floatish(overview.get("priceChange24hPercent") or _nested(overview, ["priceChange", "h24"])),
             buy_1h=_intish(overview.get("buy1h") or _nested(overview, ["trade", "buy1h"])),
             sell_1h=_intish(overview.get("sell1h") or _nested(overview, ["trade", "sell1h"])),
-            holder_count=_intish(overview.get("holder") or overview.get("holders") or holders.get("total")),
-            top10_holder_percent=_extract_top10_holder_percent(holders),
+            holder_count=_intish(overview.get("holder") or overview.get("holders")),
+            top10_holder_percent=None,
             age_hours=age_hours,
             age_source=age_source,
             created_at_raw=created_at_raw,
-            security_mint_mutable=_boolish(security.get("is_mintable") or security.get("mintAuthorityEnabled") or security.get("mutableMetadata")),
-            security_freezable=_boolish(security.get("is_freezable") or security.get("freezeAuthorityEnabled")),
+            security_mint_mutable=None,
+            security_freezable=None,
             raw={
                 "seed": seed,
                 "overview": overview,
-                "security": security,
-                "holders": holders,
                 "exit_liquidity": exit_liquidity,
-                "creation": creation,
             },
         )
         if candidate.buy_1h is not None and candidate.sell_1h is not None:
             denom = max(candidate.sell_1h, 1)
             candidate.buy_sell_ratio_1h = candidate.buy_1h / denom
         return candidate
+
+    def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
+        """
+        Phase 2 (expensive): enrich an already-built candidate with heavy endpoints.
+        Only call this after cheap prefilter to reduce CU burn.
+        """
+        address = str(candidate.address or "").strip()
+        if not address:
+            return candidate
+
+        security = self.token_security(address)
+        holders = self.token_holders(address)
+        creation = self.token_creation_info(address)
+        age_hours, age_source, created_at_raw = _extract_age_info(creation)
+
+        candidate.security_mint_mutable = _boolish(
+            security.get("is_mintable") or security.get("mintAuthorityEnabled") or security.get("mutableMetadata")
+        )
+        candidate.security_freezable = _boolish(security.get("is_freezable") or security.get("freezeAuthorityEnabled"))
+        # Prefer holders endpoint for these fields (overview often has only total holders).
+        candidate.holder_count = _intish(candidate.holder_count or holders.get("total") or holders.get("holder"))
+        candidate.top10_holder_percent = _extract_top10_holder_percent(holders)
+        candidate.age_hours = age_hours
+        candidate.age_source = age_source
+        candidate.created_at_raw = created_at_raw
+
+        candidate.raw = {
+            **(candidate.raw or {}),
+            "security": security,
+            "holders": holders,
+            "creation": creation,
+        }
+        return candidate
+
+    def build_candidate(self, seed: dict[str, Any]) -> TokenCandidate:
+        """Compatibility: full build (light + heavy enrichment). Prefer two-phase pipeline in discovery."""
+        c = self.build_candidate_light(seed)
+        return self.enrich_candidate_heavy(c)
 
 
 def _nested(obj: dict[str, Any], path: list[str]) -> Any:

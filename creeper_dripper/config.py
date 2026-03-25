@@ -30,6 +30,7 @@ class Settings:
     discovery_limit: int
     discovery_seed_limit: int
     discovery_max_candidates: int
+    discovery_overview_limit: int
     discovery_interval_seconds: int
     max_active_candidates: int
     candidate_cache_ttl_seconds: int
@@ -156,6 +157,8 @@ class Settings:
             errors.append("CANDIDATE_CACHE_TTL_SECONDS must be > 0")
         if self.route_check_cache_ttl_seconds <= 0:
             errors.append("ROUTE_CHECK_CACHE_TTL_SECONDS must be > 0")
+        if self.discovery_overview_limit <= 0:
+            errors.append("DISCOVERY_OVERVIEW_LIMIT must be > 0")
         if self.discovery_seed_limit <= 0:
             errors.append("DISCOVERY_SEED_LIMIT must be > 0")
         if self.max_token_age_hours_hard <= 0:
@@ -193,6 +196,8 @@ def load_settings() -> Settings:
     max_active_candidates = _required_env_int("MAX_ACTIVE_CANDIDATES")
     candidate_cache_ttl_seconds = _optional_env_int("CANDIDATE_CACHE_TTL_SECONDS", 120)
     route_check_cache_ttl_seconds = _optional_env_int("ROUTE_CHECK_CACHE_TTL_SECONDS", 90)
+    discovery_max_candidates = env_int("DISCOVERY_MAX_CANDIDATES", 8)
+    discovery_overview_limit = env_int("DISCOVERY_OVERVIEW_LIMIT", discovery_max_candidates)
 
     settings = Settings(
         birdeye_api_key=env_str("BIRDEYE_API_KEY", ""),
@@ -209,7 +214,8 @@ def load_settings() -> Settings:
         journal_path=Path(env_str("JOURNAL_PATH", str(runtime_dir / "journal.jsonl"))),
         discovery_limit=env_int("DISCOVERY_LIMIT", 25),
         discovery_seed_limit=env_int("DISCOVERY_SEED_LIMIT", env_int("DISCOVERY_LIMIT", 25)),
-        discovery_max_candidates=env_int("DISCOVERY_MAX_CANDIDATES", 8),
+        discovery_max_candidates=discovery_max_candidates,
+        discovery_overview_limit=discovery_overview_limit,
         discovery_interval_seconds=discovery_interval_seconds,
         max_active_candidates=max_active_candidates,
         candidate_cache_ttl_seconds=candidate_cache_ttl_seconds,

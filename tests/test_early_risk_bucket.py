@@ -23,7 +23,7 @@ class DummyBirdeye:
     def new_listings(self, *, limit: int):
         return []
 
-    def build_candidate(self, seed: dict):
+    def build_candidate_light(self, seed: dict):
         # Low liquidity should downgrade to early-risk, not hard-reject.
         c = TokenCandidate(
             address=seed["address"],
@@ -38,6 +38,9 @@ class DummyBirdeye:
             security_freezable=False,
         )
         return c
+
+    def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
+        return candidate
 
 
 class DummyJupiter:
