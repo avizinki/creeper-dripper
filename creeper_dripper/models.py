@@ -30,6 +30,10 @@ class TokenCandidate:
     created_at_raw: str | None = None
     security_mint_mutable: bool | None = None
     security_freezable: bool | None = None
+    # Whether expensive enrichments are needed for this candidate.
+    # Used by discovery to avoid unnecessary Birdeye calls.
+    needs_security_check: bool = False
+    needs_holder_check: bool = False
     jupiter_buy_out_amount: int | None = None
     jupiter_buy_price_impact_bps: float | None = None
     jupiter_sell_price_impact_bps: float | None = None

@@ -298,35 +298,48 @@ class BirdeyeClient:
 
     def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
         """
-        Phase 2 (expensive): enrich an already-built candidate with heavy endpoints.
-        Only call this after cheap prefilter to reduce CU burn.
+        Phase 2 (expensive-lite): enrich candidate with age/creation info only.
+        Security + holder enrichment is deferred to the route-probe stage so we
+        can skip them when they cannot affect acceptance.
         """
         address = str(candidate.address or "").strip()
         if not address:
             return candidate
 
-        security = self.token_security(address)
-        holders = self.token_holders(address)
         creation = self.token_creation_info(address)
         age_hours, age_source, created_at_raw = _extract_age_info(creation)
-
-        candidate.security_mint_mutable = _boolish(
-            security.get("is_mintable") or security.get("mintAuthorityEnabled") or security.get("mutableMetadata")
-        )
-        candidate.security_freezable = _boolish(security.get("is_freezable") or security.get("freezeAuthorityEnabled"))
-        # Prefer holders endpoint for these fields (overview often has only total holders).
-        candidate.holder_count = _intish(candidate.holder_count or holders.get("total") or holders.get("holder"))
-        candidate.top10_holder_percent = _extract_top10_holder_percent(holders)
         candidate.age_hours = age_hours
         candidate.age_source = age_source
         candidate.created_at_raw = created_at_raw
 
         candidate.raw = {
             **(candidate.raw or {}),
-            "security": security,
-            "holders": holders,
             "creation": creation,
         }
+        return candidate
+
+    def enrich_candidate_security_only(self, candidate: TokenCandidate) -> TokenCandidate:
+        """Fetch `/defi/token_security` and populate mint mutability + freezeability."""
+        address = str(candidate.address or "").strip()
+        if not address:
+            return candidate
+        security = self.token_security(address)
+        candidate.security_mint_mutable = _boolish(
+            security.get("is_mintable") or security.get("mintAuthorityEnabled") or security.get("mutableMetadata")
+        )
+        candidate.security_freezable = _boolish(security.get("is_freezable") or security.get("freezeAuthorityEnabled"))
+        candidate.raw = {**(candidate.raw or {}), "security": security}
+        return candidate
+
+    def enrich_candidate_holders_only(self, candidate: TokenCandidate) -> TokenCandidate:
+        """Fetch `/defi/v3/token/holder` and populate holder concentration metrics."""
+        address = str(candidate.address or "").strip()
+        if not address:
+            return candidate
+        holders = self.token_holders(address)
+        candidate.holder_count = _intish(candidate.holder_count or holders.get("total") or holders.get("holder"))
+        candidate.top10_holder_percent = _extract_top10_holder_percent(holders)
+        candidate.raw = {**(candidate.raw or {}), "holders": holders}
         return candidate
 
     def build_candidate(self, seed: dict[str, Any]) -> TokenCandidate:

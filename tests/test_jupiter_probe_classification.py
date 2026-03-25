@@ -44,6 +44,15 @@ def test_jupiter_400_buy_probe_classified_and_body_preserved(monkeypatch):
         def enrich_candidate_heavy(self, candidate: TokenCandidate) -> TokenCandidate:
             return candidate
 
+        def enrich_candidate_security_only(self, candidate: TokenCandidate) -> TokenCandidate:
+            candidate.security_mint_mutable = False
+            candidate.security_freezable = False
+            return candidate
+
+        def enrich_candidate_holders_only(self, candidate: TokenCandidate) -> TokenCandidate:
+            candidate.top10_holder_percent = 0.0
+            return candidate
+
     class StubJupiter:
         def __init__(self):
             self.calls = 0

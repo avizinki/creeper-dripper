@@ -77,6 +77,17 @@ def test_discovery_fallback_allows_candidate_when_exit_liquidity_unavailable(mon
             # For this test we don't need heavy enrichment; pass-through.
             return candidate
 
+        def enrich_candidate_security_only(self, candidate):
+            # Treat as safe for scoring / reject flags in tests.
+            candidate.security_mint_mutable = False
+            candidate.security_freezable = False
+            return candidate
+
+        def enrich_candidate_holders_only(self, candidate):
+            # Spread holders so top10 penalty doesn't drag score below threshold.
+            candidate.top10_holder_percent = 0.0
+            return candidate
+
     class StubJupiter:
         def probe_quote(self, **kwargs):
             return ProbeQuote(input_amount_atomic=kwargs["amount_atomic"], out_amount_atomic=1000000, price_impact_bps=100.0, route_ok=True, raw={})
@@ -103,6 +114,15 @@ def test_discovery_strict_mode_rejects_when_exit_liquidity_unavailable(monkeypat
 
         def new_listings(self, limit=10):
             return []
+
+        def enrich_candidate_security_only(self, candidate):
+            candidate.security_mint_mutable = False
+            candidate.security_freezable = False
+            return candidate
+
+        def enrich_candidate_holders_only(self, candidate):
+            candidate.top10_holder_percent = 0.0
+            return candidate
 
     birdeye = StubBirdeye()
     monkeypatch.setattr(birdeye, "build_candidate_light", lambda seed: real.build_candidate_light(seed), raising=False)

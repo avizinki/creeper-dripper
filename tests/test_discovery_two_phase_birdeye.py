@@ -24,8 +24,10 @@ def test_heavy_endpoints_not_called_for_prefilter_rejects(monkeypatch: pytest.Mo
     settings = load_settings()
     # Make cheap prefilter strict enough to reject one seed by 24h volume (this is enforced in prefilter).
     settings.min_volume_24h_usd = 200_000
+    # Force conditional holder enrichment to trigger (worst-case top10 penalty should drop below threshold).
+    settings.min_discovery_score = 60
 
-    calls = {"security": 0, "holders": 0, "creation": 0, "overview": 0}
+    calls = {"security_only": 0, "holders_only": 0, "creation": 0, "overview": 0}
 
     class StubBirdeye:
         def trending_tokens(self, limit=25):
@@ -53,10 +55,21 @@ def test_heavy_endpoints_not_called_for_prefilter_rejects(monkeypatch: pytest.Mo
             )
 
         def enrich_candidate_heavy(self, candidate: TokenCandidate):
-            calls["security"] += 1
-            calls["holders"] += 1
             calls["creation"] += 1
             # no-op enrichment
+            return candidate
+
+        def enrich_candidate_security_only(self, candidate: TokenCandidate):
+            calls["security_only"] += 1
+            # Safe defaults: treat as non-mutable / non-freezable.
+            candidate.security_mint_mutable = False
+            candidate.security_freezable = False
+            return candidate
+
+        def enrich_candidate_holders_only(self, candidate: TokenCandidate):
+            calls["holders_only"] += 1
+            # Spread holders (top10 <= 25) so final score can pass.
+            candidate.top10_holder_percent = 0.0
             return candidate
 
     class StubJupiter:
@@ -72,8 +85,8 @@ def test_heavy_endpoints_not_called_for_prefilter_rejects(monkeypatch: pytest.Mo
     candidates, summary = discover_candidates(StubBirdeye(), StubJupiter(), settings)
     # We should only enrich survivors (mint_ok), never mint_low.
     assert calls["overview"] == 2
-    assert calls["security"] == 1
-    assert calls["holders"] == 1
+    assert calls["security_only"] == 1
+    assert calls["holders_only"] == 1
     assert calls["creation"] == 1
     assert any(c.address == "mint_ok" for c in candidates + []) or summary["candidates_built"] >= 1
 
@@ -124,6 +137,15 @@ def test_overview_limit_caps_token_overview_stage(monkeypatch: pytest.MonkeyPatc
 
         def enrich_candidate_heavy(self, candidate: TokenCandidate):
             calls["heavy"] += 1
+            return candidate
+
+        def enrich_candidate_security_only(self, candidate: TokenCandidate):
+            candidate.security_mint_mutable = False
+            candidate.security_freezable = False
+            return candidate
+
+        def enrich_candidate_holders_only(self, candidate: TokenCandidate):
+            candidate.top10_holder_percent = 0.0
             return candidate
 
     class StubJupiter:

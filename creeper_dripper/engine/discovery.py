@@ -423,6 +423,56 @@ def discover_candidates(
             sell_probe.price_impact_bps,
             settings.max_acceptable_price_impact_bps,
         )
+
+        # Conditional security/holder enrichment:
+        # - We can skip `/defi/token_security` and `/defi/v3/token/holder` if they cannot
+        #   change acceptance decisions w.r.t. `min_discovery_score`.
+        # - We preserve correctness by using an explicit score upper/lower bound:
+        #   * best-case: security safe + holder spread (top10 <= 25 → +8 score)
+        #   * worst-case: security actual + holder concentrated (top10 >= 55 → -12 score)
+        #   If best-case is below threshold, we skip both endpoints.
+        #   If worst-case is still above threshold, we skip holder.
+        if candidate.top10_holder_percent is None and not getattr(candidate, "needs_holder_check", False):
+            # If caller didn't request holder, treat as needing it (safety).
+            candidate.needs_holder_check = True
+        if getattr(candidate, "needs_security_check", False) is False:
+            candidate.needs_security_check = True
+
+        min_disc = float(settings.min_discovery_score or 0.0)
+        # Compute best-case score without expensive endpoints:
+        candidate.security_mint_mutable = False
+        candidate.security_freezable = False
+        candidate.top10_holder_percent = 0.0  # <= 25 → +8 contribution
+        candidate = score_candidate(candidate, settings)
+        best_score = float(candidate.discovery_score or 0.0)
+
+        if best_score < min_disc:
+            # Even in the best-case world, candidate can't pass the score gate.
+            # Skip expensive endpoints; later scoring stays <= best_score.
+            candidate.needs_security_check = False
+            candidate.needs_holder_check = False
+            candidate.security_mint_mutable = None
+            candidate.security_freezable = None
+            candidate.top10_holder_percent = None
+        else:
+            # Security is needed to correctly apply binary reject flags and score penalties.
+            candidate.needs_security_check = True
+            if hasattr(birdeye, "enrich_candidate_security_only"):
+                candidate = birdeye.enrich_candidate_security_only(candidate)
+
+            # Decide whether holder is needed by checking worst-case holder penalty.
+            candidate.needs_holder_check = True
+            candidate.top10_holder_percent = 100.0  # >= 55 → -12 contribution
+            candidate = score_candidate(candidate, settings)
+            worst_score = float(candidate.discovery_score or 0.0)
+            if worst_score >= min_disc:
+                candidate.needs_holder_check = False
+                # Keep pessimistic top10 so later scoring reflects worst-case.
+                candidate.top10_holder_percent = 100.0
+            else:
+                if hasattr(birdeye, "enrich_candidate_holders_only"):
+                    candidate = birdeye.enrich_candidate_holders_only(candidate)
+
         candidate = score_candidate(candidate, settings)
         reasons = rejection_reasons(candidate, settings, include_route_checks=True)
         liq = float(candidate.liquidity_usd or 0.0)
