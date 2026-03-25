@@ -15,6 +15,7 @@ LOGGER = logging.getLogger("creeper_dripper")
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 _RUNTIME_FILE_HANDLER_MARKER = "_creeper_dripper_runtime_logfile"
+_RUN_FILE_HANDLER_MARKER = "_creeper_dripper_run_logfile"
 _LOGFILE_MAX_BYTES = 10 * 1024 * 1024
 
 
@@ -152,22 +153,32 @@ def _maybe_rotate_logfile(path: Path, *, max_bytes: int) -> None:
     path.rename(rotated)
 
 
-def setup_logging(level: str, *, runtime_dir: Path | None = None) -> None:
+def setup_logging(level: str, *, runtime_dir: Path | None = None, run_log_path: Path | None = None) -> None:
     level_no = getattr(logging, level.upper(), logging.INFO)
     logging.basicConfig(level=level_no, format=_LOG_FORMAT)
     if runtime_dir is None:
         return
     root = logging.getLogger()
-    if any(getattr(h, _RUNTIME_FILE_HANDLER_MARKER, False) for h in root.handlers):
+    if not any(getattr(h, _RUNTIME_FILE_HANDLER_MARKER, False) for h in root.handlers):
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        log_path = runtime_dir / "logfile.log"
+        _maybe_rotate_logfile(log_path, max_bytes=_LOGFILE_MAX_BYTES)
+        file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+        setattr(file_handler, _RUNTIME_FILE_HANDLER_MARKER, True)
+        file_handler.setLevel(logging.NOTSET)
+        file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+        root.addHandler(file_handler)
+    if run_log_path is None:
         return
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    log_path = runtime_dir / "logfile.log"
-    _maybe_rotate_logfile(log_path, max_bytes=_LOGFILE_MAX_BYTES)
-    file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-    setattr(file_handler, _RUNTIME_FILE_HANDLER_MARKER, True)
-    file_handler.setLevel(logging.NOTSET)
-    file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
-    root.addHandler(file_handler)
+    if any(getattr(h, _RUN_FILE_HANDLER_MARKER, False) for h in root.handlers):
+        return
+    ensure_parent(run_log_path)
+    _maybe_rotate_logfile(run_log_path, max_bytes=_LOGFILE_MAX_BYTES)
+    run_handler = logging.FileHandler(run_log_path, mode="a", encoding="utf-8")
+    setattr(run_handler, _RUN_FILE_HANDLER_MARKER, True)
+    run_handler.setLevel(logging.NOTSET)
+    run_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+    root.addHandler(run_handler)
 
 
 def mask_secret(secret: str) -> str:

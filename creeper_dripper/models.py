@@ -169,6 +169,7 @@ class PortfolioState:
     consecutive_execution_failures: int = 0
     entries_skipped_dry_run: int = 0
     entries_skipped_live_disabled: int = 0
+    run_id: str | None = None
 
 
 @dataclass(slots=True)

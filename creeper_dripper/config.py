@@ -75,6 +75,9 @@ class Settings:
     drip_chunk_pcts: list[float]
     drip_near_equal_band: float
     drip_min_chunk_wait_seconds: int
+    run_id: str | None = None
+    run_dir: Path | None = None
+    run_log_path: Path | None = None
 
     def validate(self) -> None:
         errors: list[str] = []
@@ -188,6 +191,9 @@ def load_settings() -> Settings:
         drip_chunk_pcts=env_csv_floats("DRIP_CHUNK_PCTS", [0.10, 0.25, 0.50]),
         drip_near_equal_band=env_float("DRIP_NEAR_EQUAL_BAND", 0.002),
         drip_min_chunk_wait_seconds=env_int("DRIP_MIN_CHUNK_WAIT_SECONDS", 30),
+        run_id=None,
+        run_dir=None,
+        run_log_path=None,
     )
     settings.validate()
     return settings

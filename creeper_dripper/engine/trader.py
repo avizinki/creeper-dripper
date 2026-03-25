@@ -124,6 +124,9 @@ class CreeperDripper:
         }
         self._candidate_cache = TTLCache[TokenCandidate](settings.candidate_cache_ttl_seconds)
         self._route_cache = TTLCache[ProbeQuote](settings.route_check_cache_ttl_seconds)
+        self._cycle_in_run = 0
+        if self.settings.run_id:
+            self.portfolio.run_id = self.settings.run_id
         LOGGER.info(
             "cache_engine_init: candidate_cache_id=%s route_cache_id=%s candidate_ttl_s=%s route_ttl_s=%s",
             id(self._candidate_cache),
@@ -134,6 +137,7 @@ class CreeperDripper:
 
     def run_cycle(self) -> dict:
         now = utc_now_iso()
+        self._cycle_in_run += 1
         self._reset_daily_counters(now)
         decisions: list[TradeDecision] = []
         if not self._startup_recovery_done:
@@ -1188,9 +1192,12 @@ class CreeperDripper:
         # Keep lightweight per-candidate proof artifacts for fast route debugging.
         safe_symbol = "".join(ch if ch.isalnum() else "_" for ch in (candidate.symbol or "unknown"))[:24]
         timestamp = now.replace(":", "").replace("-", "").replace(".", "").replace("+", "_")
-        path = self.settings.runtime_dir / f"entry_probe_{safe_symbol}_{timestamp}.json"
+        artifact_dir = self.settings.run_dir or self.settings.runtime_dir
+        path = artifact_dir / f"entry_probe_{safe_symbol}_{timestamp}.json"
         payload = {
             "timestamp": now,
+            "run_id": self.settings.run_id,
+            "cycle_in_run": self._cycle_in_run,
             "candidate": {
                 "symbol": candidate.symbol,
                 "mint": candidate.address,
@@ -1209,6 +1216,8 @@ class CreeperDripper:
             LOGGER.warning("entry probe artifact write failed path=%s error=%s", path, exc)
 
     def _persist_cycle(self, now: str, decisions: list[TradeDecision], cycle_summary: dict) -> None:
+        if self.settings.run_id:
+            self.portfolio.run_id = self.settings.run_id
         try:
             save_portfolio(self.settings.state_path, self.portfolio)
         except Exception as exc:
@@ -1217,28 +1226,58 @@ class CreeperDripper:
             raise
         for decision in decisions:
             try:
-                append_jsonl(self.settings.journal_path, {"ts": now, **asdict(decision)})
+                append_jsonl(
+                    self.settings.journal_path,
+                    {
+                        "ts": now,
+                        "run_id": self.settings.run_id,
+                        "cycle_in_run": self._cycle_in_run,
+                        **asdict(decision),
+                    },
+                )
+                if self.settings.run_dir:
+                    append_jsonl(
+                        self.settings.run_dir / "journal.jsonl",
+                        {
+                            "ts": now,
+                            "run_id": self.settings.run_id,
+                            "cycle_in_run": self._cycle_in_run,
+                            **asdict(decision),
+                        },
+                    )
             except Exception as exc:
                 LOGGER.error("%s path=%s error=%s", JOURNAL_APPEND_FAILED, self.settings.journal_path, exc)
                 self.events.emit("persistence_issue", JOURNAL_APPEND_FAILED, path=str(self.settings.journal_path), error=str(exc))
                 raise
         status_path = self.settings.runtime_dir / "status.json"
+        status_payload = {
+            "run_id": self.settings.run_id,
+            "run_dir": str(self.settings.run_dir) if self.settings.run_dir else None,
+            "cycle_in_run": self._cycle_in_run,
+            "cycle_timestamp": now,
+            "safe_mode_active": self.portfolio.safe_mode_active,
+            "safety_stop_reason": self.portfolio.safety_stop_reason,
+            "summary": cycle_summary,
+        }
         try:
             top_rejections = sorted(
                 cycle_summary.get("rejection_counts", {}).items(),
                 key=lambda kv: kv[1],
                 reverse=True,
             )[:5]
-            save_status_snapshot(
-                status_path,
-                {
-                    "cycle_timestamp": now,
-                    "safe_mode_active": self.portfolio.safe_mode_active,
-                    "safety_stop_reason": self.portfolio.safety_stop_reason,
-                    "summary": cycle_summary,
-                    "top_rejection_reasons": [{"reason": k, "count": v} for k, v in top_rejections],
-                },
-            )
+            status_payload["top_rejection_reasons"] = [{"reason": k, "count": v} for k, v in top_rejections]
+            save_status_snapshot(status_path, status_payload)
+            if self.settings.run_dir:
+                save_status_snapshot(self.settings.run_dir / "status.json", status_payload)
+                append_jsonl(
+                    self.settings.run_dir / "cycle_summaries.jsonl",
+                    {
+                        "ts": now,
+                        "run_id": self.settings.run_id,
+                        "cycle_in_run": self._cycle_in_run,
+                        "summary": cycle_summary,
+                    },
+                )
         except Exception as exc:
             LOGGER.error("%s path=%s error=%s", STATE_SAVE_FAILED, status_path, exc)
             self.events.emit("persistence_issue", STATE_SAVE_FAILED, path=str(status_path), error=str(exc))
@@ -1306,6 +1345,8 @@ class CreeperDripper:
         )
         unknown_exits = sum(1 for d in decisions if d.action == "SELL_PENDING")
         return {
+            "run_id": self.settings.run_id,
+            "cycle_in_run": self._cycle_in_run,
             "timestamp": now,
             "seeds_total": discovery_summary.get("seeds_total", 0),
             "discovered_candidates": discovery_summary.get("discovered_candidates", 0),

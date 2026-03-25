@@ -97,7 +97,9 @@ def check_critical(state: dict, status: dict, log_tail: str, repo: Path) -> Opti
     return None
 
 
-def latest_probe(base: Path, symbol_prefix: str) -> Optional[Path]:
+def latest_probe(base: Optional[Path], symbol_prefix: str) -> Optional[Path]:
+    if base is None:
+        return None
     art = base / "artifacts"
     for d in (art, base):
         if not d.is_dir():
@@ -110,17 +112,24 @@ def latest_probe(base: Path, symbol_prefix: str) -> Optional[Path]:
 
 def write_snapshot(dest: Path, runtime: Path, log_lines: int, repo_root: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
+    status = load_json(runtime / "status.json") if (runtime / "status.json").exists() else {}
+    run_id = status.get("run_id")
+    cycle_in_run = status.get("cycle_in_run")
+    run_folder = runtime / "runs" / str(run_id) if run_id else None
+    run_folder_display = f"runtime/runs/{run_id}" if run_id else "N/A"
     for name in ("state.json", "status.json", "scan_latest.json", "scan_summary.json"):
         p = runtime / name
         if p.exists():
             (dest / name).write_text(redact(p.read_text(encoding="utf-8")), encoding="utf-8")
 
     for sym in ("PRl", "EDGe"):
-        src = latest_probe(runtime, sym)
+        src = latest_probe(run_folder, sym) if run_folder else None
+        if src is None:
+            src = latest_probe(runtime, sym)
         if src:
             (dest / src.name).write_text(redact(src.read_text(encoding="utf-8")), encoding="utf-8")
 
-    log_path = runtime / "logfile.log"
+    log_path = (run_folder / "logfile.log") if run_folder and (run_folder / "logfile.log").exists() else (runtime / "logfile.log")
     if log_path.exists():
         lines = log_path.read_text(encoding="utf-8").splitlines()
         tail = lines[-log_lines:] if len(lines) > log_lines else lines
@@ -153,6 +162,9 @@ def write_snapshot(dest: Path, runtime: Path, log_lines: int, repo_root: Path) -
 | Branch | `{branch}` |
 | HEAD | `{head}` |
 | Snapshot folder (UTC) | `{ts_folder}` |
+| Run ID | `{run_id or 'N/A'}` |
+| Source run folder | `{run_folder_display}` |
+| Cycle in run | `{cycle_in_run if cycle_in_run is not None else 'N/A'}` |
 | Drip exit enabled (local `.env`, not committed) | **{'true' if drip_enabled else 'false'}** |
 | Open positions | **{open_n}** |
 | DRIP_* in log excerpt | **{'yes' if drip_ev else 'no'}** |
@@ -259,9 +271,13 @@ def main() -> int:
         cycle_count += 1
         print(f"monitor: cycle {cycle_count} completed at {cts}", flush=True)
 
+        run_id = st.get("run_id")
+        run_log_path = runtime / "runs" / str(run_id) / "logfile.log" if run_id else log_path
+        if not run_log_path.exists():
+            run_log_path = log_path
         log_tail = ""
-        if log_path.exists():
-            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if run_log_path.exists():
+            lines = run_log_path.read_text(encoding="utf-8", errors="replace").splitlines()
             log_tail = "\n".join(lines[-400:])
 
         state = load_json(state_path) if state_path.exists() else {}

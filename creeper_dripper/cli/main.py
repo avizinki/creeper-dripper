@@ -4,8 +4,10 @@ import argparse
 import json
 import logging
 import os
+import secrets
 import signal
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import asdict
@@ -38,6 +40,19 @@ def _cycle_run_dir(runtime_dir: Path) -> Path:
     out = runtime_dir / "cycle_runs" / ts
     out.mkdir(parents=True, exist_ok=True)
     return out
+
+
+def _generate_run_id() -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return f"{ts}_{secrets.token_hex(3)}"
+
+
+def _git_commit_short() -> str | None:
+    try:
+        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
+        return out or None
+    except Exception:
+        return None
 
 
 def _copy_new_runtime_artifacts(runtime_dir: Path, run_dir: Path, cycle_id: int, seen: set[str], cycle_started_at: float) -> list[str]:
@@ -86,9 +101,10 @@ def _load_owner_if_configured(settings):
     return None
 
 
-def build_runtime(*, require_owner: bool, load_owner: bool):
-    settings = load_settings()
-    setup_logging(settings.log_level, runtime_dir=settings.runtime_dir)
+def build_runtime(*, require_owner: bool, load_owner: bool, settings=None, configure_logging: bool = True):
+    settings = settings or load_settings()
+    if configure_logging:
+        setup_logging(settings.log_level, runtime_dir=settings.runtime_dir, run_log_path=settings.run_log_path)
     owner = _load_owner_if_configured(settings) if load_owner else None
     if require_owner and owner is None:
         raise RuntimeError("Missing wallet credentials: set SOLANA_KEYPAIR_PATH (preferred) or BS58_PRIVATE_KEY")
@@ -184,20 +200,51 @@ def cmd_scan(_args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     settings = load_settings()
+    run_id = _generate_run_id()
+    settings.run_id = run_id
+    settings.run_dir = settings.runtime_dir / "runs" / run_id
+    settings.run_dir.mkdir(parents=True, exist_ok=True)
+    settings.run_log_path = settings.run_dir / "logfile.log"
+    setup_logging(settings.log_level, runtime_dir=settings.runtime_dir, run_log_path=settings.run_log_path)
     require_owner = settings.live_trading_enabled and not settings.dry_run
-    _settings, engine, *_rest = build_runtime(require_owner=require_owner, load_owner=require_owner)
-    run_dir = _cycle_run_dir(settings.runtime_dir)
+    _settings, engine, *_rest = build_runtime(
+        require_owner=require_owner,
+        load_owner=require_owner,
+        settings=settings,
+        configure_logging=False,
+    )
+    run_dir = _cycle_run_dir(settings.run_dir)
     observed_cycles: list[dict] = []
     seen_artifacts: set[str] = set()
     token_tracking: dict[str, dict] = {}
     notable_events: list[dict] = []
+    run_mode = "run_once" if args.once else ("run_cycles" if args.cycles is not None else "run_loop")
+    git_commit = _git_commit_short()
+    startup_payload = {
+        "event": "run_started",
+        "run_id": settings.run_id,
+        "mode": run_mode,
+        "pid": os.getpid(),
+        "git_commit": git_commit,
+        "run_dir": str(settings.run_dir),
+    }
+    LOGGER.warning(
+        "event=run_started run_id=%s mode=%s pid=%s git_commit=%s run_dir=%s",
+        settings.run_id,
+        run_mode,
+        os.getpid(),
+        git_commit,
+        settings.run_dir,
+    )
+    print(json.dumps(startup_payload, indent=2, default=str))
     print(
         json.dumps(
             {
                 "mode": {
                     "dry_run": settings.dry_run,
                     "live_trading_enabled": settings.live_trading_enabled,
-                }
+                },
+                "run_id": settings.run_id,
             },
             indent=2,
             default=str,
@@ -238,6 +285,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     cycles = 0
     requested_cycles = 1 if args.once else (max(1, int(args.cycles)) if args.cycles is not None else None)
     prev_cache_debug_keys: list[str] = []
+    stop_reason = "unknown"
     while not STOP:
         cycles += 1
         cycle_started_mono = time.monotonic()
@@ -322,7 +370,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         _safe_snapshot_copy(settings.journal_path, run_dir / f"journal_cycle_{cycle_id}.jsonl")
         atomic_write_json(run_dir / f"events_cycle_{cycle_id}.json", summary.get("events", []))
         copied_artifacts = _copy_new_runtime_artifacts(
-            settings.runtime_dir,
+            settings.run_dir or settings.runtime_dir,
             run_dir,
             cycle_id,
             seen_artifacts,
@@ -405,9 +453,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
 
         if requested_cycles is not None and cycles >= requested_cycles:
+            stop_reason = "requested_cycles_reached"
             break
         next_run += settings.poll_interval_seconds
         monotonic_sleep_until(next_run)
+    if STOP and stop_reason == "unknown":
+        stop_reason = "signal"
 
     open_positions = list(engine.portfolio.open_positions.values())
     blocked_positions = [p for p in open_positions if p.status == "EXIT_BLOCKED"]
@@ -435,6 +486,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     summary_payload = {
         "run_dir": str(run_dir),
+        "run_id": settings.run_id,
         "total_cycles": len(observed_cycles),
         "entries_attempted": sum(c.get("entries_attempted", 0) for c in observed_cycles),
         "entries_succeeded": sum(c.get("entries_succeeded", 0) for c in observed_cycles),
@@ -455,6 +507,26 @@ def cmd_run(args: argparse.Namespace) -> int:
     }
     atomic_write_json(run_dir / "summary.json", summary_payload)
     print(json.dumps({"cycle_run_summary_path": str(run_dir / "summary.json")}, indent=2, default=str))
+    LOGGER.warning(
+        "event=run_stopped run_id=%s reason=%s total_cycles=%s run_dir=%s",
+        settings.run_id,
+        stop_reason,
+        len(observed_cycles),
+        run_dir,
+    )
+    print(
+        json.dumps(
+            {
+                "event": "run_stopped",
+                "run_id": settings.run_id,
+                "reason": stop_reason,
+                "total_cycles": len(observed_cycles),
+                "run_dir": str(run_dir),
+            },
+            indent=2,
+            default=str,
+        )
+    )
     return 0
 
 

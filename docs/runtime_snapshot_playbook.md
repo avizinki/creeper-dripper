@@ -9,7 +9,9 @@ Capture **safe** runtime state for **external review** (GitHub, auditors, teamma
 - `state.json` — portfolio / positions (sanitized)
 - `status.json` — last cycle summary snapshot
 - `scan_latest.json`, `scan_summary.json` — last discovery scan outputs
+- `run_id`, `source run folder`, and `cycle_in_run` metadata in snapshot `README.md`
 - **Latest** `entry_probe_PRl_*.json` and `entry_probe_EDGe_*.json` (or your tracked symbols), from:
+  - `runtime/runs/<run_id>/` **first** (preferred per-run evidence), else
   - `runtime/artifacts/` **if present**, else
   - `runtime/` (project layout may vary)
 - `log_excerpt.txt` — **short** tail from `runtime/logfile.log` (see below)
@@ -40,7 +42,7 @@ Re-scan the snapshot folder: `grep -R '/Users/' review_artifacts/runtime_snapsho
 2. Create: `review_artifacts/runtime_snapshots/<timestamp>/`
 3. Copy the JSON files listed above from `runtime/` (and probes from `runtime/artifacts/` or `runtime/`).
 4. Build `log_excerpt.txt` from the tail of `runtime/logfile.log`; sanitize paths.
-5. Add `README.md` in that folder: branch, `git rev-parse HEAD`, snapshot time, `DRIP_EXIT_ENABLED` from **local** `.env` (do not commit `.env`), open position count from `state.json`, one-line run summary.
+5. Add `README.md` in that folder: branch, `git rev-parse HEAD`, snapshot time, `run_id`, source run folder (`runtime/runs/<run_id>` when present), exact `cycle_in_run`, `DRIP_EXIT_ENABLED` from **local** `.env` (do not commit `.env`), open position count from `state.json`, one-line run summary.
 6. Sanitize all files; verify no `/Users/` left.
 7. Commit: `chore: add runtime snapshot <timestamp> for live drip monitoring`
 8. Push branch (e.g. `live-jsds-test`).

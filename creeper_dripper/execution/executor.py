@@ -887,9 +887,11 @@ class TradeExecutor:
     def _write_tx_failure_artifact(self, *, stage: str, tx_metadata: dict, simulation: dict | None, error: dict) -> None:
         try:
             ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-            path = Path(self.settings.runtime_dir) / f"tx_failure_{ts}.json"
+            artifact_dir = Path(self.settings.run_dir or self.settings.runtime_dir)
+            path = artifact_dir / f"tx_failure_{ts}.json"
             payload = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "run_id": self.settings.run_id,
                 "stage": stage,
                 "rpc_url": self._rpc_url,
                 "tx_metadata": tx_metadata,
