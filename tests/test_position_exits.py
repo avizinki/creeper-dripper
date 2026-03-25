@@ -46,8 +46,10 @@ class DummyExecutor:
         self.sell_results = sell_results
         self.jupiter = object()
         self._idx = 0
+        self.sell_calls: list = []
 
     def sell(self, _token_mint: str, _amount_atomic: int):
+        self.sell_calls.append((_token_mint, _amount_atomic))
         result = self.sell_results[min(self._idx, len(self.sell_results) - 1)]
         self._idx += 1
         return result, ProbeQuote(input_amount_atomic=1, out_amount_atomic=1_000_000_000, price_impact_bps=100.0, route_ok=True, raw={})
@@ -152,9 +154,9 @@ def test_unknown_sell(monkeypatch, tmp_path):
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
     decisions = []
     engine._start_exit(position, 40, "liquidity_break", decisions, now)
-    assert position.status == "EXIT_PENDING"
+    # No signature on unknown result → EXIT_BLOCKED (cannot track pending tx)
+    assert position.status == "EXIT_BLOCKED"
     assert position.remaining_qty_atomic == 100
-    assert position.exit_retry_count == 0
 
 
 def test_retry_logic(monkeypatch, tmp_path):
@@ -169,13 +171,14 @@ def test_retry_logic(monkeypatch, tmp_path):
     portfolio.open_positions[position.token_mint] = position
     executor = DummyExecutor(
         [
-            ExecutionResult(status="unknown", requested_amount=50, error="network"),
+            ExecutionResult(status="unknown", requested_amount=50, error="network", signature="sig-pending"),
             _sell_success_result(requested_amount=50, sold_atomic=50, signature="sig2"),
         ]
     )
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
     decisions = []
     engine._retry_pending_exit(position, decisions, now)
+    # unknown with signature → EXIT_PENDING (tracked for reconciliation)
     assert position.status == "EXIT_PENDING"
     position.next_exit_retry_at = now
     engine._retry_pending_exit(position, decisions, now)
@@ -302,3 +305,107 @@ def test_exit_proceeds_with_internally_tracked_qty(monkeypatch, tmp_path):
     engine._start_exit(position, 40, "take_profit_25", decisions, now)
     # No wallet check — sell proceeds immediately from internal state.
     assert any(d.action == "SELL_ATTEMPT" for d in decisions)
+
+
+def test_sell_proceeds_unknown_decrements_qty_and_prevents_retry(monkeypatch, tmp_path):
+    now = utc_now_iso()
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+    position = _position(now)
+    portfolio.open_positions[position.token_mint] = position
+    sell_result = ExecutionResult(
+        status="success",
+        requested_amount=40,
+        executed_amount=40,
+        output_amount=None,
+        signature="sig-proceeds-unk",
+        diagnostic_metadata={
+            "post_sell_settlement": {
+                "settlement_confirmed": True,
+                "sold_atomic_settled": 40,
+                "sold_atomic_source": "jupiter_execute",
+            },
+        },
+    )
+    executor = DummyExecutor([sell_result])
+    engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
+    decisions = []
+    engine._start_exit(position, 40, "take_profit_25", decisions, now)
+    assert position.remaining_qty_atomic == 60
+    assert position.status == POSITION_RECONCILE_PENDING
+    assert position.pending_exit_qty_atomic == 0
+    assert position.reconcile_context == "exit"
+
+
+def test_attempt_exit_with_pending_qty_zero_emits_sell_blocked(monkeypatch, tmp_path):
+    now = utc_now_iso()
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+    position = _position(now)
+    position.status = "EXIT_PENDING"
+    position.pending_exit_qty_atomic = 0
+    position.pending_exit_reason = "take_profit_25"
+    portfolio.open_positions[position.token_mint] = position
+    executor = DummyExecutor([])
+    engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
+    decisions = []
+    engine._attempt_exit(position, decisions, now)
+    assert any(d.action == "SELL_BLOCKED" for d in decisions)
+    assert len(executor.sell_calls) == 0
+
+
+def test_sell_order_in_fallback_decrements_position_qty(monkeypatch, tmp_path):
+    now = utc_now_iso()
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+    position = _position(now)
+    portfolio.open_positions[position.token_mint] = position
+    sell_result = ExecutionResult(
+        status="success",
+        requested_amount=40,
+        executed_amount=40,
+        output_amount=1_000_000_000,
+        signature="sig-order-in",
+        diagnostic_metadata={
+            "post_sell_settlement": {
+                "settlement_confirmed": True,
+                "sold_atomic_settled": 40,
+                "sold_atomic_source": "jupiter_order_in",
+            },
+        },
+    )
+    executor = DummyExecutor([sell_result])
+    engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
+    decisions = []
+    engine._start_exit(position, 40, "take_profit_25", decisions, now)
+    assert position.remaining_qty_atomic == 60
+    assert position.status == "PARTIAL"
+
+
+def test_sell_tier3_fallback_routes_to_reconcile_pending(monkeypatch, tmp_path):
+    now = utc_now_iso()
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+    position = _position(now)
+    portfolio.open_positions[position.token_mint] = position
+    sell_result = ExecutionResult(
+        status="unknown",
+        requested_amount=40,
+        executed_amount=None,
+        diagnostic_code=SETTLEMENT_UNCONFIRMED,
+        error="sell_settlement_unconfirmed",
+        signature="sig-tier3",
+        diagnostic_metadata={
+            "post_sell_settlement": {
+                "settlement_confirmed": False,
+                "sold_atomic_source": "requested_order_amount",
+            },
+        },
+    )
+    executor = DummyExecutor([sell_result])
+    engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
+    decisions = []
+    engine._start_exit(position, 40, "take_profit_25", decisions, now)
+    assert position.remaining_qty_atomic == 100
+    assert position.status == POSITION_RECONCILE_PENDING
+    assert position.pending_exit_signature == "sig-tier3"

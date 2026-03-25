@@ -1316,11 +1316,16 @@ class CreeperDripper:
             self.events.emit("exit_failed", result.diagnostic_code or "failed", position_id=position.position_id or position.token_mint, error=result.error or "unknown")
         else:
             _clear_drip_state(position)
-            position.status = "EXIT_PENDING"
-            position.pending_exit_signature = result.signature
-            decisions.append(TradeDecision(action="SELL_PENDING", token_mint=position.token_mint, symbol=position.symbol, reason=f"execution_unknown:{result.error or 'unknown'}", qty_atomic=requested_qty))
-            LOGGER.warning("%s position_id=%s reason=%s", EXIT_UNKNOWN_PENDING_RECONCILE, position.position_id or position.token_mint, result.error or "unknown")
-            self.events.emit("exit_failed", result.diagnostic_code or EXIT_UNKNOWN_PENDING_RECONCILE, position_id=position.position_id or position.token_mint, error=result.error or "unknown")
+            if result.signature:
+                position.status = "EXIT_PENDING"
+                position.pending_exit_signature = result.signature
+                decisions.append(TradeDecision(action="SELL_PENDING", token_mint=position.token_mint, symbol=position.symbol, reason=f"execution_unknown:{result.error or 'unknown'}", qty_atomic=requested_qty))
+                LOGGER.warning("%s position_id=%s reason=%s", EXIT_UNKNOWN_PENDING_RECONCILE, position.position_id or position.token_mint, result.error or "unknown")
+                self.events.emit("exit_failed", result.diagnostic_code or EXIT_UNKNOWN_PENDING_RECONCILE, position_id=position.position_id or position.token_mint, error=result.error or "unknown")
+            else:
+                position.status = "EXIT_BLOCKED"
+                decisions.append(TradeDecision(action="SELL_BLOCKED", token_mint=position.token_mint, symbol=position.symbol, reason=f"execution_no_signature:{result.status}", qty_atomic=requested_qty))
+                LOGGER.warning("sell_no_signature_blocked position_id=%s status=%s", position.position_id or position.token_mint, result.status)
 
     def _maybe_open_positions(self, candidates: list[TokenCandidate], decisions: list[TradeDecision], now: str) -> None:
         if len(self.portfolio.open_positions) >= self.settings.max_open_positions:

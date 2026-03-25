@@ -387,7 +387,6 @@ class TradeExecutor:
                 ),
                 quote,
             )
-        settle_meta["settlement_confirmed"] = True
         return (
             ExecutionResult(
                 status="success",
@@ -550,28 +549,52 @@ class TradeExecutor:
         if jup_in is not None and jup_in > 0:
             sold_primary = min(int(jup_in), requested_qty)
             source = "jupiter_execute"
+            meta["sold_atomic_settled"] = sold_primary
+            meta["sold_atomic_source"] = source
+            meta["out_lamports"] = jup_out_lamports
+            meta["proceeds_source"] = "jupiter_execute" if jup_out_lamports is not None else "unavailable"
+            if jup_out_lamports is None:
+                meta["proceeds_note"] = EXEC_SELL_PROCEEDS_UNAVAILABLE
+            meta["settlement_confirmed"] = True
+            LOGGER.info(
+                "sell_execution_settled_jupiter mint=%s sold=%s source=%s out_lamports=%s signature=%s",
+                token_mint,
+                sold_primary,
+                source,
+                jup_out_lamports,
+                signature,
+            )
+            return "success", sold_primary, jup_out_lamports, meta
         elif order_in is not None and order_in > 0:
             sold_primary = min(int(order_in), requested_qty)
             source = "jupiter_order_in"
+            meta["sold_atomic_settled"] = sold_primary
+            meta["sold_atomic_source"] = source
+            meta["out_lamports"] = jup_out_lamports
+            meta["proceeds_source"] = "jupiter_execute" if jup_out_lamports is not None else "unavailable"
+            if jup_out_lamports is None:
+                meta["proceeds_note"] = EXEC_SELL_PROCEEDS_UNAVAILABLE
+            meta["settlement_confirmed"] = True
+            LOGGER.info(
+                "sell_execution_settled_jupiter mint=%s sold=%s source=%s out_lamports=%s signature=%s",
+                token_mint,
+                sold_primary,
+                source,
+                jup_out_lamports,
+                signature,
+            )
+            return "success", sold_primary, jup_out_lamports, meta
         else:
-            sold_primary = requested_qty
-            source = "requested_order_amount"
-        meta["sold_atomic_settled"] = sold_primary
-        meta["sold_atomic_source"] = source
-        meta["out_lamports"] = jup_out_lamports
-        meta["proceeds_source"] = "jupiter_execute" if jup_out_lamports is not None else "unavailable"
-        if jup_out_lamports is None:
-            meta["proceeds_note"] = EXEC_SELL_PROCEEDS_UNAVAILABLE
-        meta["settlement_confirmed"] = True
-        LOGGER.info(
-            "sell_execution_settled_jupiter mint=%s sold=%s source=%s out_lamports=%s signature=%s",
-            token_mint,
-            sold_primary,
-            source,
-            jup_out_lamports,
-            signature,
-        )
-        return "success", sold_primary, jup_out_lamports, meta
+            meta["sold_atomic_settled"] = requested_qty
+            meta["sold_atomic_source"] = "requested_order_amount"
+            meta["settlement_confirmed"] = False
+            LOGGER.warning(
+                "sell_settlement_tier3_unconfirmed mint=%s requested=%s signature=%s",
+                token_mint,
+                requested_qty,
+                signature,
+            )
+            return "unknown", None, None, meta
 
     @staticmethod
     def _extract_execute_response_output_lamports(raw: dict) -> int | None:

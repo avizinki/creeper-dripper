@@ -4,7 +4,7 @@ import json
 
 from creeper_dripper.config import load_settings
 from creeper_dripper.engine.trader import CreeperDripper
-from creeper_dripper.errors import EXIT_RECONCILED_CLOSED, EXIT_UNKNOWN_PENDING_RECONCILE
+from creeper_dripper.errors import EXIT_RECONCILED_CLOSED, EXIT_UNKNOWN_PENDING_RECONCILE, POSITION_RECONCILE_PENDING
 from creeper_dripper.models import ExecutionResult, PortfolioState, PositionState, ProbeQuote
 from creeper_dripper.storage.state import load_portfolio, new_portfolio, save_portfolio
 from creeper_dripper.utils import utc_now_iso
@@ -286,3 +286,40 @@ def test_realized_proceeds_not_from_quote_when_execution_missing(monkeypatch, tm
     engine._start_exit(pos, 40, "take_profit_25", decisions, now)
     assert pos.realized_sol == 0.0
     assert portfolio.cash_sol == 5.0
+
+
+def test_startup_recovery_reconcile_pending_exit_tx_confirmed(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    now = utc_now_iso()
+    portfolio: PortfolioState = new_portfolio(5.0)
+    pos = _position(now)
+    pos.status = POSITION_RECONCILE_PENDING
+    pos.reconcile_context = "exit"
+    pos.pending_exit_qty_atomic = 100
+    pos.pending_exit_reason = "stop_loss"
+    pos.pending_exit_signature = "sig-reconcile"
+    portfolio.open_positions[pos.token_mint] = pos
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status="success"), portfolio)
+    decisions = engine.run_startup_recovery()
+    assert _VALID_TEST_MINT not in portfolio.open_positions
+    assert any(d.reason == EXIT_RECONCILED_CLOSED for d in decisions)
+
+
+def test_startup_recovery_reconcile_pending_exit_failed_prevents_double_sell(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    now = utc_now_iso()
+    portfolio: PortfolioState = new_portfolio(5.0)
+    pos = _position(now)
+    pos.status = POSITION_RECONCILE_PENDING
+    pos.reconcile_context = "exit"
+    pos.remaining_qty_atomic = 60
+    pos.pending_exit_qty_atomic = 0
+    pos.pending_exit_reason = "take_profit_25"
+    pos.pending_exit_signature = "sig-proceeds-unk"
+    portfolio.open_positions[pos.token_mint] = pos
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status="failed"), portfolio)
+    decisions = engine.run_startup_recovery()
+    assert _VALID_TEST_MINT in portfolio.open_positions
+    assert portfolio.open_positions[_VALID_TEST_MINT].status == "EXIT_PENDING"
+    assert portfolio.open_positions[_VALID_TEST_MINT].pending_exit_qty_atomic == 0
+    assert portfolio.open_positions[_VALID_TEST_MINT].remaining_qty_atomic == 60

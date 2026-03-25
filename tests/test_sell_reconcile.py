@@ -81,7 +81,7 @@ def test_sell_settled_from_order_in_when_execute_has_no_input(monkeypatch, tmp_p
 
 
 def test_sell_settled_from_requested_qty_as_last_fallback(monkeypatch, tmp_path):
-    """When neither /execute nor order provide input amounts, trust the requested qty."""
+    """Tier 3: neither /execute nor order provide input amounts — unconfirmed, routes to unknown."""
     ex = _executor(monkeypatch, tmp_path)
     monkeypatch.setattr(ex, "build_v2_execution_order", lambda **kw: {"transaction": "ZmFrZV90eA==", "requestId": "r1"})
     monkeypatch.setattr(
@@ -90,10 +90,10 @@ def test_sell_settled_from_requested_qty_as_last_fallback(monkeypatch, tmp_path)
         lambda _order: ("sigx", {"totalOutputAmount": "3000000"}),
     )
     result, _quote = ex.sell(_VALID_MINT, 60)
-    assert result.status == "success"
+    assert result.status == "unknown"
     sett = result.diagnostic_metadata["post_sell_settlement"]
     assert sett["sold_atomic_source"] == "requested_order_amount"
-    assert sett["sold_atomic_settled"] == 60
+    assert sett["settlement_confirmed"] is False
 
 
 def test_sell_proceeds_unavailable_when_execute_has_no_output(monkeypatch, tmp_path):
