@@ -1347,6 +1347,9 @@ class CreeperDripper:
             if _cooldown_active(self.portfolio.cooldowns.get(candidate.address), self.settings.cooldown_minutes_after_exit):
                 continue
             size_sol = min(self.settings.base_position_size_sol, self.settings.max_position_size_sol)
+            early_risk = bool((candidate.raw or {}).get("early_risk_bucket"))
+            if early_risk and self.settings.early_risk_bucket_enabled:
+                size_sol = min(size_sol, float(self.settings.early_risk_position_size_sol))
             if self.portfolio.cash_sol - size_sol < self.settings.cash_reserve_sol:
                 continue
             buy_probe = self.executor.quote_buy(candidate, size_sol)

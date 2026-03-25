@@ -114,15 +114,17 @@ def rejection_reasons(candidate: TokenCandidate, settings: Settings, *, include_
         reasons.append(REJECT_LOW_EXIT_LIQUIDITY)
     if (candidate.volume_24h_usd or 0.0) < settings.min_volume_24h_usd:
         reasons.append(REJECT_LOW_VOLUME)
-    if (candidate.buy_sell_ratio_1h or 0.0) < settings.min_buy_sell_ratio:
-        reasons.append(REJECT_BAD_BUY_SELL_RATIO)
     if settings.block_mutable_mint and candidate.security_mint_mutable and _is_memecoin_universe_candidate(candidate):
         reasons.append(REJECT_MINTABLE_MEMECOIN)
     if settings.block_freezable and candidate.security_freezable:
         reasons.append(REJECT_FREEZABLE)
-    if candidate.discovery_score < settings.min_discovery_score:
-        reasons.append(REJECT_LOW_SCORE)
     if include_route_checks:
+        # Keep prefilter permissive so more candidates reach Jupiter probe stage.
+        # Enforce these only after probe (post-probe filtering).
+        if (candidate.buy_sell_ratio_1h or 0.0) < settings.min_buy_sell_ratio:
+            reasons.append(REJECT_BAD_BUY_SELL_RATIO)
+        if candidate.discovery_score < settings.min_discovery_score:
+            reasons.append(REJECT_LOW_SCORE)
         if settings.require_jup_sell_route and not candidate.sell_route_available:
             reasons.append(REJECT_NO_SELL_ROUTE)
         sell_impact = candidate.sell_quote_price_impact_bps

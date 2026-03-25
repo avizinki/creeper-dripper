@@ -14,9 +14,11 @@ from creeper_dripper.config import SOL_MINT, Settings
 from creeper_dripper.engine.scoring import passes_filters, rejection_reasons, score_candidate
 from creeper_dripper.errors import (
     BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN,
+    REJECT_BAD_BUY_SELL_RATIO,
     REJECT_CANDIDATE_BUILD_FAILED,
     REJECT_JUPITER_BAD_PROBE,
     REJECT_JUPITER_UNTRADABLE,
+    REJECT_LOW_SCORE,
     REJECT_NO_BUY_ROUTE,
     REJECT_NO_SELL_ROUTE,
     REJECT_TOKEN_TOO_OLD,
@@ -25,6 +27,8 @@ from creeper_dripper.models import ProbeQuote, TokenCandidate
 from creeper_dripper.observability import EventCollector
 
 LOGGER = logging.getLogger(__name__)
+
+_EARLY_RISK_SOFT_REJECTS = {REJECT_BAD_BUY_SELL_RATIO, REJECT_LOW_SCORE}
 
 
 def serialize_candidate(candidate: object) -> dict:
@@ -367,6 +371,22 @@ def discover_candidates(
             candidates.append(candidate)
             events.emit("candidate_accepted", "ok", mint=candidate.address, symbol=candidate.symbol, score=candidate.discovery_score)
             continue
+        if settings.early_risk_bucket_enabled:
+            soft = [r for r in reasons if r in _EARLY_RISK_SOFT_REJECTS]
+            hard = [r for r in reasons if r not in _EARLY_RISK_SOFT_REJECTS]
+            if soft and not hard and candidate.discovery_score >= settings.early_risk_min_score_floor:
+                candidate.raw["early_risk_bucket"] = True
+                candidate.raw["early_risk_soft_rejects"] = list(soft)
+                candidates.append(candidate)
+                events.emit(
+                    "candidate_accepted",
+                    "early_risk_bucket",
+                    mint=candidate.address,
+                    symbol=candidate.symbol,
+                    score=candidate.discovery_score,
+                    soft_rejects=",".join(soft),
+                )
+                continue
         for reason in reasons:
             rejection_counts[reason] += 1
             metadata = {
