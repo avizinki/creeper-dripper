@@ -1,15 +1,10 @@
-import sys
-import os
-from pathlib import Path
+"""Pytest defaults: CLI entry tests invoke `main()` without requiring the project .venv interpreter."""
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from __future__ import annotations
 
-# Required runtime knobs in config.py are strict (no hidden defaults).
-os.environ.setdefault("DISCOVERY_INTERVAL_SECONDS", "30")
-os.environ.setdefault("MAX_ACTIVE_CANDIDATES", "7")
-os.environ.setdefault("CANDIDATE_CACHE_TTL_SECONDS", "120")
-os.environ.setdefault("ROUTE_CHECK_CACHE_TTL_SECONDS", "90")
-os.environ.setdefault("DRY_RUN", "true")
-os.environ.setdefault("LIVE_TRADING_ENABLED", "false")
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _allow_non_venv_for_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALLOW_NON_VENV", "1")

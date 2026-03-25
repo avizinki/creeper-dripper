@@ -13,7 +13,11 @@ from creeper_dripper.storage.state import load_portfolio, new_portfolio, save_po
 
 def _parse_json_prefix(output: str) -> dict:
     decoder = JSONDecoder()
-    obj, _idx = decoder.raw_decode(output)
+    s = output.strip()
+    idx = s.find("{")
+    if idx < 0:
+        raise ValueError("no JSON object in output")
+    obj, _idx = decoder.raw_decode(s[idx:])
     assert isinstance(obj, dict)
     return obj
 

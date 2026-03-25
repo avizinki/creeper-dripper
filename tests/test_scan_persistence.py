@@ -19,6 +19,10 @@ def _base_env(monkeypatch, tmp_path):
     # Isolate from LIVE_TRADING_ENABLED leaked into os.environ by load_dotenv in prior tests.
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("DISCOVERY_INTERVAL_SECONDS", "30")
+    monkeypatch.setenv("MAX_ACTIVE_CANDIDATES", "7")
+    monkeypatch.setenv("CANDIDATE_CACHE_TTL_SECONDS", "20")
+    monkeypatch.setenv("ROUTE_CHECK_CACHE_TTL_SECONDS", "15")
 
 
 @dataclass(slots=True)

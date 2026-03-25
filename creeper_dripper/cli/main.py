@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from creeper_dripper.clients.birdeye import BirdeyeClient
+from creeper_dripper.clients.birdeye_audit import build_birdeye_audit_summary_dict
 from creeper_dripper.clients.jupiter import JupiterClient
 from creeper_dripper.config import SOL_MINT, USDC_MINT, load_settings
 from creeper_dripper.engine.discovery import discover_candidates, serialize_candidates
@@ -30,6 +31,73 @@ STOP = False
 LOGGER = logging.getLogger(__name__)
 
 _MASK_TOKENS = ("KEY", "SECRET", "PRIVATE", "TOKEN")
+
+
+def _project_root() -> Path:
+    """Repository / install root containing the `creeper_dripper` package directory."""
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def running_from_project_venv(project_root: Path | None = None) -> bool:
+    """
+    True if this process uses the project virtualenv.
+
+    Uses ``sys.prefix`` (venv root), not ``Path(sys.executable).resolve()`` — on some installs
+    the latter resolves through symlinks to a Homebrew/Frameworks path outside ``.venv/bin``.
+    """
+    root = project_root if project_root is not None else _project_root()
+    expected = (root / ".venv").resolve()
+    try:
+        return Path(sys.prefix).resolve() == expected
+    except OSError:
+        return False
+
+
+def _ensure_project_venv() -> None:
+    """Fail fast unless running from project `.venv` or ALLOW_NON_VENV=1 (debug only)."""
+    if os.environ.get("ALLOW_NON_VENV") == "1":
+        print("WARNING: running outside .venv (unsafe)", file=sys.stderr)
+        return
+    project_root = _project_root()
+    if running_from_project_venv(project_root):
+        return
+    expected_prefix = (project_root / ".venv").resolve()
+    print("FATAL: creeper-dripper must run from project .venv", file=sys.stderr)
+    print(f"Current interpreter: {sys.executable}", file=sys.stderr)
+    print(f"Current sys.prefix: {sys.prefix}", file=sys.stderr)
+    print(f"Expected sys.prefix: {expected_prefix}", file=sys.stderr)
+    print(
+        "Run using: .venv/bin/creeper-dripper or .venv/bin/python -m creeper_dripper.cli.main",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+def _print_interpreter_banner() -> None:
+    active = running_from_project_venv()
+    print(f"interpreter={sys.executable}")
+    print(f"venv_active={str(active).lower()}")
+
+
+def _print_doctor_cli_hints() -> None:
+    """Visible resolution hints (editable install + which creeper-dripper)."""
+    cli_path = shutil.which("creeper-dripper") or sys.argv[0] or "n/a"
+    print(f"cli_path={cli_path}")
+    print("install_hint=from project root with venv activated: pip install -e .")
+
+
+def cmd_debug_env(_args: argparse.Namespace) -> int:
+    """Print interpreter, prefix, PATH, and venv detection (diagnostic)."""
+    pr = _project_root()
+    active = running_from_project_venv(pr)
+    which_cli = shutil.which("creeper-dripper")
+    print(f"sys.executable={sys.executable}")
+    print(f"sys.prefix={sys.prefix}")
+    print(f"which_creeper_dripper={which_cli or 'n/a'}")
+    print(f"PATH={os.environ.get('PATH', '')}")
+    print(f"venv_detected={str(active).lower()}")
+    print(f"project_root={pr}")
+    return 0
 
 
 def mask_value(value: str) -> str:
@@ -346,7 +414,7 @@ def _print_dynamic_capacity(
 
 
 
-def run_doctor_checks(settings) -> tuple[bool, list[dict], object | None]:
+def run_doctor_checks(settings, birdeye_client: BirdeyeClient | None = None) -> tuple[bool, list[dict], object | None]:
     """
     Core health checks shared by `doctor` and `run` preflight.
 
@@ -381,7 +449,7 @@ def run_doctor_checks(settings) -> tuple[bool, list[dict], object | None]:
     checks.append({"check": "runtime_dir_writable", "ok": runtime_ok, "path": str(settings.runtime_dir)})
     ok = ok and runtime_ok
 
-    birdeye = BirdeyeClient(settings.birdeye_api_key, chain=settings.chain)
+    birdeye = birdeye_client or BirdeyeClient(settings.birdeye_api_key, chain=settings.chain)
     try:
         birdeye.trending_tokens(limit=1)
         checks.append({"check": "birdeye_auth", "ok": True})
@@ -669,14 +737,21 @@ def _load_owner_if_configured(settings):
     return None
 
 
-def build_runtime(*, require_owner: bool, load_owner: bool, settings=None, configure_logging: bool = True):
+def build_runtime(
+    *,
+    require_owner: bool,
+    load_owner: bool,
+    settings=None,
+    configure_logging: bool = True,
+    birdeye: BirdeyeClient | None = None,
+):
     settings = settings or load_settings()
     if configure_logging:
         setup_logging(settings.log_level, runtime_dir=settings.runtime_dir, run_log_path=settings.run_log_path)
     owner = _load_owner_if_configured(settings) if load_owner else None
     if require_owner and owner is None:
         raise RuntimeError("Missing wallet credentials: set SOLANA_KEYPAIR_PATH (preferred) or BS58_PRIVATE_KEY")
-    birdeye = BirdeyeClient(settings.birdeye_api_key, chain=settings.chain)
+    birdeye = birdeye or BirdeyeClient(settings.birdeye_api_key, chain=settings.chain)
     jupiter = JupiterClient(settings.jupiter_api_key)
     executor = TradeExecutor(jupiter, owner, settings)
     portfolio = load_portfolio(settings.state_path, settings.portfolio_start_sol)
@@ -767,6 +842,7 @@ def cmd_scan(_args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    _print_interpreter_banner()
     settings = load_settings()
     run_id = _generate_run_id()
     settings.run_id = run_id
@@ -1192,6 +1268,8 @@ def cmd_quote(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(_args: argparse.Namespace) -> int:
+    _print_interpreter_banner()
+    _print_doctor_cli_hints()
     settings = None
     try:
         settings = load_settings()
@@ -1415,7 +1493,83 @@ def cmd_cleanup_dust(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_audit_birdeye_once(_args: argparse.Namespace) -> int:
+    """
+    Diagnostic: doctor/preflight, then one discovery cycle with Birdeye request audit + credits delta.
+    Does not execute live trades (same discovery path as `scan`).
+    """
+    settings = load_settings()
+    setup_logging(settings.log_level, runtime_dir=settings.runtime_dir, run_log_path=settings.run_log_path)
+    audit_jsonl = settings.runtime_dir / "birdeye_audit.jsonl"
+    summary_path = settings.runtime_dir / "birdeye_audit_summary.json"
+    audit_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    audit_jsonl.write_text("", encoding="utf-8")
+
+    birdeye = BirdeyeClient(settings.birdeye_api_key, chain=settings.chain, audit_jsonl_path=audit_jsonl)
+    birdeye.audit_reset()
+    birdeye.audit_set_phase("doctor")
+    ok, checks, _portfolio = run_doctor_checks(settings, birdeye_client=birdeye)
+    _print_preflight_summary_lines(checks)
+    if not ok:
+        _print_preflight_failure(checks)
+        LOGGER.error("audit_birdeye_preflight_failed checks=%s", checks)
+        payload = build_birdeye_audit_summary_dict(
+            birdeye.audit_snapshot(),
+            credits_before=None,
+            credits_after=None,
+            discovery_summary={},
+            doctor_ok=False,
+        )
+        payload["preflight_checks"] = checks
+        payload["audit_artifacts"] = {"jsonl": str(audit_jsonl), "summary": str(summary_path)}
+        atomic_write_json(summary_path, payload)
+        print(json.dumps(payload, indent=2, default=str))
+        print(f"Wrote {summary_path}")
+        return 1
+
+    print("Preflight doctor: ok")
+    birdeye.audit_set_phase("credits_meter")
+    credits_before: dict | None = None
+    credits_after: dict | None = None
+    try:
+        credits_before = birdeye.credits_usage()
+    except Exception as exc:
+        LOGGER.warning("birdeye_credits_before_failed: %s", exc)
+
+    birdeye.audit_set_phase("discovery")
+    _settings, _engine, executor, _b, _owner = build_runtime(
+        require_owner=False,
+        load_owner=False,
+        settings=settings,
+        configure_logging=False,
+        birdeye=birdeye,
+    )
+    _candidates, summary = discover_candidates(birdeye, executor.jupiter, settings)
+
+    birdeye.audit_set_phase("credits_meter")
+    try:
+        credits_after = birdeye.credits_usage()
+    except Exception as exc:
+        LOGGER.warning("birdeye_credits_after_failed: %s", exc)
+
+    payload = build_birdeye_audit_summary_dict(
+        birdeye.audit_snapshot(),
+        credits_before=credits_before,
+        credits_after=credits_after,
+        discovery_summary=summary,
+        doctor_ok=True,
+    )
+    payload["preflight_checks"] = checks
+    payload["audit_artifacts"] = {"jsonl": str(audit_jsonl), "summary": str(summary_path)}
+    atomic_write_json(summary_path, payload)
+    print(json.dumps(payload, indent=2, default=str))
+    print(f"Wrote {audit_jsonl}")
+    print(f"Wrote {summary_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    _ensure_project_venv()
     parser = argparse.ArgumentParser(prog="creeper-dripper")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -1442,6 +1596,15 @@ def main(argv: list[str] | None = None) -> int:
 
     cleanup = sub.add_parser("cleanup-dust", help="Cleanup wallet leftovers/dust (one-shot, conservative)")
     cleanup.set_defaults(func=cmd_cleanup_dust)
+
+    audit_be = sub.add_parser(
+        "audit-birdeye-once",
+        help="Doctor + one discovery cycle with Birdeye HTTP audit and credits delta (diagnostic, no trades)",
+    )
+    audit_be.set_defaults(func=cmd_audit_birdeye_once)
+
+    dbg = sub.add_parser("debug-env", help="Print interpreter, PATH, and venv detection (diagnostic)")
+    dbg.set_defaults(func=cmd_debug_env)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

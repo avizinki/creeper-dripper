@@ -51,6 +51,15 @@ pip install -e .
 cp .env.example .env
 ```
 
+Always run the CLI with the project interpreter so dependencies and behavior match this repo (Birdeye/Jupiter accounting, etc.):
+
+```bash
+.venv/bin/creeper-dripper doctor
+# or: .venv/bin/python -m creeper_dripper.cli.main doctor
+```
+
+The CLI exits with an error if `sys.executable` is not the project `.venv` (unless `ALLOW_NON_VENV=1` is set for debugging only).
+
 Then edit `.env`:
 - set `BIRDEYE_API_KEY`
 - set `JUPITER_API_KEY`
