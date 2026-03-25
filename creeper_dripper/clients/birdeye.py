@@ -6,6 +6,7 @@ from typing import Any
 
 import requests
 
+from creeper_dripper.errors import BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
 from creeper_dripper.models import TokenCandidate
 
 LOGGER = logging.getLogger(__name__)
@@ -31,25 +32,53 @@ class BirdeyeClient:
             time.sleep(self._min_interval_s - elapsed)
 
     def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        self._throttle()
         url = f"{BASE_URL}{path}"
-        response = self._session.request(method, url, params=params, timeout=20)
-        self._last_request = time.monotonic()
-        response.raise_for_status()
-        payload = response.json()
-        if isinstance(payload, dict) and payload.get("success") is False:
-            raise RuntimeError(f"Birdeye request failed for {path}: {payload}")
-        return payload
+        max_attempts = 3
+        backoff = 0.4
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._throttle()
+                response = self._session.request(method, url, params=params, timeout=20)
+                self._last_request = time.monotonic()
+                if response.status_code == 401:
+                    raise RuntimeError(f"birdeye_unauthorized:{path}")
+                if response.status_code == 429:
+                    raise RuntimeError(f"birdeye_rate_limited:{path}")
+                if response.status_code == 400:
+                    body = ""
+                    try:
+                        body = response.text
+                    except Exception:
+                        body = "<unavailable>"
+                    raise RuntimeError(f"birdeye_bad_request path={path} params={params} body={body}")
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise RuntimeError(f"birdeye_malformed_payload:{path}")
+                if payload.get("success") is False:
+                    raise RuntimeError(f"Birdeye request failed for {path}: {payload}")
+                return payload
+            except requests.exceptions.Timeout as exc:
+                last_exc = exc
+            except (requests.exceptions.RequestException, ValueError, RuntimeError) as exc:
+                last_exc = exc
+                if "birdeye_unauthorized" in str(exc):
+                    raise
+            if attempt < max_attempts:
+                time.sleep(backoff * attempt)
+        raise RuntimeError(f"Birdeye request failed after retries for {path}: {last_exc}")
 
     @staticmethod
     def _data(payload: dict[str, Any]) -> Any:
         return payload.get("data", payload)
 
     def trending_tokens(self, *, limit: int = 25, sort_by: str = "rank") -> list[dict[str, Any]]:
+        effective_limit = min(limit, 20)
         payload = self._request(
             "GET",
             "/defi/token_trending",
-            params={"sort_by": sort_by, "sort_type": "asc", "offset": 0, "limit": limit, "interval": "24h"},
+            params={"sort_by": sort_by, "sort_type": "asc", "offset": 0, "limit": effective_limit},
         )
         data = self._data(payload)
         if isinstance(data, dict):
@@ -79,11 +108,6 @@ class BirdeyeClient:
         data = self._data(payload)
         return data if isinstance(data, dict) else {}
 
-    def token_top_traders(self, address: str) -> dict[str, Any]:
-        payload = self._request("GET", "/defi/v2/tokens/top_traders", params={"address": address, "time_frame": "24h", "sort_type": "desc", "sort_by": "volume", "offset": 0, "limit": 10})
-        data = self._data(payload)
-        return data if isinstance(data, dict) else {}
-
     def token_exit_liquidity(self, address: str) -> dict[str, Any]:
         payload = self._request("GET", "/defi/v3/token/exit-liquidity", params={"address": address})
         data = self._data(payload)
@@ -100,9 +124,22 @@ class BirdeyeClient:
         overview = self.token_overview(address)
         security = self.token_security(address)
         holders = self.token_holders(address)
-        top_traders = self.token_top_traders(address)
-        exit_liquidity = self.token_exit_liquidity(address)
+        exit_liquidity: dict[str, Any] = {}
+        exit_liquidity_available = True
+        birdeye_exit_liquidity_supported = True
+        exit_liquidity_reason = None
+        try:
+            exit_liquidity = self.token_exit_liquidity(address)
+        except Exception as exc:
+            message = str(exc).lower()
+            if "chain solana not supported" in message or "chain not supported" in message:
+                exit_liquidity_available = False
+                birdeye_exit_liquidity_supported = False
+                exit_liquidity_reason = BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
+            else:
+                raise
         creation = self.token_creation_info(address)
+        age_hours, age_source, created_at_raw = _extract_age_info(creation)
 
         candidate = TokenCandidate(
             address=address,
@@ -112,6 +149,9 @@ class BirdeyeClient:
             price_usd=_floatish(overview.get("price") or overview.get("priceUsd") or seed.get("price")),
             liquidity_usd=_floatish(overview.get("liquidity") or overview.get("liquidityUsd") or seed.get("liquidity")),
             exit_liquidity_usd=_extract_exit_liquidity(exit_liquidity),
+            exit_liquidity_available=exit_liquidity_available,
+            exit_liquidity_reason=exit_liquidity_reason,
+            birdeye_exit_liquidity_supported=birdeye_exit_liquidity_supported,
             volume_24h_usd=_floatish(overview.get("v24hUSD") or overview.get("volume24hUSD") or seed.get("volume24hUSD") or seed.get("volume24h")),
             volume_1h_usd=_floatish(_nested(overview, ["volume", "h1", "usd"]) or overview.get("v1hUSD") or seed.get("volume1hUSD")),
             change_1h_pct=_floatish(overview.get("priceChange1hPercent") or _nested(overview, ["priceChange", "h1"])),
@@ -120,7 +160,9 @@ class BirdeyeClient:
             sell_1h=_intish(overview.get("sell1h") or _nested(overview, ["trade", "sell1h"])),
             holder_count=_intish(overview.get("holder") or overview.get("holders") or holders.get("total")),
             top10_holder_percent=_extract_top10_holder_percent(holders),
-            age_hours=_extract_age_hours(creation),
+            age_hours=age_hours,
+            age_source=age_source,
+            created_at_raw=created_at_raw,
             security_mint_mutable=_boolish(security.get("is_mintable") or security.get("mintAuthorityEnabled") or security.get("mutableMetadata")),
             security_freezable=_boolish(security.get("is_freezable") or security.get("freezeAuthorityEnabled")),
             raw={
@@ -128,7 +170,6 @@ class BirdeyeClient:
                 "overview": overview,
                 "security": security,
                 "holders": holders,
-                "top_traders": top_traders,
                 "exit_liquidity": exit_liquidity,
                 "creation": creation,
             },
@@ -212,17 +253,15 @@ def _extract_top10_holder_percent(payload: dict[str, Any]) -> float | None:
     return total if count else None
 
 
-def _extract_age_hours(payload: dict[str, Any]) -> float | None:
-    ts = (
-        payload.get("blockUnixTime")
-        or payload.get("created_time")
-        or payload.get("createdAt")
-        or payload.get("created_at")
-    )
-    if ts is None:
-        return None
-    try:
-        unix_ts = float(ts)
-    except (TypeError, ValueError):
-        return None
-    return max(0.0, (time.time() - unix_ts) / 3600.0)
+def _extract_age_info(payload: dict[str, Any]) -> tuple[float | None, str | None, str | None]:
+    for key in ("blockUnixTime", "created_time", "createdAt", "created_at"):
+        ts = payload.get(key)
+        if ts is None:
+            continue
+        raw = str(ts)
+        try:
+            unix_ts = float(ts)
+        except (TypeError, ValueError):
+            return None, key, raw
+        return max(0.0, (time.time() - unix_ts) / 3600.0), key, raw
+    return None, None, None

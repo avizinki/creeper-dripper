@@ -1,0 +1,68 @@
+{
+  "report_date": "2026-03-25",
+  "branch": "live-hachi-stabilize",
+  "base_branch": "live-jsds-test",
+  "base_commit": "3aaec46",
+  "environment": {
+    "python": "3.11.15",
+    "pytest": "9.0.2",
+    "venv": ".venv",
+    "command": ".venv/bin/pytest -q"
+  },
+  "summary": {
+    "passed": 153,
+    "failed": 0,
+    "skipped": 0,
+    "regressions": 0,
+    "pre_existing_failures_fixed": 13
+  },
+  "remaining_failures": [],
+  "fixes": [
+    {
+      "bucket": "A",
+      "label": "JupiterClient signature drift",
+      "tests_fixed": 3,
+      "files": ["tests/test_execution_swap_path.py", "tests/test_jupiter_probe_classification.py"],
+      "description": "Updated test calls to match current JupiterClient API: swap_transaction(quote_response=...), execution_order_v2(..., taker=...), build_quote_params (renamed from build_order_params)"
+    },
+    {
+      "bucket": "B",
+      "label": "JSDS tests conflicting with Hachi",
+      "tests_fixed": 2,
+      "files": ["tests/test_jsds_liquidity.py"],
+      "description": "Added settings.hachi_dripper_enabled = False in _settings helper. .env HACHI_DRIPPER_ENABLED=true was leaking via load_dotenv(override=True)."
+    },
+    {
+      "bucket": "C",
+      "label": "test_scan_persistence env pollution",
+      "tests_fixed": 6,
+      "files": ["tests/test_scan_persistence.py"],
+      "description": "Added LIVE_TRADING_ENABLED=false and DRY_RUN=true to _base_env. Earlier tests leaked LIVE_TRADING_ENABLED=true into os.environ via load_dotenv; monkeypatch.chdir prevented .env re-load but not the leaked value."
+    },
+    {
+      "bucket": "D",
+      "label": "scoring test env mismatch",
+      "tests_fixed": 1,
+      "files": ["tests/test_scoring.py"],
+      "description": "Added sell_route_available=True to the good-structure candidate. .env REQUIRE_JUP_SELL_ROUTE=true means a good candidate must have a sell route; TokenCandidate defaults sell_route_available=False."
+    },
+    {
+      "bucket": "E",
+      "label": "exit_liquidity strict-mode mismatch",
+      "tests_fixed": 1,
+      "files": ["tests/test_exit_liquidity_fallback.py"],
+      "description": "Force-assigned settings.require_birdeye_exit_liquidity = require_exit after load_settings(). .env REQUIRE_BIRDEYE_EXIT_LIQUIDITY=false was overriding the test's monkeypatched true via load_dotenv(override=True)."
+    }
+  ],
+  "files_changed": [
+    "tests/test_execution_swap_path.py",
+    "tests/test_exit_liquidity_fallback.py",
+    "tests/test_jsds_liquidity.py",
+    "tests/test_jupiter_probe_classification.py",
+    "tests/test_scan_persistence.py",
+    "tests/test_scoring.py",
+    "review_artifacts/tests/full_test_report.md",
+    "review_artifacts/tests/full_test_report.json"
+  ],
+  "conclusion": "153 passed, 0 failed. All 13 previously known failures are fixed. No tests weakened or removed."
+}

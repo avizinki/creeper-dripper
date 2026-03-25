@@ -1,153 +1,165 @@
 # creeper-dripper
 
-A production-minded **Birdeye ↔ Jupiter only** Solana trader built for your workflow.
+Production-minded Solana momentum trader with:
+- discovery from Birdeye
+- execution through Jupiter Swap v2
+- local file-based state, journal, and status snapshots
+- safety rails and structured observability
 
-What it does:
-- discovers tokens from **Birdeye trending + new listings**
-- enriches them with **overview, security, holders, creation info, and exit liquidity**
-- verifies both **buy and sell routes** through **Jupiter Swap API v2 Order/Execute**
-- opens only small, controlled positions
-- manages exits with **take-profit ladder, stop loss, trailing stop, time stop, and liquidity-break exit**
-- persists state locally so you can stop/start without losing context
+## Architecture (short)
 
-## Important reality check
+- `scan` discovers and scores candidates (no trading).
+- `run` executes cycle logic: recovery -> discovery -> exits -> entries -> persistence.
+- State and journal are file-based:
+  - `runtime/state.json`
+  - `runtime/journal.jsonl`
+  - `runtime/status.json`
+- Providers are fixed:
+  - Birdeye
+  - Jupiter
+  - Solana RPC (wallet and tx/balance truth only)
 
-This repo is designed to be **usable immediately**, but no unattended trading system is magically risk-free.
+## Requirements
 
-It includes guardrails on purpose:
-- `DRY_RUN=true` by default
-- `LIVE_TRADING_ENABLED=false` by default
-- size limits and cash reserve
-- sell-route probing before entry
-- liquidity-break forced exit support
+- Python `>=3.11`
+- API keys:
+  - Birdeye
+  - Jupiter
+- Solana wallet JSON file (64-byte keypair array)
 
-That is deliberate.
-
-## Current architecture
-
-### Discovery
-Birdeye endpoints used:
-- `/defi/token_trending`
-- `/defi/v2/tokens/new_listing`
-- `/defi/token_overview`
-- `/defi/token_security`
-- `/defi/v3/token/holder`
-- `/defi/v3/token/exit-liquidity`
-- `/defi/token_creation_info`
-
-Birdeye documents those endpoints and their rate limits, including trending, token overview, holders, creation info, OHLCV, and exit-liquidity. citeturn680647search0turn536634view0turn536634view1turn536634view2turn536634view3
-
-### Execution
-Jupiter execution uses **Swap API v2** with the recommended **`/order` + `/execute`** flow. Jupiter says this path is the default happy path, requires an API key, returns an assembled transaction from `/order`, and expects the signed transaction plus `requestId` at `/execute`. citeturn599097view0turn898121view0
-
-## Install
+## Setup
 
 ```bash
-python3 -m venv .venv
+./bootstrap.sh
+```
+
+Manual equivalent:
+
+```bash
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
+pip install -e .
 cp .env.example .env
 ```
 
-Then edit `.env` and set:
+Then edit `.env`:
+- set `BIRDEYE_API_KEY`
+- set `JUPITER_API_KEY`
+- set `SOLANA_KEYPAIR_PATH` (for live mode)
+
+## Wallet file format
+
+`SOLANA_KEYPAIR_PATH` points to a JSON file containing exactly 64 integers in `[0,255]`, for example:
+
+```json
+[12,34,56,78,90,123,45,67,89,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,44,55,66,77,88,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124]
+```
+
+## Commands
+
+- `creeper-dripper doctor`  
+  Non-trading health checks: config/env, mode flags (`DRY_RUN`, `LIVE_TRADING_ENABLED`), wallet path, runtime write access, Birdeye auth, Jupiter reachability, and safe-mode state.
+
+- `creeper-dripper status`  
+  Local runtime summary: mode flags, open/partial/pending/blocked/closed counts, cash, safe mode, last cycle, failure counters, mode-skip counters, daily counters.
+
+- `creeper-dripper scan`  
+  Discover and rank candidates, no trades.
+
+- `creeper-dripper run --once`  
+  Single full cycle.
+  Prints effective mode and explicitly reports when entry execution is skipped by mode.
+
+- `creeper-dripper run`  
+  Continuous loop.
+
+- `creeper-dripper quote --side buy|sell ...`  
+  Route probe only.
+
+## Dry-run vs live mode
+
+- Default is safe:
+  - `DRY_RUN=true`
+  - `LIVE_TRADING_ENABLED=false`
+- Live trading requires both:
+  - `DRY_RUN=false`
+  - `LIVE_TRADING_ENABLED=true`
+  - valid wallet credentials (`SOLANA_KEYPAIR_PATH` preferred)
+
+## Safe mode behavior
+
+When a safety rail triggers, bot enters safe mode:
+- stops opening new entries
+- continues minimum position management/exits
+- emits structured `safety_stop` with exact reason
+- reason is visible in `status` and `runtime/status.json`
+
+## Environment variables
+
+See `.env.example` for full list and defaults.
+
+Required:
 - `BIRDEYE_API_KEY`
 - `JUPITER_API_KEY`
-- `BS58_PRIVATE_KEY`
 
-## First safe run
+Wallet:
+- `SOLANA_KEYPAIR_PATH` (preferred)
+- `BS58_PRIVATE_KEY` (deprecated fallback)
+
+Core runtime:
+- `RUNTIME_DIR`, `STATE_PATH`, `JOURNAL_PATH`, `POLL_INTERVAL_SECONDS`
+
+Discovery filters:
+- `DISCOVERY_LIMIT`, `DISCOVERY_MAX_CANDIDATES`, `MIN_LIQUIDITY_USD`, `MIN_EXIT_LIQUIDITY_USD`, `MIN_VOLUME_24H_USD`, `MIN_BUY_SELL_RATIO`, `MIN_DISCOVERY_SCORE`, `MAX_TOKEN_AGE_HOURS`, `BLOCK_MUTABLE_MINT`, `BLOCK_FREEZABLE`, `REQUIRE_JUP_SELL_ROUTE`
+
+Sizing/execution:
+- `PORTFOLIO_START_SOL`, `MAX_OPEN_POSITIONS`, `BASE_POSITION_SIZE_SOL`, `MAX_POSITION_SIZE_SOL`, `CASH_RESERVE_SOL`, `MIN_ORDER_SIZE_SOL`, `MAX_DAILY_NEW_POSITIONS`, `COOLDOWN_MINUTES_AFTER_EXIT`, `DEFAULT_SLIPPAGE_BPS`, `MAX_ACCEPTABLE_PRICE_IMPACT_BPS`
+
+Risk/ladder:
+- `STOP_LOSS_PCT`, `TRAILING_STOP_PCT`, `TRAILING_ARM_PCT`, `TIME_STOP_MINUTES`, `TAKE_PROFIT_LEVELS_PCT`, `TAKE_PROFIT_FRACTIONS`, `FORCE_FULL_EXIT_ON_LIQUIDITY_BREAK`, `LIQUIDITY_BREAK_RATIO`, `EXIT_PROBE_FRACTIONS`
+
+Drip exit (optional chunked sells):
+- `DRIP_EXIT_ENABLED`, `DRIP_CHUNK_PCTS`, `DRIP_NEAR_EQUAL_BAND`, `DRIP_MIN_CHUNK_WAIT_SECONDS` (see `.env.example`)
+
+Safety rails:
+- `DAILY_REALIZED_LOSS_CAP_SOL`
+- `MAX_CONSECUTIVE_EXECUTION_FAILURES`
+- `STALE_MARKET_DATA_MINUTES`
+- `UNKNOWN_EXIT_SATURATION_LIMIT`
+- `MAX_EXIT_BLOCKED_POSITIONS`
+
+## Recommended first run
 
 ```bash
+source .venv/bin/activate
+creeper-dripper doctor
 creeper-dripper scan
 creeper-dripper run --once
 ```
 
-## Live run
+## Troubleshooting
 
-Change in `.env`:
+- Missing keys:
+  - run `creeper-dripper doctor`
+  - ensure `BIRDEYE_API_KEY` and `JUPITER_API_KEY` are set
 
-```env
-DRY_RUN=false
-LIVE_TRADING_ENABLED=true
-```
+- Wallet path invalid:
+  - verify `SOLANA_KEYPAIR_PATH` exists/readable and JSON has 64 ints
 
-Then:
+- Birdeye 401:
+  - API key invalid/expired or wrong account scope
 
-```bash
-creeper-dripper run
-```
+- No candidates:
+  - check doctor output
+  - relax strict discovery filters in `.env`
+  - inspect `runtime/status.json` rejection counts
 
-## Useful commands
+- Safe mode triggered:
+  - run `creeper-dripper status`
+  - inspect `safety_stop_reason` and failure counters
 
-Scan candidates:
-
-```bash
-creeper-dripper scan
-```
-
-Run one cycle:
-
-```bash
-creeper-dripper run --once
-```
-
-Probe a buy route:
-
-```bash
-creeper-dripper quote --side buy --mint <TOKEN_MINT> --size-sol 0.1
-```
-
-Probe a sell route:
-
-```bash
-creeper-dripper quote --side sell --mint <TOKEN_MINT> --amount-atomic 1000000
-```
-
-## Runtime files
-
-- `runtime/state.json` — portfolio state
-- `runtime/journal.jsonl` — decision journal
-
-## Strategy defaults
-
-Entry bias:
-- fresh enough
-- enough 24h volume
-- enough visible spot liquidity
-- enough **exit liquidity**
-- buy/sell flow above threshold
-- no mutable/freezable token if blocked in config
-- Jupiter buy route exists
-- Jupiter sell route exists
-
-Exit bias:
-- ladder take-profits
-- hard stop
-- trailing stop after arming
-- time stop for weak laggards
-- full exit when exit liquidity collapses under configured ratio
-
-## Production notes
-
-### Why exit liquidity matters
-Birdeye’s exit-liquidity endpoint is specifically meant to validate whether there is real on-chain liquidity before user trades. That directly supports the main weakness we identified in the earlier project version: price without executable exit capacity. citeturn536634view0
-
-### Why Jupiter v2 instead of old quote-only paths
-Jupiter’s current docs say the Swap API is unified at `api.jup.ag/swap/v2`, that `/order` + `/execute` is the recommended path, and older flows like Ultra are deprecated in favor of Swap API v2. citeturn599097view0turn821747search5turn821747search6
-
-## Limitations you should know
-
-- this is intentionally **Birdeye + Jupiter only**
-- it does not use websockets yet
-- it does not do wallet reconciliation from chain history yet
-- it does not do portfolio hedging or correlated exposure control yet
-- it trusts current Birdeye/Jupiter response shapes and handles many variations, but APIs can evolve
-
-## Recommended next hardening steps
-
-- add dedicated healthcheck command
-- add max-daily-loss kill switch
-- add per-token blacklist / allowlist
-- add Telegram or Slack alerts
-- add OHLCV-based volatility gating from Birdeye
-- add wallet balance sync against chain before each live cycle
+- State recovery behavior:
+  - corrupted `state.json` is archived under `runtime/archive/`
+  - fresh safe portfolio is initialized automatically

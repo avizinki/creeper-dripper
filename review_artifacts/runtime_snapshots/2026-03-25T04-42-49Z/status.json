@@ -1,0 +1,135 @@
+{
+  "cycle_timestamp": "2026-03-25T04:42:30.558330+00:00",
+  "safe_mode_active": false,
+  "safety_stop_reason": null,
+  "summary": {
+    "timestamp": "2026-03-25T04:42:30.558330+00:00",
+    "seeds_total": 20,
+    "discovered_candidates": 20,
+    "prefiltered_candidates": 1,
+    "topn_candidates": 1,
+    "route_checked_candidates": 2,
+    "cache_hits": 9514,
+    "cache_misses": 450,
+    "candidate_cache_hits": 6984,
+    "candidate_cache_misses": 442,
+    "route_cache_hits": 2530,
+    "route_cache_misses": 8,
+    "cache_debug_first_keys": [
+      "candidate:6yjNqPzTSanBWSa6dxVEgTjePXBrZ2FoHLDQwYwEsyM6",
+      "candidate:a3W4qutoEJA4232T2gwZUfgYJTetr96pU4SJMwppump",
+      "candidate:pSo1f9nQXWgXibFtKf7NWYxb5enAM4qfP6UJSiXRQfL"
+    ],
+    "cache_debug_identity": {
+      "candidate_cache_id": 4449301712,
+      "route_cache_id": 4450897104
+    },
+    "cache_engine_identity": {
+      "candidate_cache_id": 4449301712,
+      "route_cache_id": 4450897104
+    },
+    "cache_debug_trace": {
+      "candidate": [
+        {
+          "op": "get",
+          "key": "candidate:6yjNqPzTSanBWSa6dxVEgTjePXBrZ2FoHLDQwYwEsyM6",
+          "result": "hit",
+          "lookup_ts": 302474.493808541,
+          "inserted_ts": 302432.62151525,
+          "expires_ts": 302552.62151525,
+          "cycle": "2026-03-25T04:42:31.859605+00:00"
+        },
+        {
+          "op": "get",
+          "key": "candidate:a3W4qutoEJA4232T2gwZUfgYJTetr96pU4SJMwppump",
+          "result": "hit",
+          "lookup_ts": 302474.494314666,
+          "inserted_ts": 302432.62151525,
+          "expires_ts": 302552.62151525,
+          "cycle": "2026-03-25T04:42:31.859605+00:00"
+        },
+        {
+          "op": "get",
+          "key": "candidate:pSo1f9nQXWgXibFtKf7NWYxb5enAM4qfP6UJSiXRQfL",
+          "result": "hit",
+          "lookup_ts": 302474.494749125,
+          "inserted_ts": 302432.62151525,
+          "expires_ts": 302552.62151525,
+          "cycle": "2026-03-25T04:42:31.859605+00:00"
+        }
+      ],
+      "route": [
+        {
+          "op": "get",
+          "key": "route:Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht:buy:1e7_1e8",
+          "result": "hit",
+          "lookup_ts": 302478.323861708,
+          "inserted_ts": 302432.621537291,
+          "expires_ts": 302522.621537291,
+          "cycle": "2026-03-25T04:42:31.859605+00:00"
+        },
+        {
+          "op": "get",
+          "key": "route:Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht:sell:gte_1e9",
+          "result": "hit",
+          "lookup_ts": 302478.323872083,
+          "inserted_ts": 302432.621537291,
+          "expires_ts": 302522.621537291,
+          "cycle": "2026-03-25T04:42:31.859605+00:00"
+        }
+      ]
+    },
+    "birdeye_candidate_build_calls": 1,
+    "jupiter_buy_probe_calls": 0,
+    "jupiter_sell_probe_calls": 0,
+    "discovery_cached": false,
+    "candidates_built": 14,
+    "candidates_accepted": 1,
+    "candidates_rejected_total": 38,
+    "rejection_counts": {
+      "reject_low_score": 11,
+      "reject_token_too_old": 12,
+      "reject_bad_buy_sell_ratio": 4,
+      "reject_low_volume": 4,
+      "reject_low_liquidity": 7
+    },
+    "open_positions": 2,
+    "partial_positions": 0,
+    "exit_pending_positions": 0,
+    "exit_blocked_positions": 0,
+    "entries_attempted": 0,
+    "entries_succeeded": 0,
+    "entries_blocked_pre_execution": 0,
+    "entries_order_failed": 0,
+    "entries_execute_failed": 0,
+    "entries_skipped_dry_run": 0,
+    "entries_skipped_live_disabled": 0,
+    "exits_attempted": 0,
+    "exits_succeeded": 0,
+    "execution_failures": 0,
+    "unknown_exits": 0,
+    "safe_mode_active": false
+  },
+  "top_rejection_reasons": [
+    {
+      "reason": "reject_token_too_old",
+      "count": 12
+    },
+    {
+      "reason": "reject_low_score",
+      "count": 11
+    },
+    {
+      "reason": "reject_low_liquidity",
+      "count": 7
+    },
+    {
+      "reason": "reject_bad_buy_sell_ratio",
+      "count": 4
+    },
+    {
+      "reason": "reject_low_volume",
+      "count": 4
+    }
+  ]
+}

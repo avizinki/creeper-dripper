@@ -1,0 +1,106 @@
+{
+  "timestamp": "2026-03-24T21:36:30.620169+00:00",
+  "candidate": {
+    "symbol": "EDGe",
+    "mint": "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+    "score": 79.28,
+    "liquidity_usd": 107779.60179623698,
+    "volume_24h_usd": 36819126.32373927,
+    "buy_sell_ratio": 1.4300611290902554
+  },
+  "buy_probe": {
+    "input_amount_atomic": 60000000,
+    "out_amount_atomic": 19700239490,
+    "price_impact_bps": 12.224165536349233,
+    "route_ok": true,
+    "raw": {
+      "inputMint": "So11111111111111111111111111111111111111112",
+      "inAmount": "60000000",
+      "outputMint": "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+      "outAmount": "19700239490",
+      "otherAmountThreshold": "19207733503",
+      "swapMode": "ExactIn",
+      "slippageBps": 250,
+      "platformFee": null,
+      "priceImpactPct": "0.0012224165536349233225218124",
+      "routePlan": [
+        {
+          "swapInfo": {
+            "ammKey": "i5nX4KgyDr84qNtxHrFneRKvoDWjPEBXAcSSqYnQ1GC",
+            "label": "Meteora DAMM v2",
+            "inputMint": "So11111111111111111111111111111111111111112",
+            "outputMint": "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+            "inAmount": "60000000",
+            "outAmount": "19700239490",
+            "outAmountAfterSlippage": "19700239490",
+            "updateContextSlot": "408629478"
+          },
+          "percent": 100,
+          "bps": null
+        }
+      ],
+      "contextSlot": 408629479,
+      "timeTaken": 0.000126104,
+      "swapUsdValue": "5.4050225739866965458716788908",
+      "mostReliableAmmsQuoteReport": {
+        "info": {
+          "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE": "Not used RG: FullLiquidIntermediate, contains ALT: true",
+          "i5nX4KgyDr84qNtxHrFneRKvoDWjPEBXAcSSqYnQ1GC": "19700239490"
+        }
+      },
+      "longtailMarketQuoteReport": null,
+      "useIncurredSlippageForQuoting": null,
+      "otherRoutePlans": null,
+      "loadedLongtailToken": false,
+      "instructionVersion": null
+    }
+  },
+  "sell_probe": {
+    "input_amount_atomic": 19700239490,
+    "out_amount_atomic": 59975208,
+    "price_impact_bps": 0.0,
+    "route_ok": true,
+    "raw": {
+      "inputMint": "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+      "inAmount": "19700239490",
+      "outputMint": "So11111111111111111111111111111111111111112",
+      "outAmount": "59975208",
+      "otherAmountThreshold": "58475828",
+      "swapMode": "ExactIn",
+      "slippageBps": 250,
+      "platformFee": null,
+      "priceImpactPct": "0",
+      "routePlan": [
+        {
+          "swapInfo": {
+            "ammKey": "i5nX4KgyDr84qNtxHrFneRKvoDWjPEBXAcSSqYnQ1GC",
+            "label": "Meteora DAMM v2",
+            "inputMint": "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+            "outputMint": "So11111111111111111111111111111111111111112",
+            "inAmount": "19700239490",
+            "outAmount": "59975208",
+            "outAmountAfterSlippage": "59975208",
+            "updateContextSlot": "408629478"
+          },
+          "percent": 100,
+          "bps": null
+        }
+      ],
+      "contextSlot": 408629479,
+      "timeTaken": 0.000111066,
+      "swapUsdValue": "5.4027670250800485059146648811",
+      "mostReliableAmmsQuoteReport": {
+        "info": {
+          "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE": "Not used RG: FullLiquidIntermediate, contains ALT: true",
+          "i5nX4KgyDr84qNtxHrFneRKvoDWjPEBXAcSSqYnQ1GC": "59975208"
+        }
+      },
+      "longtailMarketQuoteReport": null,
+      "useIncurredSlippageForQuoting": null,
+      "otherRoutePlans": null,
+      "loadedLongtailToken": false,
+      "instructionVersion": null
+    }
+  },
+  "final_decision": "entry_probe_passed"
+}

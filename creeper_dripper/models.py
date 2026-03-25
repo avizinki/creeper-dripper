@@ -13,6 +13,9 @@ class TokenCandidate:
     price_usd: float | None = None
     liquidity_usd: float | None = None
     exit_liquidity_usd: float | None = None
+    exit_liquidity_available: bool = True
+    exit_liquidity_reason: str | None = None
+    birdeye_exit_liquidity_supported: bool = True
     volume_24h_usd: float | None = None
     volume_1h_usd: float | None = None
     change_1h_pct: float | None = None
@@ -23,11 +26,18 @@ class TokenCandidate:
     holder_count: int | None = None
     top10_holder_percent: float | None = None
     age_hours: float | None = None
+    age_source: str | None = None
+    created_at_raw: str | None = None
     security_mint_mutable: bool | None = None
     security_freezable: bool | None = None
     jupiter_buy_out_amount: int | None = None
     jupiter_buy_price_impact_bps: float | None = None
     jupiter_sell_price_impact_bps: float | None = None
+    sell_route_available: bool = False
+    sell_quote_out_amount: int | None = None
+    sell_quote_price_impact_bps: float | None = None
+    sell_quote_success: bool = False
+    sell_route_quality: str | None = None
     discovery_score: float = 0.0
     reasons: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
@@ -52,6 +62,19 @@ class JupiterExecuteResult:
     output_amount_result: int | None
     error: str | None
     raw: dict[str, Any]
+
+
+@dataclass(slots=True)
+class ExecutionResult:
+    status: str
+    requested_amount: int
+    executed_amount: int | None = None
+    output_amount: int | None = None
+    diagnostic_code: str | None = None
+    signature: str | None = None
+    error: str | None = None
+    is_partial: bool = False
+    diagnostic_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -85,6 +108,7 @@ class PositionState:
     remaining_qty_ui: float
     peak_price_usd: float
     last_price_usd: float
+    position_id: str = ""
     realized_sol: float = 0.0
     stop_loss_pct: float = 20.0
     trailing_stop_pct: float = 12.0
@@ -94,6 +118,44 @@ class PositionState:
     take_profit_steps: list[TakeProfitStep] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     last_sell_signature: str | None = None
+    pending_exit_reason: str | None = None
+    pending_exit_qty_atomic: int | None = None
+    pending_exit_signature: str | None = None
+    exit_retry_count: int = 0
+    last_exit_attempt_at: str | None = None
+    next_exit_retry_at: str | None = None
+    pending_proceeds_sol: float = 0.0
+    # "entry" = buy settlement unclear; "exit" = sell settlement unclear (retry exit path).
+    reconcile_context: str | None = None
+    # SOL-first marks (see engine.position_pricing); USD fields above are display/risk metadata only.
+    entry_mark_sol_per_token: float = 0.0
+    last_mark_sol_per_token: float = 0.0
+    peak_mark_sol_per_token: float = 0.0
+    last_estimated_exit_value_sol: float | None = None
+    unrealized_pnl_sol: float | None = None
+    valuation_source: str | None = None
+    valuation_status: str | None = None
+    usd_mark_unavailable: bool = False
+    # Jupiter sell-quote liquidity deterioration (JSDS); baseline at entry, refreshed each valuation cycle.
+    entry_sell_impact_bps: float | None = None
+    entry_sell_route_hops: int | None = None
+    entry_sell_route_label: str | None = None
+    last_sell_impact_bps: float | None = None
+    last_sell_route_hops: int | None = None
+    last_sell_route_label: str | None = None
+    quote_miss_streak: int = 0
+    # Drip exit state: chunked selling paced over multiple cycles.
+    drip_exit_active: bool = False
+    drip_exit_reason: str | None = None
+    drip_qty_remaining_atomic: int | None = None
+    drip_chunks_done: int = 0
+    drip_next_chunk_at: str | None = None
+    # Hachi brain state: persisted across cycles for momentum tracking.
+    # previous_mark_sol_per_token is the mark from the previous dripper cycle;
+    # compared against last_mark_sol_per_token to derive momentum direction.
+    previous_mark_sol_per_token: float = 0.0
+    last_hachi_pnl_pct: float | None = None
+    last_hachi_momentum_state: str | None = None
 
 
 @dataclass(slots=True)
@@ -106,7 +168,14 @@ class PortfolioState:
     closed_positions: list[PositionState]
     cooldowns: dict[str, str]
     opened_today_count: int
+    opened_today_date: str | None = None
     last_cycle_at: str | None = None
+    safe_mode_active: bool = False
+    safety_stop_reason: str | None = None
+    consecutive_execution_failures: int = 0
+    entries_skipped_dry_run: int = 0
+    entries_skipped_live_disabled: int = 0
+    run_id: str | None = None
 
 
 @dataclass(slots=True)

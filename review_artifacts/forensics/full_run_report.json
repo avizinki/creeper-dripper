@@ -1,0 +1,2227 @@
+{
+  "report_id": "full_run_report",
+  "generated_at_utc": "2026-03-25T05:07:03.567093+00:00",
+  "sources": {
+    "runtime_logfile_log": {
+      "path": "runtime/logfile.log",
+      "line_count": 43050,
+      "sha256": "c0a4d3a9bda7f1602cea0648de8e3e414584798fffb77499a17df815fbf7d309"
+    },
+    "runtime_journal_jsonl": {
+      "path": "runtime/journal.jsonl",
+      "record_count": 6
+    },
+    "runtime_state_json": {
+      "path": "runtime/state.json"
+    },
+    "runtime_status_json": {
+      "path": "runtime/status.json"
+    },
+    "review_artifacts_runtime_snapshots": {
+      "folder_count": 12,
+      "folder_names": [
+        "2026-03-24T21-55-47Z",
+        "2026-03-24T22-16-16Z",
+        "2026-03-24T22-23-48Z",
+        "2026-03-24T22-31-25Z",
+        "2026-03-24T22-38-56Z",
+        "2026-03-24T22-46-23Z",
+        "2026-03-24T22-53-55Z",
+        "2026-03-24T23-01-22Z",
+        "2026-03-24T23-08-53Z",
+        "2026-03-24T23-16-20Z",
+        "2026-03-24T23-23-57Z",
+        "2026-03-25T04-42-49Z"
+      ]
+    },
+    "runtime_entry_probe_globs": [
+      "runtime/entry_probe_EDGe_20260324T213630620169_0000.json",
+      "runtime/entry_probe_PRl_20260324T213630620169_0000.json",
+      "runtime/entry_probe_SPAce_20260325T013715596108_0000.json"
+    ]
+  },
+  "sessions": [
+    {
+      "id": "A",
+      "start_evidence": {
+        "log_line": 1,
+        "snippet": "2026-03-24 23:32:51,859 INFO [creeper_dripper.engine.trader] cache_engine_init: candidate_cache_id=4415129424 route_cache_id=4402931216 candidate_ttl_s=120 route_ttl_s=90"
+      },
+      "end_evidence": {
+        "log_line": 54,
+        "snippet": "2026-03-24 23:36:30,619 INFO [creeper_dripper.cli.main] Loading Solana keypair from path: /Users/yoav/git/creepers-bot/wallets/3LEZ/wallet_3LEZ.json"
+      },
+      "cache_engine_init_ids": [
+        "4415129424"
+      ],
+      "loading_solana_keypair_log_lines": [],
+      "runtime_cost_lines_count_in_segment": 0,
+      "notes": "First log line is cache_engine_init without preceding Loading Solana keypair in this file. Segment ends immediately before Loading Solana keypair + second cache_engine_init."
+    },
+    {
+      "id": "B",
+      "start_evidence": {
+        "log_line": 54,
+        "snippet": "2026-03-24 23:36:30,619 INFO [creeper_dripper.cli.main] Loading Solana keypair from path: /Users/yoav/git/creepers-bot/wallets/3LEZ/wallet_3LEZ.json"
+      },
+      "cache_engine_init_evidence": {
+        "log_line": 55,
+        "snippet": "2026-03-24 23:36:30,619 INFO [creeper_dripper.engine.trader] cache_engine_init: candidate_cache_id=4449301712 route_cache_id=4450897104 candidate_ttl_s=120 route_ttl_s=90"
+      },
+      "end_evidence": "unknown_end_open_ended",
+      "loading_solana_keypair_log_lines": [
+        54
+      ],
+      "runtime_cost_total_in_file": 601,
+      "notes": "First runtime_cost in file after this start is at line 121."
+    }
+  ],
+  "cycles": {
+    "runtime_cost_lines_total": 601,
+    "first_runtime_cost_log_line": 121,
+    "evidence": "Each `runtime_cost:` line is logged by creeper_dripper.cli.main after each engine.run_cycle() returns (see code section in markdown)."
+  },
+  "tokens": {
+    "candidate_accepted_unique_mints": [
+      "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+      "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+      "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht",
+      "7JT1bKtTi6sSAB6bkTfFCyiPmYnZxv372EmaaFKB63A",
+      "2Jno5wyrbQihZjJ4jFg7fE4pj5HsuSUujhmWYA9f7mXn"
+    ],
+    "accepted_first_seen": {
+      "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE": {
+        "symbol": "PRl",
+        "log_line": 52,
+        "log_prefix": "2026-03-24 23:33:35,233 INFO [creeper_dripper.observability] event=candidate_acc"
+      },
+      "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA": {
+        "symbol": "EDGe",
+        "log_line": 53,
+        "log_prefix": "2026-03-24 23:33:35,456 INFO [creeper_dripper.observability] event=candidate_acc"
+      },
+      "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht": {
+        "symbol": "SPAce",
+        "log_line": 7952,
+        "log_prefix": "2026-03-25 01:03:39,296 INFO [creeper_dripper.observability] event=candidate_acc"
+      },
+      "7JT1bKtTi6sSAB6bkTfFCyiPmYnZxv372EmaaFKB63A": {
+        "symbol": "VDOR",
+        "log_line": 17179,
+        "log_prefix": "2026-03-25 02:42:39,168 INFO [creeper_dripper.observability] event=candidate_acc"
+      },
+      "2Jno5wyrbQihZjJ4jFg7fE4pj5HsuSUujhmWYA9f7mXn": {
+        "symbol": "Bp",
+        "log_line": 42675,
+        "log_prefix": "2026-03-25 07:03:02,025 INFO [creeper_dripper.observability] event=candidate_acc"
+      }
+    },
+    "entry_success_mints_from_log": [
+      "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+      "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht",
+      "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE"
+    ],
+    "accepted_but_no_entry_success_in_log": [
+      "7JT1bKtTi6sSAB6bkTfFCyiPmYnZxv372EmaaFKB63A",
+      "2Jno5wyrbQihZjJ4jFg7fE4pj5HsuSUujhmWYA9f7mXn"
+    ],
+    "candidate_built_ok_unique_count": 390,
+    "candidate_built_ok_unique_mints": [
+      {
+        "mint": "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+        "symbol": "EDGe",
+        "first_log_line": 3
+      },
+      {
+        "mint": "4TyZGqRLG3VcHTGMcLBoPUmqYitMVojXinAmkL8xpump",
+        "symbol": "testicle",
+        "first_log_line": 5
+      },
+      {
+        "mint": "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+        "symbol": "PRl",
+        "first_log_line": 8
+      },
+      {
+        "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+        "symbol": "HYPE",
+        "first_log_line": 10
+      },
+      {
+        "mint": "CpP36fvZmbcDUH9tQihQZTcvH2ApwRzHh2pPojyWpump",
+        "symbol": "dapang",
+        "first_log_line": 16
+      },
+      {
+        "mint": "6Bp9LWtyVXcEATi5nuquX5p1hPGUg1cVoUuXGN9Epump",
+        "symbol": "AIFRUITS",
+        "first_log_line": 20
+      },
+      {
+        "mint": "CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2",
+        "symbol": "MON",
+        "first_log_line": 23
+      },
+      {
+        "mint": "7dd7kiwbPmwh7KuJNKyc2mshpVP42XQ4GXYWbmBGK8DK",
+        "symbol": "MCV",
+        "first_log_line": 28
+      },
+      {
+        "mint": "61Wj56QgGyyB966T7YsMzEAKRLcMvJpDbPzjkrCZc4Bi",
+        "symbol": "COPPERINU",
+        "first_log_line": 33
+      },
+      {
+        "mint": "85aM5XJhdDeUw4MbGKM56zmWnsRyh76zUVut97uPjiCg",
+        "symbol": "DAO",
+        "first_log_line": 36
+      },
+      {
+        "mint": "4xxuwsjvynx5CrudVpY8DaHjGQDFA2QkY4oQqCrwpump",
+        "symbol": "SpermWhale",
+        "first_log_line": 41
+      },
+      {
+        "mint": "6RWF7n9r9no6F3MpUzMgefzeMppB8inUgCEYBLALBb49",
+        "symbol": "OWAR",
+        "first_log_line": 101
+      },
+      {
+        "mint": "AMc3MWyChu8GWzeh763oxN7nqsF3KuSfCEAvcZ6wmUDW",
+        "symbol": "Ai Pro",
+        "first_log_line": 232
+      },
+      {
+        "mint": "8Yc2xrTr7Cd7TVroa2g6usjbPWudfHTR5kGDvhiupump",
+        "symbol": "WIN",
+        "first_log_line": 292
+      },
+      {
+        "mint": "7oDf45nabez5s2z8YHvrEwLq9LamyR4Vt1Wh4NikGuZa",
+        "symbol": "Bondstp",
+        "first_log_line": 415
+      },
+      {
+        "mint": "Cycr5NtuRHYppb1ZNg5avyzFYgir1fmbWP97Ff1rL3pa",
+        "symbol": "\u7530\u56ed\u72ac",
+        "first_log_line": 599
+      },
+      {
+        "mint": "5q364syksR8BEikLVb4MhaWDJeJbou7ZkVEFNborrZRW",
+        "symbol": "00",
+        "first_log_line": 719
+      },
+      {
+        "mint": "GhhCVgY4otRfk3268E83k6BLjtVDi1BP9WVpVsLe87Jf",
+        "symbol": "00",
+        "first_log_line": 785
+      },
+      {
+        "mint": "CEyrD8413mssDxgYA1xaaJtfVz8QZkxPM8JHinztirUZ",
+        "symbol": "00",
+        "first_log_line": 791
+      },
+      {
+        "mint": "FDZ9CrokJQMb6CQZC1oYfVbgx6Ce92D7SJduW7kDfhaf",
+        "symbol": "00",
+        "first_log_line": 797
+      },
+      {
+        "mint": "7EbfDtozfWrg6gxox71VgYjNsQaAsqPgumDcdhdTN2EN",
+        "symbol": "Portals",
+        "first_log_line": 921
+      },
+      {
+        "mint": "EhERawsppAaBvvCw6gDqchiNcq6vUXerhfPdEbxgvrVs",
+        "symbol": "Snow Fox",
+        "first_log_line": 983
+      },
+      {
+        "mint": "Bihsb4YjtGBnt1reEvbpjhTa7zgsXu68AtMoTgA7LVed",
+        "symbol": "\u7530\u56ed\u72ac",
+        "first_log_line": 1045
+      },
+      {
+        "mint": "EMBcFeNWBsSQxW69oocUeTmuMTRqmKnJRLx7U3SEwCfc",
+        "symbol": "\u7530\u56ed\u72ac",
+        "first_log_line": 1048
+      },
+      {
+        "mint": "GtewbSypPYq5mhhtFjaL2C9eDbjKMUtCGqinB4noVqrr",
+        "symbol": "\u7530\u56ed\u72ac",
+        "first_log_line": 1110
+      },
+      {
+        "mint": "GgJS6ZwLJXmWL8JGpwT14JmHyuTLd2hXtb9hzuo1ViuX",
+        "symbol": "Snow Fox",
+        "first_log_line": 1172
+      },
+      {
+        "mint": "2tkoGDwxfhGhHQrFFMJeVKwif75yGwgoyE9WM7UDpump",
+        "symbol": "CIA",
+        "first_log_line": 1339
+      },
+      {
+        "mint": "4VDVN8mrCgNws8k3Y9cUCy5QYviEQsqpgm1rqvkyHKku",
+        "symbol": "LOBZ",
+        "first_log_line": 1356
+      },
+      {
+        "mint": "7MSLHhSdV8vPqUgn8rmo1utm4wzdJbwSdUdzUQS4wJDS",
+        "symbol": "Mr. WHALE",
+        "first_log_line": 1422
+      },
+      {
+        "mint": "EtG9LZhECs6HxkJnjQ5f6FvLbd7HEaQvKLCVwXpMpump",
+        "symbol": "CIA",
+        "first_log_line": 1489
+      },
+      {
+        "mint": "9Hwezi3o9oTpRfvVZyHHqXd93gmquLm9BFyS7xQdjwUa",
+        "symbol": "Oil War",
+        "first_log_line": 1558
+      },
+      {
+        "mint": "BHqwdWkHtLmCCHpv9Yb94dr6ngGMKJaspZnVyWJ1bonk",
+        "symbol": "Mii",
+        "first_log_line": 1563
+      },
+      {
+        "mint": "A7YaniTiNqSnzLcckUSWUA2xA1c4DcMpxMUYoWbX7TGP",
+        "symbol": "\u7530\u56ed\u72ac",
+        "first_log_line": 1570
+      },
+      {
+        "mint": "24aPkinBGX4iEMytupSbJqZB26hTUnBhA9XkYDUmW1rr",
+        "symbol": "PC",
+        "first_log_line": 1824
+      },
+      {
+        "mint": "91Wc2sZ4jeyCKf5t1fBK7fe5Bk4eQkcZ9a1yMp4bhiJY",
+        "symbol": "SPUD",
+        "first_log_line": 1830
+      },
+      {
+        "mint": "4Tw8mKtUAKiicACQUmqnvYAc4WE1tvzkSQg8fFygU8hz",
+        "symbol": "JONESY",
+        "first_log_line": 1893
+      },
+      {
+        "mint": "EHhVaHt3TpgkyYkHoQdJL7exG61RDj1M6CPm2acgxv2N",
+        "symbol": "Gmeq4",
+        "first_log_line": 1899
+      },
+      {
+        "mint": "83ucQ5unRDTgQTrJnxnqANGT3EEE3pPcRSFxRTEdFTJ5",
+        "symbol": "moon",
+        "first_log_line": 2041
+      },
+      {
+        "mint": "7DUHiEgvoR5S8EsAiz79LrZVs3XSeJYtWv64LtxT8z2k",
+        "symbol": "NOTHING",
+        "first_log_line": 2089
+      },
+      {
+        "mint": "EivKshqaKZ73L3473bBehHVjnXjSmUSBYLJT8STRd3dc",
+        "symbol": "m\u0254",
+        "first_log_line": 2172
+      },
+      {
+        "mint": "6UDQsxxHYwVaTWmXBunhww6Utuq16aCSdx6d7jhTZMiw",
+        "symbol": "moon",
+        "first_log_line": 2243
+      },
+      {
+        "mint": "Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump",
+        "symbol": "pippin",
+        "first_log_line": 2573
+      },
+      {
+        "mint": "EhcSWLkhWLsF8wK1xzKYs2wjpXh15G3BbNCwEBRrdoge",
+        "symbol": "C0RG",
+        "first_log_line": 2688
+      },
+      {
+        "mint": "69Mq68qmNy53D211qKbus3mKgBZUtAg7DgKjAU7zAnLm",
+        "symbol": "Tiktok",
+        "first_log_line": 2881
+      },
+      {
+        "mint": "2LzLh5pHg3nDQz6goTLAvDXfDbSBgAR8qem3bdXdpump",
+        "symbol": "JUICE",
+        "first_log_line": 2944
+      },
+      {
+        "mint": "5jRzE12xE9mBAV21yrcNvFCGNV2Zug7epFv28Rv2bonk",
+        "symbol": "KITTY",
+        "first_log_line": 3212
+      },
+      {
+        "mint": "G7VbRN3MxkxWXQvkva2ZbuvvPvjaZKiGBJgzrRxpbonk",
+        "symbol": "MEEK",
+        "first_log_line": 3219
+      },
+      {
+        "mint": "3UbT5KLjUnVabCtmeZNXtdYjGkPqT6kC5sf6K7GxyasZ",
+        "symbol": "LOBZ",
+        "first_log_line": 3225
+      },
+      {
+        "mint": "CRwHRyDwvi7cXQ11ifk6GfjxKn6gnmZkCmTUeYDVgZy2",
+        "symbol": "OWAR",
+        "first_log_line": 3292
+      },
+      {
+        "mint": "jjUNFsJ4mvGYNhbNtJsQnghmp5WT2GVTjeytCtxbonk",
+        "symbol": "BOMP(b)",
+        "first_log_line": 3356
+      },
+      {
+        "mint": "7mRyS6SKniFSvSZDLpCDTdiDeCbxMsicER4Tzju4bonk",
+        "symbol": "Reform",
+        "first_log_line": 3438
+      },
+      {
+        "mint": "2Da5JD9Jd1VbyiKnJKWL1JyyxkUkdjpfzBY9sANpbonk",
+        "symbol": "moon",
+        "first_log_line": 3634
+      },
+      {
+        "mint": "64X5GXzuMX4cdwVuAQTWRXVt8vJWKCkvXUKuWgRjRGRt",
+        "symbol": "WhitePenguin",
+        "first_log_line": 3764
+      },
+      {
+        "mint": "Ez1urubB2F6YBzPtKiqsPZ59Jdom7e12g7BqwqqHSJyf",
+        "symbol": "VDOR",
+        "first_log_line": 4028
+      },
+      {
+        "mint": "jJScRgD98CHhYVwVBCuVks7iKyxUmjp7WzgbJ8Fg6JZ",
+        "symbol": "OWAR",
+        "first_log_line": 4097
+      },
+      {
+        "mint": "FhpuFv1BvCExgE2Kdvehxe5ZLt2rYZULTaBUaEJjbonk",
+        "symbol": "BBC",
+        "first_log_line": 4102
+      },
+      {
+        "mint": "A7KziQs6tnU64hwgAXGeCJFq62qzv5WiJyKeaMmGwh3k",
+        "symbol": "NVIDIA AI",
+        "first_log_line": 4108
+      },
+      {
+        "mint": "BJeevMNSVLEJv9ejLrutG9Bvv7fdHU72VJMDUwb7oLXM",
+        "symbol": "\u5f20\u96ea\u5cf0",
+        "first_log_line": 4172
+      },
+      {
+        "mint": "EXX5iQXQbAftU2wHudQJnFs7NrCkveaMd8Cjtyntpump",
+        "symbol": "BBC",
+        "first_log_line": 4175
+      },
+      {
+        "mint": "5Ksz9D4xMg4AMPsRKzi3SbQD55JT42BM4NgRtvrXbonk",
+        "symbol": "Liko",
+        "first_log_line": 4310
+      },
+      {
+        "mint": "7GPdbeKEthPni1zcFkVP6ufxZbBwbsDMj61TswFK3e3w",
+        "symbol": "00",
+        "first_log_line": 4377
+      },
+      {
+        "mint": "Ej9yy8Lk9qdsFX7fTceLhDd2VuUxz24MpMzmUE46NfET",
+        "symbol": "00",
+        "first_log_line": 4383
+      },
+      {
+        "mint": "HL2PpyA46SiqT2xrUQ3F2eFiXzkyuSGiAnNCycqLWYEX",
+        "symbol": "00",
+        "first_log_line": 4390
+      },
+      {
+        "mint": "a3W4qutoEJA4232T2gwZUfgYJTetr96pU4SJMwppump",
+        "symbol": "WhiteWhale",
+        "first_log_line": 4408
+      },
+      {
+        "mint": "8nG4LyBPcFfjgWNerrUn21Ug2i8t1YJCjjGbDYdRbonk",
+        "symbol": "hope",
+        "first_log_line": 4718
+      },
+      {
+        "mint": "2sUAksQGUS1aSPURVpXdp6NMLUQBLxLvgJBtfN5PKWY5",
+        "symbol": "\u5f20\u96ea\u5cf0",
+        "first_log_line": 4790
+      },
+      {
+        "mint": "2jf3eFHjVcG7qik3tzoBvEtQ5w3UzrPWjtK4ki3nbonk",
+        "symbol": "moon",
+        "first_log_line": 4858
+      },
+      {
+        "mint": "DNQMeKcL2rCHoMPKbvFDSKg2kcF4HdakpKJcF2FGbonk",
+        "symbol": "GENIE",
+        "first_log_line": 4932
+      },
+      {
+        "mint": "Fq148RgF4Er3bRB8LakVfLUFrFsr7aRAe4Hdeke8JR2v",
+        "symbol": "PT-HELIUS",
+        "first_log_line": 4940
+      },
+      {
+        "mint": "AVF9F4C4j8b1Kh4BmNHqybDaHgnZpJ7W7yLvL7hUpump",
+        "symbol": "Lobstar",
+        "first_log_line": 5006
+      },
+      {
+        "mint": "EUkDquTHHqh6fiJhYiSemJgL5C6yyzy57mrDuSigySew",
+        "symbol": "11",
+        "first_log_line": 5090
+      },
+      {
+        "mint": "4b7ea2xRwC15v1QUjAiYDFM6QXEFr8cPB3kvKcWt1NDK",
+        "symbol": "CHEEMS",
+        "first_log_line": 5166
+      },
+      {
+        "mint": "7X7kpErXo5dvUx7vXuz1VMVcBrgAsxU5q4uZcjmtbonk",
+        "symbol": "VELON",
+        "first_log_line": 5172
+      },
+      {
+        "mint": "5nQeLhigry4GSidcLfCT2jwSn9SPmwASk1K8yqUdKzre",
+        "symbol": "VDR",
+        "first_log_line": 5245
+      },
+      {
+        "mint": "9xHWDSkmxsdjGJFXZe1noEToo4N7L4vpb4rPzWFEBXQx",
+        "symbol": "dapang",
+        "first_log_line": 5576
+      },
+      {
+        "mint": "ExvKDeGAt6ZSoXRQjxmzqizxFsyEUgYEE1tsiFJAgTXc",
+        "symbol": "GHIBLI",
+        "first_log_line": 5591
+      },
+      {
+        "mint": "HXwHGV9B6LxBZvjodwTMyhbbaQi4AZddxVKdVuUfr516",
+        "symbol": "OIL#000",
+        "first_log_line": 5597
+      },
+      {
+        "mint": "B4vTqdmAuPP24RV5d261dCgSRuc8Y4B7hm9kr8aS1RGk",
+        "symbol": "$OWAR",
+        "first_log_line": 5665
+      },
+      {
+        "mint": "5SsEpkdgdwo79zRujkxfo64tHZqkmAKeQQHkuBGodFMU",
+        "symbol": "OIL",
+        "first_log_line": 5670
+      },
+      {
+        "mint": "3roGzAXQbTm5aczBmtw21uYkiPnnZF96EiVDSXjH2QwJ",
+        "symbol": "00",
+        "first_log_line": 5875
+      },
+      {
+        "mint": "GPrjCZBUVGX1HHQNh5UyAwvG65XWvzGeRzses2Tr4KEd",
+        "symbol": "m\u0254",
+        "first_log_line": 5881
+      },
+      {
+        "mint": "4MFtQhv6ZdTo8Z4EPTPEZ1UXdgGQWAtaRctTsdoiVrUR",
+        "symbol": "OIL#000",
+        "first_log_line": 6227
+      },
+      {
+        "mint": "4eB52reFaHNA7E5i4iAyA4p5uuSqrKg47sCoeJu8bonk",
+        "symbol": "BUBBLE",
+        "first_log_line": 6232
+      },
+      {
+        "mint": "23AZLtm3uv4FX7XyLLHWqEXJpd63Eqd5JPbQWBHH6Eym",
+        "symbol": "$ZC",
+        "first_log_line": 6239
+      },
+      {
+        "mint": "E92NL64fWoyiVWVELTKCmWZhHRs3g5PbAmmW34knpump",
+        "symbol": "SLOPCOIN",
+        "first_log_line": 6307
+      },
+      {
+        "mint": "9869BNuWGAFJnH7fKDMUrYm2SdN9UJtohaw2bKsvkbpk",
+        "symbol": "QUANTVORTE",
+        "first_log_line": 6380
+      },
+      {
+        "mint": "CZFwGWYG1fjgVr3Y5royEefGytQyncNqhcda134GCEid",
+        "symbol": "IRLEAD",
+        "first_log_line": 6916
+      },
+      {
+        "mint": "3apTS9zq1YvikBZJajczmYBHzAiR3jMnxYjQuF2FKpzS",
+        "symbol": "00",
+        "first_log_line": 7052
+      },
+      {
+        "mint": "5HZaX3zjogZxYidhmLx5EHMY36nqDSezcbrfcFRvAS1U",
+        "symbol": "ORAGE",
+        "first_log_line": 7330
+      },
+      {
+        "mint": "G22RzGjs3LdBZ31wUcA4bHL3qbFESHK4mGvDVcYmBiZK",
+        "symbol": "BUBBLE",
+        "first_log_line": 7603
+      },
+      {
+        "mint": "Bb4jR951QtVjeFAYFLBYXDSMKjbTDroCLPbFLdd7pump",
+        "symbol": "memecoin",
+        "first_log_line": 7737
+      },
+      {
+        "mint": "2dmaWxCQ4oiERu65oHkyKp8e41FTFKkudU2F7ZxHbGGo",
+        "symbol": "m\u0254",
+        "first_log_line": 7808
+      },
+      {
+        "mint": "2KJ4mCU41E8VpxaWvtpAhQBbJSZhUVk6nuszrtfWpump",
+        "symbol": "Altcoin",
+        "first_log_line": 7878
+      },
+      {
+        "mint": "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht",
+        "symbol": "SPAce",
+        "first_log_line": 7897
+      },
+      {
+        "mint": "DUegsTE3Fegrro1QsVst2JTMfpCBhTWnSk7iku8D99ri",
+        "symbol": "Sora",
+        "first_log_line": 7946
+      },
+      {
+        "mint": "2q3ykSUwvNnCkLytu2AWMBgY4UdakN5rtgUd5vRjt4vU",
+        "symbol": "WAR",
+        "first_log_line": 8074
+      },
+      {
+        "mint": "6ZCvQZTUMxcKQhKYhdNWvAoCVAGdsZF5k1kkkEBxyXvx",
+        "symbol": "00",
+        "first_log_line": 8146
+      },
+      {
+        "mint": "GruuHHDnpt8rLEQEQouMw4dDGkt28hNiUUG3VJBDBjCC",
+        "symbol": "00",
+        "first_log_line": 8214
+      },
+      {
+        "mint": "8ajmqz1GPZSNFZc5bodYdYYEqvjyc9qRfiQd1hqJNPYH",
+        "symbol": "ORAGE",
+        "first_log_line": 8626
+      },
+      {
+        "mint": "884oaJZwLJRYeGJHcUGmGefTaUEH2iiETi7saZosNXQn",
+        "symbol": "UGOR",
+        "first_log_line": 8692
+      },
+      {
+        "mint": "4tx5FfZ2fBMdKxEBnXaD8uh1c7pbCLKwFWyHQNiLbonk",
+        "symbol": "moon",
+        "first_log_line": 8698
+      },
+      {
+        "mint": "4rWKv1FpED77g4tJ7ocskwNG7xMciojXezAuYH6mQT3A",
+        "symbol": "moon",
+        "first_log_line": 8760
+      },
+      {
+        "mint": "jvEkAeE1AQbkyTnatjy84w4x4LVoT4cw9CoxeTS29kf",
+        "symbol": "m\u0254",
+        "first_log_line": 8832
+      },
+      {
+        "mint": "A5ofqNSUdwu46mwpW81e4ZjVYQQx52LBHBDKgyuNpump",
+        "symbol": "GEM",
+        "first_log_line": 8896
+      },
+      {
+        "mint": "6n717WDrKiACNQycbRSnKJatvpftFVQTrXACCFH7ztc6",
+        "symbol": "IRISR",
+        "first_log_line": 8961
+      },
+      {
+        "mint": "H6e7NZxykiv7YvsunT3gwSBp7VWdN4zFGASe9aKPbonk",
+        "symbol": "Dana",
+        "first_log_line": 8967
+      },
+      {
+        "mint": "AUza3b6kBs6p3ekgEKdVMciWgBB2sbEAwnGTpQZEbxFZ",
+        "symbol": "BUBBLE",
+        "first_log_line": 9161
+      },
+      {
+        "mint": "HeFdmX8saqm7asN2qSVE2kH8S7oHEkW6LocALnbVpump",
+        "symbol": "GEM",
+        "first_log_line": 9293
+      },
+      {
+        "mint": "3SfdGPB8MD5HkVkMaUJHPuwgeNTe2KGKi9qUJbATo5Us",
+        "symbol": "JONESY",
+        "first_log_line": 9489
+      },
+      {
+        "mint": "A8Y627PzccXWhfpAeTMtgiX7fU24L7ahFMQA5CHaaCuf",
+        "symbol": "NSC",
+        "first_log_line": 9556
+      },
+      {
+        "mint": "DCRXav2ri5TC3HvsNLMq9zVfzXTTJLe4NjrSpNQmKJXi",
+        "symbol": "ORAGE",
+        "first_log_line": 9754
+      },
+      {
+        "mint": "9fRySNJVSFQszpy3Q7yY1X2D871Zzs1Zs1iBUf9QjhEc",
+        "symbol": "VNUT",
+        "first_log_line": 9760
+      },
+      {
+        "mint": "J7abpKBGAGmMw9y6jCtWmerdHw2xNzzdxaLoYjbjdoge",
+        "symbol": "GEM",
+        "first_log_line": 9823
+      },
+      {
+        "mint": "75ZdftkB5SVzDiH7goxt55DaTzZzXmbBhPN2vsForgEL",
+        "symbol": "TEDY",
+        "first_log_line": 9893
+      },
+      {
+        "mint": "9PRmbtSfK5cbq63KQdVifGGPfLdvLfw3fUKmFdmzCtar",
+        "symbol": "MAGIC",
+        "first_log_line": 10274
+      },
+      {
+        "mint": "69R52zMWs55xtFD4Ud7jter1b19xwP1tnFBueZBqDj6H",
+        "symbol": "OpenClaw",
+        "first_log_line": 10399
+      },
+      {
+        "mint": "4BbxBeRfBBQFfNCYsEpdZpTe5oKnFgJcr8a142eupump",
+        "symbol": "blast",
+        "first_log_line": 10404
+      },
+      {
+        "mint": "9R8hzNMj8FGRWfhNFVGqdFye8UsK69xCoJzL2QPMdoge",
+        "symbol": "SAMBA",
+        "first_log_line": 10468
+      },
+      {
+        "mint": "5G1WGyBQ47S6Tirz6QDbun5MpyfnXtQV8BrrrnKZbonk",
+        "symbol": "SURVIVOR",
+        "first_log_line": 10610
+      },
+      {
+        "mint": "DudfAa7nkf6u6uGemUxdi5qw5gQEHD6F5ENankVtbonk",
+        "symbol": "curcle",
+        "first_log_line": 10817
+      },
+      {
+        "mint": "HYwNWNVzCWD8nCePpiaG9GR7s3tTjB4frsEBm6gGbonk",
+        "symbol": "3",
+        "first_log_line": 10824
+      },
+      {
+        "mint": "CY4teXrovKkwAkYfZ9YwpeZ1t4psWMRKhHyE941Zpump",
+        "symbol": "3",
+        "first_log_line": 11162
+      },
+      {
+        "mint": "Cme7nWY7DcwjYJTV77DyaoBDzNNF519GZuFXys5JWTTo",
+        "symbol": "GEM",
+        "first_log_line": 11626
+      },
+      {
+        "mint": "A6UZZFCoGDGVHw9oWP1DWHYS9DXcdzKLeCpUE5oJpump",
+        "symbol": "Forty",
+        "first_log_line": 11768
+      },
+      {
+        "mint": "DAKxCcKRmsoL8vyaFJ9nz3HKuc8ddEABJZmHDoEtyjmX",
+        "symbol": "00",
+        "first_log_line": 11775
+      },
+      {
+        "mint": "BrWuPupzfiSfYm2vgadAs5PGu29kseKCAJiozziZZwbn",
+        "symbol": "00",
+        "first_log_line": 11781
+      },
+      {
+        "mint": "E9Jwngd2HfeFDdCaupwJmzUntNgWtrb6h2m5YwpeWn6X",
+        "symbol": "BUBBLE",
+        "first_log_line": 11850
+      },
+      {
+        "mint": "5c6cMvSkvv94HiND1EnwDN7NiZj6JR4tkh5Zcj3w9fEV",
+        "symbol": "GEM",
+        "first_log_line": 11924
+      },
+      {
+        "mint": "BCK5T37Y5Zy1J5rms8aP2J3fdGL3sTDEybCktg5uRgY5",
+        "symbol": "NASA",
+        "first_log_line": 12335
+      },
+      {
+        "mint": "J8fmxMWCNz7mQEmrUtLpVq9MQxA7pfW5CeF5qgMfEtyx",
+        "symbol": "EITHER",
+        "first_log_line": 12476
+      },
+      {
+        "mint": "2P235Rj294VcHGvY6E9ovdVTTN9QCaezPwmKmmoCBAGS",
+        "symbol": "Dog",
+        "first_log_line": 12604
+      },
+      {
+        "mint": "Cv9R8KhV7sVKtfcAXmownqT7vbksXEmLDb6CQsY72UjH",
+        "symbol": "USA",
+        "first_log_line": 12745
+      },
+      {
+        "mint": "D9KftzE3G6pWmaHdGpQJ3VRoftYSy5FiirKEA7yyxQJn",
+        "symbol": "XMR",
+        "first_log_line": 12816
+      },
+      {
+        "mint": "EJebXBmEcC74RZxPXrU38dDJsJGLj1YzvJTV9PgXvC3c",
+        "symbol": "VNUT",
+        "first_log_line": 12824
+      },
+      {
+        "mint": "2Vb5qbaAJk2EVcXxabxMmJayfDmBps3GUj2iAJeDjups",
+        "symbol": "Dog",
+        "first_log_line": 12889
+      },
+      {
+        "mint": "3yeN9bch6uaHsvCTHJryAHXkN8LzddytSP41TZJu7j6W",
+        "symbol": "LTC",
+        "first_log_line": 12897
+      },
+      {
+        "mint": "96uYitv23WStEUDXhd5AziPAwvcftVjjFco42ugmHQgF",
+        "symbol": "VNUT",
+        "first_log_line": 13100
+      },
+      {
+        "mint": "ATCzVGRUR3Krbd9ii59rD5TSqdK8kHdPeJs19jDzbonk",
+        "symbol": "H\u041eGE",
+        "first_log_line": 13170
+      },
+      {
+        "mint": "2dqL8W1ixLatakA5TxEPrpd7DcEucdSpCGrdsLkSvgDy",
+        "symbol": "Pika",
+        "first_log_line": 13252
+      },
+      {
+        "mint": "DBcsxpNXQYpTXKETVJNebi2PmhLhe1rhPCqmMFfLbonk",
+        "symbol": "H\u041eGE",
+        "first_log_line": 13323
+      },
+      {
+        "mint": "4LWaPGKXxVZpRGi7JX1qAkwB5KqcPqo4ccy6RBVLCgBv",
+        "symbol": "Christian",
+        "first_log_line": 13391
+      },
+      {
+        "mint": "8QxcK1oNxoXz5wwGXxUqYxSV9E6CMrjm9EB1jnDTCTA",
+        "symbol": "CTA",
+        "first_log_line": 13533
+      },
+      {
+        "mint": "2fVHJzZ9Kk9PPSjFcqZubc65GZvczpuB6acQg6cYzush",
+        "symbol": "22",
+        "first_log_line": 13541
+      },
+      {
+        "mint": "57Yox9MtMwbULiy8ue91NT7et4LDtH2S3PRTwk1fbonk",
+        "symbol": "Caesar",
+        "first_log_line": 14017
+      },
+      {
+        "mint": "Ct6cBDbsb74NRd8fq1yTXdoZs65pWZTT7Pn81gSicory",
+        "symbol": "SS",
+        "first_log_line": 14022
+      },
+      {
+        "mint": "G78eRde4xrAT6198MYQXH4U6mGabx37Ny7BNJkCGmoon",
+        "symbol": "PENIS",
+        "first_log_line": 14093
+      },
+      {
+        "mint": "J3TSwDAywJd7qzfNsAGYkn9qdg7PDy5irF3Vr4JsXa4s",
+        "symbol": "FARM",
+        "first_log_line": 14165
+      },
+      {
+        "mint": "AqFbbHpyQwBKDGgc4jdkkdQB6iyHtyE6jUTDd1UVGZGv",
+        "symbol": "00",
+        "first_log_line": 14374
+      },
+      {
+        "mint": "DERtv2vfbfRNX4eAToFMJUHhj1Cz8a7CP2MoeKKrrJyJ",
+        "symbol": "CORG",
+        "first_log_line": 14521
+      },
+      {
+        "mint": "4XQQpZczdjQQw5LeEoTWKZ14MFv9RnnW7U1ucWPpaM9N",
+        "symbol": "TSLAI",
+        "first_log_line": 14726
+      },
+      {
+        "mint": "2akXpuyFXAVN5YofZpZMfBp2Vxognpmv9NooBMuHpump",
+        "symbol": "ELON",
+        "first_log_line": 15122
+      },
+      {
+        "mint": "8eHprEwgsK235zeT5zMQgwginuyc9ZV9iQDiSnZwKuD1",
+        "symbol": "CLAUDEAI",
+        "first_log_line": 15201
+      },
+      {
+        "mint": "8wXtPeU6557ETkp9WHFY1n1EcU6NxDvbAggHGsMYiHsB",
+        "symbol": "GME",
+        "first_log_line": 15241
+      },
+      {
+        "mint": "9VyhPtBipzz9d37vagT7LNdFQvNGvZXLkDhzB8uUbKpX",
+        "symbol": "HELP",
+        "first_log_line": 15434
+      },
+      {
+        "mint": "HPP1yXEsyzmQGsm4n7RUdwaokWjvRwjQjbmqw4tjjZ3s",
+        "symbol": "Soraexit",
+        "first_log_line": 15439
+      },
+      {
+        "mint": "7CmaRneijfikjKCgit8Nh8E5XY1a1TSvUTMcsyHmzzGp",
+        "symbol": "VNUT",
+        "first_log_line": 15510
+      },
+      {
+        "mint": "GCBYoeTxXerA31wL8nQbq5MAE865s2zHLcwW96fXbonk",
+        "symbol": "WHITE",
+        "first_log_line": 15517
+      },
+      {
+        "mint": "8wNDBNhRmfy5kgEyqR5gyLCvAZFq4fDnq6FxMBaG9QLP",
+        "symbol": "00",
+        "first_log_line": 15591
+      },
+      {
+        "mint": "5xiGX4adsWTAdG3MQnXofGU5EQxwtmpTM9ykJMjVNWHd",
+        "symbol": "00",
+        "first_log_line": 15597
+      },
+      {
+        "mint": "FN7Ncjj7jd4JB4vAWFR8MF42TveomQAK7NZztY4dpump",
+        "symbol": "WHITE",
+        "first_log_line": 15675
+      },
+      {
+        "mint": "HdbGY9G2rwgrQeoT21z9rHHjxCLdT6oH35L35qYLpump",
+        "symbol": "WHITE",
+        "first_log_line": 15907
+      },
+      {
+        "mint": "ATvMMRwFqcKy1SRKaAANxUptvd8ZbrgZgpA1cYDNR2Nq",
+        "symbol": "CORG",
+        "first_log_line": 15912
+      },
+      {
+        "mint": "ETmTuydH6eT46KAoLjDrP3HHiGBfRG7J1ioVEe57fC8m",
+        "symbol": "m\u0254",
+        "first_log_line": 15915
+      },
+      {
+        "mint": "FaJNQqWXA9hwroX11bK9HrazKNaGy5Gg37FnW4v8yv3p",
+        "symbol": "VNUT",
+        "first_log_line": 15921
+      },
+      {
+        "mint": "5DnRK8sBPbWpHHG9L4HdD7jyXF1wqDHCcaRoJCVmbonk",
+        "symbol": "Bean",
+        "first_log_line": 16270
+      },
+      {
+        "mint": "4dkNBX7o2ALTzoiCfXj3fs936Qzq4pgt7rey1451bonk",
+        "symbol": "wen",
+        "first_log_line": 16343
+      },
+      {
+        "mint": "7VfQvnEa2hkxHGZywNgJC1nGUqqZXc6WG7TWJ6xkZhK5",
+        "symbol": "PENIS",
+        "first_log_line": 16423
+      },
+      {
+        "mint": "HgMvFsw46QW4kg7UfyBU5D7Mq2M3J2ooigtR3zDAZGZq",
+        "symbol": "VAGCOIN",
+        "first_log_line": 16501
+      },
+      {
+        "mint": "6TEEcbC2gn1b3JZej5cGTbkVuGKK6V6dHWBJiNGyPGuj",
+        "symbol": "VDOR",
+        "first_log_line": 16575
+      },
+      {
+        "mint": "7tubYLrCjmkAQ4XuCg6hG9rnWLdsDFD6CPYJ9wuSrdZc",
+        "symbol": "Ai Pro",
+        "first_log_line": 16723
+      },
+      {
+        "mint": "9GEJw7owAKF5kodJdcWUWuXVDmJs1MjcWGVhi1TNDL8c",
+        "symbol": "SpaceX",
+        "first_log_line": 17089
+      },
+      {
+        "mint": "HQiM5BW9XASjw4Xz2K732XtrzRdvzA9XMtB8mhhUzqF8",
+        "symbol": "TEDY",
+        "first_log_line": 17167
+      },
+      {
+        "mint": "7JT1bKtTi6sSAB6bkTfFCyiPmYnZxv372EmaaFKB63A",
+        "symbol": "VDOR",
+        "first_log_line": 17172
+      },
+      {
+        "mint": "5eL2XJzTh2T1fL5vSi5LeSqu4PEkSVwGn9XW7mCcbonk",
+        "symbol": "Pussy",
+        "first_log_line": 17397
+      },
+      {
+        "mint": "HpHcB6fU5nFeNBAsStUqGZ6pyuRjvSToyfPvizKK1kNg",
+        "symbol": "WWS",
+        "first_log_line": 17476
+      },
+      {
+        "mint": "5U1JYXTCUNK9ndWfMgxBmk19oZ2ekKdTZJpEhyAhbonk",
+        "symbol": "GANG",
+        "first_log_line": 17557
+      },
+      {
+        "mint": "JAbtnY57BYu9euDEVNRcRqegi1AF4ka2qoUsz2B1doge",
+        "symbol": "TOLYSOL",
+        "first_log_line": 17934
+      },
+      {
+        "mint": "5xjpekxw3PJVrKA4okt6prpdmUtyZDrWbfgBcmNYgRVs",
+        "symbol": "CORG",
+        "first_log_line": 18152
+      },
+      {
+        "mint": "Cdp3NyQE1YfKQe8xixbsf5HFTZs6QbtCa2vSQxCWjKXe",
+        "symbol": "UGOR",
+        "first_log_line": 18156
+      },
+      {
+        "mint": "AywvTjcdzuyzjryxd9VxwHkDQxirsiMsmpmFcGDBUBXh",
+        "symbol": "m\u0254",
+        "first_log_line": 18229
+      },
+      {
+        "mint": "4L1PiKjku53sBUjVrJqXz9ffyx43or3QdAwnWYcgbonk",
+        "symbol": "GAIN",
+        "first_log_line": 18236
+      },
+      {
+        "mint": "5AGGszkoKkLrN1t7fPkKcBmwCYCWQFCmzjtuCvF9bonk",
+        "symbol": "Carson",
+        "first_log_line": 18441
+      },
+      {
+        "mint": "6yjNqPzTSanBWSa6dxVEgTjePXBrZ2FoHLDQwYwEsyM6",
+        "symbol": "Chud",
+        "first_log_line": 18489
+      },
+      {
+        "mint": "kKfeS6CUSkjhtnQVCto9ddBoBnghw6PqrE6pD2v5VRg",
+        "symbol": "PENIS",
+        "first_log_line": 18657
+      },
+      {
+        "mint": "8HDmfuCEs4TSqKBe1GAQxqDrgu2ZfV6on9YBybX6pump",
+        "symbol": "PENIS",
+        "first_log_line": 18729
+      },
+      {
+        "mint": "5hLubWHsDAva9c4Yica5EBqDTqNChreCgJ7G674gbonk",
+        "symbol": "X",
+        "first_log_line": 18734
+      },
+      {
+        "mint": "2RFmBgekoxmmc6AXQ9djjo6XRagmgv6g1SBKtKyhHUko",
+        "symbol": "m\u0254",
+        "first_log_line": 18811
+      },
+      {
+        "mint": "5RHvo65coXy6Hkjo9uZFnMEsYeP2g25xurC3rThtoh74",
+        "symbol": "VDOR",
+        "first_log_line": 18818
+      },
+      {
+        "mint": "G9MHoveBHaQdjAWqqfxFbx1a7mRzDrTPj5QLu6HSdoge",
+        "symbol": "SBF",
+        "first_log_line": 18895
+      },
+      {
+        "mint": "Byg1QmJPHVZQT6aEToCr499ES9n9Z49bRCVKD8AbMsXa",
+        "symbol": "PDR",
+        "first_log_line": 18976
+      },
+      {
+        "mint": "9faVC5ZSJ4wxaxjqFBDGAP4N1XmrNyNQK5qNPJ1uNusD",
+        "symbol": "m\u0254",
+        "first_log_line": 19330
+      },
+      {
+        "mint": "8gr38iam1BigqYzkZMJFpPFZhMWQ8dEP5dzhUbSC7Lnf",
+        "symbol": "CORG",
+        "first_log_line": 19337
+      },
+      {
+        "mint": "HKixfB25JhTxEHEqkzYSS6Ave4BYTzY5Yi1yhPZNaU4P",
+        "symbol": "CORG",
+        "first_log_line": 19342
+      },
+      {
+        "mint": "iBLgrZG3WmQzUDxEr8nc59fR2nG8cSb4atAzWxBYgNd",
+        "symbol": "00",
+        "first_log_line": 19631
+      },
+      {
+        "mint": "EJEkTqDcHiqx1fQkxsNmx7sjJujcmhiPBQhPBXbZz1SA",
+        "symbol": "00",
+        "first_log_line": 19637
+      },
+      {
+        "mint": "pXZYZkDHfY8aVcwzUQbg1Lhs7wAqJJv6rFiFDLE4oVn",
+        "symbol": "00",
+        "first_log_line": 19643
+      },
+      {
+        "mint": "B3NwREDcvoZaJRbzqx1uRsksSUwzGeBdXTngybziW4wg",
+        "symbol": "00",
+        "first_log_line": 19649
+      },
+      {
+        "mint": "J7ABcmP3gNGV7hru53hTkU3gaf2q3BfJEREJnk3zTyhi",
+        "symbol": "00",
+        "first_log_line": 19655
+      },
+      {
+        "mint": "Avu5J1MaEsYZF1MigjCFWQvnS2679txeTFrxF8MwBAGS",
+        "symbol": "CAPTCHA",
+        "first_log_line": 19862
+      },
+      {
+        "mint": "J32TuGAZ33t824p94EuZ92fSSEKFTKCu4pt38du8bonk",
+        "symbol": "GME",
+        "first_log_line": 20001
+      },
+      {
+        "mint": "14HWs5xD4mZAZqhJxpsBbY2vJ2wJxpPaaV5nBHw1d8WX",
+        "symbol": "m\u0254",
+        "first_log_line": 20076
+      },
+      {
+        "mint": "7mAtGCB7TgZRsyXQkvAy3H3qwxdv6iHQ59K2vqsMFwtq",
+        "symbol": "NSC",
+        "first_log_line": 20284
+      },
+      {
+        "mint": "9UNYwNmXS9rUkJNWFihkUJncCVnEZghHSyvZPXPXbB4D",
+        "symbol": "CORG",
+        "first_log_line": 20625
+      },
+      {
+        "mint": "DaZ18fe9PMyohU8Ud3pCtc5BT8Ek7ypFiw3Qp7c9eJXe",
+        "symbol": "m\u0254",
+        "first_log_line": 20698
+      },
+      {
+        "mint": "2KMNPsEjerrDawMri5mx4hEvg3sRhtkCGjXduV1EUkx6",
+        "symbol": "OHTRICH",
+        "first_log_line": 20774
+      },
+      {
+        "mint": "25Ku9CbwTcaYqR3sPGwHmKxkDQ6e2E8uzZYRms16doge",
+        "symbol": "RYOTORA",
+        "first_log_line": 20848
+      },
+      {
+        "mint": "C5aXERuxfBokhs1tXwR1R2UPKQa3fgjGXsvHmDDAwP94",
+        "symbol": "00",
+        "first_log_line": 20916
+      },
+      {
+        "mint": "HV79edDqakK7rKuRD6LQ4BUXuRS6kfAMa6KNpqSr8MSq",
+        "symbol": "CAPTCHA",
+        "first_log_line": 20925
+      },
+      {
+        "mint": "H4kJNAS9DcFzu3drYiFjtUrMB4S7v5Z2hFwbfnJkdoge",
+        "symbol": "TORA",
+        "first_log_line": 20990
+      },
+      {
+        "mint": "EEuu8UAudpSpUsHBfXR9gkX4nVP631s3CsvCbDRK3UTh",
+        "symbol": "CHIBI",
+        "first_log_line": 21066
+      },
+      {
+        "mint": "2qobNpuk2nf9rQHKygdQpDpzeWd9PkNajbzxebfNdoge",
+        "symbol": "TAROCOIN",
+        "first_log_line": 21267
+      },
+      {
+        "mint": "F7S3k8dvkrNZxZmWSret9eE72y6sPhSZEh8CFffvkkHq",
+        "symbol": "SOS",
+        "first_log_line": 21274
+      },
+      {
+        "mint": "4xBBLNThkXfUQnUNGnbckfhyTT6Mr5amTQwiWHdmbonk",
+        "symbol": "CAPTCHA",
+        "first_log_line": 21409
+      },
+      {
+        "mint": "CbNg85vrxG6CQcze5PGHKAV54JcbBbwHA1XaxSjWdcNQ",
+        "symbol": "VDOR",
+        "first_log_line": 21551
+      },
+      {
+        "mint": "EsXg4koGiWNbkLKcEGL1SBGkfegCkos8fcky699ycTKg",
+        "symbol": "USDA",
+        "first_log_line": 21696
+      },
+      {
+        "mint": "6pVHuka4vzHLnUSNTmchdU3JAkgjn4Fsfs6YtKWNgmyz",
+        "symbol": "VDOR",
+        "first_log_line": 21701
+      },
+      {
+        "mint": "Gdw6GzqUw3e65EcmPYQVVzyjZcEkRDhu5c6knyFRJdmU",
+        "symbol": "MAGIC",
+        "first_log_line": 21770
+      },
+      {
+        "mint": "GDgQm4sYMbnV8zCNQfkCxzeftVEPZTsa2G2HVLePbonk",
+        "symbol": "CAPTCHA",
+        "first_log_line": 21980
+      },
+      {
+        "mint": "5gNe5tEuJRx2NAhcQp5aWjJDdTyLga2MrVi1rdyddFEe",
+        "symbol": "m\u0254",
+        "first_log_line": 21985
+      },
+      {
+        "mint": "Eg4bDo3LbkxeeMriae1D4Q36bMUUkTN4CHi6aeSPStFw",
+        "symbol": "CAPTCHA",
+        "first_log_line": 22057
+      },
+      {
+        "mint": "9S8edqWxoWz5LYLnxWUmWBJnePg35WfdYQp7HQkUpump",
+        "symbol": "Goyim",
+        "first_log_line": 22195
+      },
+      {
+        "mint": "CujVCeMG6Z85MQ3Y35nBQrjzdkggvpFJMriSuQwWNdKM",
+        "symbol": "DKVOTE",
+        "first_log_line": 22509
+      },
+      {
+        "mint": "GchWSyZN6nha8a9PBeXs3HBxX1dbUaSzyh8FwBnpBEAs",
+        "symbol": "UGOR",
+        "first_log_line": 22515
+      },
+      {
+        "mint": "EK8U1TDXEPvnyLpVhnRc5B9R8qoj7Di1rMVfotGpSx7g",
+        "symbol": "CAPTCHA",
+        "first_log_line": 23280
+      },
+      {
+        "mint": "AgymQpxfGDiejGNQXhRZxqzrnvPGXrKi7pGGvdbyzUgR",
+        "symbol": "CAPTCHA",
+        "first_log_line": 23346
+      },
+      {
+        "mint": "9sNwrRZq6Uc8cpwjXhGMo5r8JqiL67TiV4oMts1yjsK8",
+        "symbol": "00",
+        "first_log_line": 23484
+      },
+      {
+        "mint": "Dueh8AE8LyDQUwgqTqrHMfRqepWUuRhQG35rZ93239pP",
+        "symbol": "COIN",
+        "first_log_line": 23490
+      },
+      {
+        "mint": "7ZCWv8EFLenbj66PhPs4NkZLeUL3M49JNh2DJFPEjups",
+        "symbol": "CAPTCHA",
+        "first_log_line": 23765
+      },
+      {
+        "mint": "EGmvRfNhviTCSddNmchm4Ms3E6EYZvNRVdoHjf1UguAj",
+        "symbol": "Stable",
+        "first_log_line": 24033
+      },
+      {
+        "mint": "Gox1ASLwQsM3G4iUh2SJZPQigqvN5YjZb4U1WvpLVwtD",
+        "symbol": "Patprobe",
+        "first_log_line": 24170
+      },
+      {
+        "mint": "EzzY2TnEnDENdT17gEbWgzzVkaQq38qq3ueSjEJjCAP",
+        "symbol": "CTA",
+        "first_log_line": 24176
+      },
+      {
+        "mint": "ChNoVsHTcdaDUNzoLDrBfAPTodomLzWNGEyngYrC6Rtv",
+        "symbol": "CATCHA",
+        "first_log_line": 24182
+      },
+      {
+        "mint": "DYf2rQXtEMMumWoyayhWdAvzc4RYttqLhyHKkpxxpump",
+        "symbol": "MOVING",
+        "first_log_line": 24453
+      },
+      {
+        "mint": "F9V9bCH7uQ3dXpATGPqY7Aoo5huwFC8gdeFzChHC2rsb",
+        "symbol": "VNUT",
+        "first_log_line": 24525
+      },
+      {
+        "mint": "8QCKBhrDhfgTPmSH1nUuga9ZeGgh6RMqeqdi83AsaN4A",
+        "symbol": "HUNTR/X",
+        "first_log_line": 24803
+      },
+      {
+        "mint": "HHvW73jC1x2Wggwn4JWwLeAKdkBFb6yYYwVDqTvdmoon",
+        "symbol": "CAPTCHA",
+        "first_log_line": 24880
+      },
+      {
+        "mint": "9PfVq5if5phrNrLBVMDt3RTdXVmUHz6QBYnapXUupump",
+        "symbol": "CAPTCHA",
+        "first_log_line": 25027
+      },
+      {
+        "mint": "4co5ZBnBCmgUFRS5urzWx51uKGwVdM1HaNiAT52Xbonk",
+        "symbol": "Samba",
+        "first_log_line": 25033
+      },
+      {
+        "mint": "DuJRdzZUo8GXFs1939R8wweBmNN5ytL6f6qedHaxofiS",
+        "symbol": "XAU",
+        "first_log_line": 25179
+      },
+      {
+        "mint": "EiH2YLC95wEUyDFnqPS9c14ctTedGBtADBTDCmyc4nj8",
+        "symbol": "LITANI",
+        "first_log_line": 25248
+      },
+      {
+        "mint": "2vjHFPszsh7foFJRjaZuAQbYzgoPoMAeC4uUsZ5xwznp",
+        "symbol": "Stable",
+        "first_log_line": 25325
+      },
+      {
+        "mint": "GKtg7cDzfLPvFd8gWBLAgeC7S9RYSGeG7tm4KgXxdFQ5",
+        "symbol": "\u96ea\u5c71\u6551\u72d0",
+        "first_log_line": 25467
+      },
+      {
+        "mint": "5nY1wirCWkyAcFnucTBcvRBgqs9nEwepbd6SHH2KfcH5",
+        "symbol": "m\u0254",
+        "first_log_line": 25472
+      },
+      {
+        "mint": "RyWMnACCLf6Q3pHZYdv45h384GryP6pYmg7FWC8pump",
+        "symbol": "HITLERS",
+        "first_log_line": 25546
+      },
+      {
+        "mint": "38FQoNyMRqibqf9wQj4cDxwDjtnZE71Q42z6bbRi3CAP",
+        "symbol": "CApTCHA",
+        "first_log_line": 26037
+      },
+      {
+        "mint": "CSHd9r76SX27ddVQ7BTtHk7eDUmKBd1PsxQonjNmFWcu",
+        "symbol": "MrBeast",
+        "first_log_line": 26257
+      },
+      {
+        "mint": "9WMC3daDstLiXLfbdcTdtKnmzfYiDJCWE9uhNqokbonk",
+        "symbol": "NSC",
+        "first_log_line": 26331
+      },
+      {
+        "mint": "FXWLffE3oMuVHodrWjNRoyYB8zGoJxbpQJFxX7fhz4bw",
+        "symbol": "WWS",
+        "first_log_line": 26406
+      },
+      {
+        "mint": "Db1NeJjcJ4mrHgkB2opUcetrMJsiiM8bdF3YSwoVvCAP",
+        "symbol": "CAPTCHA",
+        "first_log_line": 26412
+      },
+      {
+        "mint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+        "symbol": "JupSOL",
+        "first_log_line": 26488
+      },
+      {
+        "mint": "94unkwLoniDWAEX2J7DbBMr75Q2XFHSHGunHVLSodoge",
+        "symbol": "FACELESZ",
+        "first_log_line": 26567
+      },
+      {
+        "mint": "CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp",
+        "symbol": "CARDS",
+        "first_log_line": 26638
+      },
+      {
+        "mint": "5hXGKnYfgHHSWaNpbQG5qjHRPfJM95UY2zBktZqNc5pW",
+        "symbol": "00",
+        "first_log_line": 26643
+      },
+      {
+        "mint": "Eq1HVoRmNMpUSgj7jqdTE32t4cJr1ZoRMCeSvcetpump",
+        "symbol": "MOVING",
+        "first_log_line": 26870
+      },
+      {
+        "mint": "9FPGuadbLh2eJ2JNr2HXfQAzYMiZHL6ff4vVmppKtkx7",
+        "symbol": "TOKROW",
+        "first_log_line": 27093
+      },
+      {
+        "mint": "9UpZAzp546ahJJ6ZQ9JuwkrTfTsjVHjHeWtYTZVvKTLK",
+        "symbol": "VDOR",
+        "first_log_line": 27166
+      },
+      {
+        "mint": "H1V8emzrZjVTH9f4Qj2i8QWV1LgadXT8o3XYcAoaaLQ9",
+        "symbol": "VNUT",
+        "first_log_line": 27381
+      },
+      {
+        "mint": "5rtzxJZJb7H3a4W858q63woNe9jY8KzeDZM88AdNJK92",
+        "symbol": "00",
+        "first_log_line": 27389
+      },
+      {
+        "mint": "CVL83GFyK9Vp5pXf9aMqRngfVCJ3JJhWejBfexf2hxSq",
+        "symbol": "ONION",
+        "first_log_line": 27603
+      },
+      {
+        "mint": "3jnHiVgwJCdL3w73HFc636mHWks4tyQGng5Vdc3pbonk",
+        "symbol": "DRAFT",
+        "first_log_line": 27745
+      },
+      {
+        "mint": "5EJK9YznW31fFj215czakYtrTBjvFgPCTdZugNCuQbtY",
+        "symbol": "00",
+        "first_log_line": 27882
+      },
+      {
+        "mint": "C5VbQdgTFTQef7SBXXSFksJaQooABG9o3Pyakzpxbonk",
+        "symbol": "Barron",
+        "first_log_line": 27957
+      },
+      {
+        "mint": "BhUJ3MWwW349GebxZBRV7RQUVSVUxmqjAvsK9ikwhere",
+        "symbol": "DGM",
+        "first_log_line": 28168
+      },
+      {
+        "mint": "3B1ijcocM5EDga6XxQ7JLW7weocQPWWjuhBYG8Vepump",
+        "symbol": "BP",
+        "first_log_line": 28232
+      },
+      {
+        "mint": "Cp23f7S9eZY227WDnsuwBJeVtWN8ADdPEuq3bRy2bonk",
+        "symbol": "Chud",
+        "first_log_line": 28569
+      },
+      {
+        "mint": "GEtX8FaWVqE2EZLxeJDnv2kMVFbNFiy1d7jDzYhvBAGS",
+        "symbol": "CAPTCHA",
+        "first_log_line": 28575
+      },
+      {
+        "mint": "DjbUoDYTELvgua2h8oAdnsyFXKPspkCaQJYoeAgP3QwW",
+        "symbol": "m\u0254",
+        "first_log_line": 28717
+      },
+      {
+        "mint": "4u6G9ZGWV1MDSRPMdmWasZnzrXjRUkJ8NKTd9UM9QYJj",
+        "symbol": "Hormuz",
+        "first_log_line": 28788
+      },
+      {
+        "mint": "5ZUmzmYMKBirmvD6aGNt5CySwN3ftze17xpmP5Smbonk",
+        "symbol": "CHUD",
+        "first_log_line": 28796
+      },
+      {
+        "mint": "A4enurydCyPJE3kgwguCYta9VM1pmcTwKVJECWFzyBrL",
+        "symbol": "Sora",
+        "first_log_line": 29138
+      },
+      {
+        "mint": "pSo1f9nQXWgXibFtKf7NWYxb5enAM4qfP6UJSiXRQfL",
+        "symbol": "PSOL",
+        "first_log_line": 29313
+      },
+      {
+        "mint": "3ywsPoaB4j49AjW34kZ8CqLZXjZTkEyqk6epzNd8x4pk",
+        "symbol": "Trumpwar",
+        "first_log_line": 29353
+      },
+      {
+        "mint": "3dCnum8MvccVrdhhGUMX17x2XVht2d4HpmXG3cjr6kC6",
+        "symbol": "CAPTCHA",
+        "first_log_line": 29490
+      },
+      {
+        "mint": "84FN5Es3kkpLSh3M9bvgZuYyhqqF3G7afMUn3FQNY8fD",
+        "symbol": "Chud",
+        "first_log_line": 29561
+      },
+      {
+        "mint": "HFV1VAuoP7CNMfpxvtU8T95RsziCU74PRb1g8eXSD61K",
+        "symbol": "MOVING",
+        "first_log_line": 29567
+      },
+      {
+        "mint": "DAsaHgu5uJBAz41DG1K9WmcZVr4oyUz64NJgdhssbonk",
+        "symbol": "CHINAMAX",
+        "first_log_line": 29637
+      },
+      {
+        "mint": "EBqf7aG9Dc2wnriXMjQ4KC2WxTKniQJmfjQb1AXGTiEQ",
+        "symbol": "Spillovr",
+        "first_log_line": 29778
+      },
+      {
+        "mint": "FL1xY26cFRWpFXvxetpzNJPCk8h2SJt6XLkac5BkqrRG",
+        "symbol": "MOVING",
+        "first_log_line": 29992
+      },
+      {
+        "mint": "6QmQjotN11Am3hJ22pB9bCU6AM6Th7AiZiYG8hHFsPKQ",
+        "symbol": "00",
+        "first_log_line": 30205
+      },
+      {
+        "mint": "DF2ibiR8zXruHsF78xN87GjjrUYBsYYTQ3rLQxmCSfP2",
+        "symbol": "Snow Fox",
+        "first_log_line": 30345
+      },
+      {
+        "mint": "H8JofLYF54gMmyUWgN68a3NNQqLpJsqShZpnBs4v2nZo",
+        "symbol": "\u00d8ff\u00eec\u00eeal D\u0113st\u00ee\u00f1y\ud83c\udf0d\ud83e\udd77",
+        "first_log_line": 30418
+      },
+      {
+        "mint": "A1BazhVEZo6twxm9oSrSR2d6rXxBJ4BcNLGNCDDLtx5A",
+        "symbol": "MOVING",
+        "first_log_line": 30497
+      },
+      {
+        "mint": "4Hx27TxkW9Vh7RdGjDxWYAAzqieMU5oB6X3S4EcjRnWZ",
+        "symbol": "MOVING",
+        "first_log_line": 30566
+      },
+      {
+        "mint": "DA1xPN9ddZDbSfywasEA78ZBVSM2rV7qNLodx86mbonk",
+        "symbol": "WhatIf",
+        "first_log_line": 30639
+      },
+      {
+        "mint": "4Z9BHajcGCUQNpdPyuw5Unh31XvX2nu5CGdi9j7jpump",
+        "symbol": "WOJAK",
+        "first_log_line": 31096
+      },
+      {
+        "mint": "9SMC94SRHCYy4HGZz3mu7rodnRwwyzv63vaxMRThWLBd",
+        "symbol": "SpaceX",
+        "first_log_line": 31124
+      },
+      {
+        "mint": "3XwufcvsgYvPmeZ7p1J74SUTKATBfj1zzUp6SA3LhT4m",
+        "symbol": "00",
+        "first_log_line": 31200
+      },
+      {
+        "mint": "9cDPZZeEKL8ycHqpfoVyozAU5VcqhkgnrBHf61gSLaad",
+        "symbol": "00",
+        "first_log_line": 31206
+      },
+      {
+        "mint": "9bZzjHWEiavuRZwMcp8nQMoeTuAFU8evXR5CbyhxdYhR",
+        "symbol": "00",
+        "first_log_line": 31212
+      },
+      {
+        "mint": "Hjt83KseGB5SaEeY324LUSVNYBmg3i9oPZxykohXKGss",
+        "symbol": "CAPTCHA",
+        "first_log_line": 31287
+      },
+      {
+        "mint": "2Dbu57qDQb9U8i94Xw3NsWxHLDCdvv9KNt3N8gNyUuhs",
+        "symbol": "00",
+        "first_log_line": 31363
+      },
+      {
+        "mint": "EzxpVCA2WR1m9EU7EpM8m75oUvQcvaKqhzPehi2cFnUX",
+        "symbol": "Firo",
+        "first_log_line": 31370
+      },
+      {
+        "mint": "8D7cscAVVG9GrHoiHKieD1tucXR9AkrTpQCme76Xd1ph",
+        "symbol": "VCF",
+        "first_log_line": 31376
+      },
+      {
+        "mint": "3kwH2gh39QPHfCpPGHphowQygFmGBpAjowZNqBYYqfcz",
+        "symbol": "Sigma",
+        "first_log_line": 31450
+      },
+      {
+        "mint": "DfxkyMuAjA6NGT9hsGCEfHG9cGGWemUKaff1iCVFYPiH",
+        "symbol": "Lunpay",
+        "first_log_line": 31532
+      },
+      {
+        "mint": "3E1gokEgZoqetUTZpjep9sjgqR9kz39hqnVVjc8Pbonk",
+        "symbol": "CAPTCHA",
+        "first_log_line": 31745
+      },
+      {
+        "mint": "6d4mMXo4WLfC5YcADJ3BfmKY6tf5SA4KKEvi96kbvXW5",
+        "symbol": "abcdefg",
+        "first_log_line": 31753
+      },
+      {
+        "mint": "FwL9XhjG9JTbtDqkQuZ4v6DJAARnypNpjEmZ9Gg3bonk",
+        "symbol": "Chudjak",
+        "first_log_line": 31821
+      },
+      {
+        "mint": "2CSdemZtC9ya9vvjUzS1UZd7RFUZUwh6sBvndj75JqCR",
+        "symbol": "SIREN",
+        "first_log_line": 32101
+      },
+      {
+        "mint": "BBhEZbPBG1uPCEHp8E25i1Xo28kGgGKidfgBCxyYPY8u",
+        "symbol": "PRL",
+        "first_log_line": 32107
+      },
+      {
+        "mint": "3RX36m9UN9jUvt3LpN8vSZ9Kxp1BUC1yXjb9j8azgvtN",
+        "symbol": "SOS",
+        "first_log_line": 32113
+      },
+      {
+        "mint": "ELAb9ftT3GLEgoqEZEZv5LEPtKAs4KpHJynyAUXBdoge",
+        "symbol": "DUDU",
+        "first_log_line": 32733
+      },
+      {
+        "mint": "C9dM9V8zx7qjR8kK7npW893mgAjGY7PgvS1imVqBmoon",
+        "symbol": "CAPTCHA",
+        "first_log_line": 32806
+      },
+      {
+        "mint": "73P6cpuVSd5W6YJSNYk429oAzfGYjHnVQtvFaVaoRYdC",
+        "symbol": "WWS",
+        "first_log_line": 32951
+      },
+      {
+        "mint": "AfZf4NvvuMMLsciFyMmHGXcHKEXigPuGBK3QhLxNgr4Y",
+        "symbol": "PRL",
+        "first_log_line": 33021
+      },
+      {
+        "mint": "ECeEJk9nzmKj9fW3zFXkVvqZ99QKtQem98TqvGvLgjd5",
+        "symbol": "SIREN",
+        "first_log_line": 33029
+      },
+      {
+        "mint": "FcgUKBgRUnyVW6ebj55eoQijvs1sRg6DPvdLs32ueNsN",
+        "symbol": "MOMO",
+        "first_log_line": 33305
+      },
+      {
+        "mint": "DH81te7zV7oFDVvWvpwuqz7YotsqVF1vJHbLeT2ichT4",
+        "symbol": "PRL",
+        "first_log_line": 33648
+      },
+      {
+        "mint": "FY7FHindVrLBonkyYvgbQ8VMNfEWqzewH4Fh1JBm6mFq",
+        "symbol": "CAPTCHA",
+        "first_log_line": 33863
+      },
+      {
+        "mint": "CbMm6nSB5VCT44UVVgC6yCb6yp9ijKxnsJy18bPyYamp",
+        "symbol": "00",
+        "first_log_line": 33938
+      },
+      {
+        "mint": "5grmvqNv1h3cayL5peyjpbcEZx31ZjF3mXy5wxErj2g8",
+        "symbol": "COIN",
+        "first_log_line": 34085
+      },
+      {
+        "mint": "7D7BRcBYepfi77vxySapmeqRNN1wsBBxnFPJGbH5pump",
+        "symbol": "DMAGA",
+        "first_log_line": 34159
+      },
+      {
+        "mint": "7vbEhACkT9AnJjx4i8e5fQk5Nz8siX2wxjPPWiapMTnC",
+        "symbol": "MOVING",
+        "first_log_line": 34164
+      },
+      {
+        "mint": "4kKvuDLDXMYNQrz2R25SWHRa8mS2Jr2DNAUzP9mgMM9K",
+        "symbol": "DUC-SOL",
+        "first_log_line": 34172
+      },
+      {
+        "mint": "AkFofp9iTVs8H5dY8bz11ZZZyNb57UNg6ewSCZtupump",
+        "symbol": "CAPTCHA",
+        "first_log_line": 34397
+      },
+      {
+        "mint": "2M6ZRYA8qBxJxfPpnevg4sqdhGkUZxQ7P9f3ndAkP5j8",
+        "symbol": "CORG",
+        "first_log_line": 34475
+      },
+      {
+        "mint": "BsRhBzrwQi1TnzPMM9MDfGA8tkzJK2CCXpYF2wmQbonk",
+        "symbol": "Vamp",
+        "first_log_line": 34551
+      },
+      {
+        "mint": "4Z9ez4EpRWRPqUNwbxrn2ixiXrvMRiCV5setguqsaTu7",
+        "symbol": "VDOR",
+        "first_log_line": 34629
+      },
+      {
+        "mint": "A9BX1mrWbGsw3dFobGJQsULTc84XuLCCnM8PJGqWNnkp",
+        "symbol": "Oilstr",
+        "first_log_line": 34702
+      },
+      {
+        "mint": "89MMukBHhqtHAzyD4bn5vKXPoFqTvAPjYtZWYmPLFgma",
+        "symbol": "DUC-SOL",
+        "first_log_line": 34711
+      },
+      {
+        "mint": "BrFaAKSqhwu332ZeUytP9sARuaTo2WyZgKnQvgT28QXv",
+        "symbol": "CORG",
+        "first_log_line": 34860
+      },
+      {
+        "mint": "8Qvk1JZBnaPHYRVcymp1hVYRCMqABZ7GBLkCFnssY1b5",
+        "symbol": "UGOR",
+        "first_log_line": 35011
+      },
+      {
+        "mint": "DLs3K2UKC3RphAttWMuojJLZEM3M9LBFZ2m33sGRjwTr",
+        "symbol": "FURRIEST",
+        "first_log_line": 35087
+      },
+      {
+        "mint": "6JxQBfdMQYTpCNgNqnayqeUjEBwpQAcXFaE3F9qrB6gK",
+        "symbol": "\u5f20\u96ea\u5cf0",
+        "first_log_line": 35168
+      },
+      {
+        "mint": "BRFiNe1WE6bqVXZB7pSccVGsw5LV1PnPRcdynbLkiq8h",
+        "symbol": "Wallred",
+        "first_log_line": 35318
+      },
+      {
+        "mint": "CzrhKeH6BZ9h1DpRFwFPyAJjYd685oBtWsRXfMGEdnUy",
+        "symbol": "00",
+        "first_log_line": 35547
+      },
+      {
+        "mint": "4N7jeBfc7BYpEUK6v2HRFZqcB7RTMg5nzAdL87WfdqhQ",
+        "symbol": "10086",
+        "first_log_line": 35555
+      },
+      {
+        "mint": "9GMoN7PMoakvoKniPndJ3rauosWshAL45BoJAkhdqBcz",
+        "symbol": "00",
+        "first_log_line": 35633
+      },
+      {
+        "mint": "9t5nDDqsJ4p9Fvo9qeBmkNSQPT5RYP9jRBPM8mXfPHYw",
+        "symbol": "PRL",
+        "first_log_line": 35711
+      },
+      {
+        "mint": "ES9rPJfBzdGw1BZoDmx94ad7GxjggkFwezN5YBZVbonk",
+        "symbol": "\u24d7",
+        "first_log_line": 36020
+      },
+      {
+        "mint": "7t5p4s7LEdnQDtNoGXt8d1KYZbicNdSgs4MnFcaFwtGE",
+        "symbol": "Agent",
+        "first_log_line": 36397
+      },
+      {
+        "mint": "8GZCwhGKwSnMbCp1unGgSNNoNPuKfhhCnvdksAV7L5SP",
+        "symbol": "SIGMA",
+        "first_log_line": 36402
+      },
+      {
+        "mint": "5BKTP1cWao5dhr8tkKcfPW9mWkKtuheMEAU6nih2jSX",
+        "symbol": "NoHat",
+        "first_log_line": 36619
+      },
+      {
+        "mint": "2WUfgB7dcRGgYMp4DVo4545UkzcP6U4z8aRxyypXffuu",
+        "symbol": "Bonddrop",
+        "first_log_line": 36701
+      },
+      {
+        "mint": "5o1pV1ox1kLDGCWPy95wjm5EucLWCCFU3nCK9ULVYjoH",
+        "symbol": "Agent",
+        "first_log_line": 36929
+      },
+      {
+        "mint": "S6eGXypcSKoY81jJSb91Mdn7GEQz2Xtw8AYuyrApump",
+        "symbol": "Agent",
+        "first_log_line": 37003
+      },
+      {
+        "mint": "FHCcdgaXAvR4Vz3mxW9qoPaRZLXpDbdw8obCju2G5jBB",
+        "symbol": "Agent",
+        "first_log_line": 37084
+      },
+      {
+        "mint": "HDs7PwQx6gNL24SLs7N4e8oDF6BkBL6DyDNb99v6yx1F",
+        "symbol": "m\u0254",
+        "first_log_line": 37453
+      },
+      {
+        "mint": "Cu5F5Ae263EHAmYQPyEJwYRuSakA75fg5Qfge1pBYYWQ",
+        "symbol": "CORG",
+        "first_log_line": 37686
+      },
+      {
+        "mint": "2TwyYjgvabdJ7CQg6K1kDbS6y2amAdC4Kbs87YSZJbb5",
+        "symbol": "SOS",
+        "first_log_line": 37761
+      },
+      {
+        "mint": "CVRgAfxJPuSofUj3g5Yg1zxenFJXbJXQTinikyoGj8h6",
+        "symbol": "\u5f20\u96ea\u5cf0",
+        "first_log_line": 37767
+      },
+      {
+        "mint": "8CyBMGAYXwrgA74gUrynw3ay3uGEd8QQDZqemLEDiu81",
+        "symbol": "Cuzco",
+        "first_log_line": 37915
+      },
+      {
+        "mint": "pE1t5f2JAGYEyWbjcjaGRYhgGBQghonh6oMrciy4HMF",
+        "symbol": "CHIBI",
+        "first_log_line": 37920
+      },
+      {
+        "mint": "e6cGaJk9sYxmT3JGDTiUuhrusUKf32zwBgsRyLQiJwo",
+        "symbol": "m\u0254",
+        "first_log_line": 37996
+      },
+      {
+        "mint": "Gpqp8k9uUSR7uGaNwnCbVsDHRbPtfxJyei95GDEcbxpP",
+        "symbol": "Agent",
+        "first_log_line": 38080
+      },
+      {
+        "mint": "EfVasUNodbJY7GDPsmNSn3uRX45XNE274s95dnQdP7u7",
+        "symbol": "CAPTCHA",
+        "first_log_line": 38160
+      },
+      {
+        "mint": "6KJ2xk1tEM39GBheigTprSkqpA33W3TCVmggVETNBAGS",
+        "symbol": "DIVIDENDS",
+        "first_log_line": 38163
+      },
+      {
+        "mint": "GZFRKjsFBEAMNZDJ97ERm4DwweL84Jk2fM161FGLbonk",
+        "symbol": "DIVIDENDS",
+        "first_log_line": 38387
+      },
+      {
+        "mint": "39pfh883yPNh2Xb8QkmbpGvvdDDTvVkW8dCC5KfyFNEC",
+        "symbol": "OPNRAI",
+        "first_log_line": 38463
+      },
+      {
+        "mint": "2mTtsUfL4fgwbQrZLaMQS3faxtw4scoGETd2xRut5S5i",
+        "symbol": "PRl",
+        "first_log_line": 38541
+      },
+      {
+        "mint": "9cbpFDFfkfAPdh4smZmrPKNg37zGh1jjhe1pzR4qbonk",
+        "symbol": "DIVIDENDS",
+        "first_log_line": 38623
+      },
+      {
+        "mint": "4ck2c28Nrbgod2KJRHAf9SJtH6w9n84GyYkgYEVo95Rf",
+        "symbol": "00",
+        "first_log_line": 38703
+      },
+      {
+        "mint": "DGVQgKM4jZrFJmN7m9xgzzbw2SurGpGeixL8u7EGdJAe",
+        "symbol": "00",
+        "first_log_line": 38709
+      },
+      {
+        "mint": "JCWF8EnY5z87TmxZF5i4L2HyDpUDZNh5ZyncheYwxTB7",
+        "symbol": "00",
+        "first_log_line": 38715
+      },
+      {
+        "mint": "2xiHsheEoWeYo229RB9zFw6UtrC65Ghvj4W5n2Fvpump",
+        "symbol": "CATCHA",
+        "first_log_line": 38950
+      },
+      {
+        "mint": "AMYGK8vzhga5caq7oCnVoyuoXSgHGE4An8EuyvByUxx1",
+        "symbol": "VDOR",
+        "first_log_line": 39023
+      },
+      {
+        "mint": "71nkfFHByqTo8hgcAzKV3Eg1rzqGgBB6zt4XScvoC1Po",
+        "symbol": "VDOR",
+        "first_log_line": 39600
+      },
+      {
+        "mint": "ABPtmZVx3u7JUvfagkkPLwERYAxVeYvgJcu42txJe2yo",
+        "symbol": "DHSDLD",
+        "first_log_line": 39753
+      },
+      {
+        "mint": "FbwcnUFt4Z6pWKuq8guSkEZ1qgTBJdCy5syZn21cyai",
+        "symbol": "Bina",
+        "first_log_line": 39831
+      },
+      {
+        "mint": "Fv3kz2SiNFnuWkNazKPqNWarq6R8BFft6ACE3ZdYQAzU",
+        "symbol": "BTS",
+        "first_log_line": 39837
+      },
+      {
+        "mint": "Eyhcf2DR9UJ2gN7oqURW4eTxHyQWeLVESDkUoB7n94ZB",
+        "symbol": "AI",
+        "first_log_line": 40000
+      },
+      {
+        "mint": "33h3qkw1gw6UpfvPNMNgtjGWS3c5T1zZsAuuYboRTxAH",
+        "symbol": "DIVIDENDS",
+        "first_log_line": 40227
+      },
+      {
+        "mint": "5UF2zXhMfVi4v8HT1uct4jzDNDc3bP2EdmHPgPfv3ZY9",
+        "symbol": "METAVERD",
+        "first_log_line": 40299
+      },
+      {
+        "mint": "8Kytdp8EmXcA2RqVJMHH43jNwKBLVs84j9eFoAPYQtAq",
+        "symbol": "00",
+        "first_log_line": 40304
+      },
+      {
+        "mint": "2uawUK9QpkV5AQFiMPzkeU3Y6puqcPZr5FDf1F4Zbonk",
+        "symbol": "MOON",
+        "first_log_line": 40463
+      },
+      {
+        "mint": "2ciQpJAr8Fa4xZUy1vHi2JVVUA2NKPEVbyBKHexRpump",
+        "symbol": "Bob",
+        "first_log_line": 40469
+      },
+      {
+        "mint": "FssqQkGFs5FxG4Tu4HyS6vRFkPsXicQ4q5QxkswLQ66J",
+        "symbol": "Chibi Punch",
+        "first_log_line": 40545
+      },
+      {
+        "mint": "59WVNBco3zNuCGnbcVHBykP1GFWBgTp1U5wdt1T5WCwn",
+        "symbol": "m\u0254",
+        "first_log_line": 40618
+      },
+      {
+        "mint": "BCSxb6Weg36k3BR1oQ2U6XDXQ6WZTX7hFPacSKLunJ4J",
+        "symbol": "OPTIMUS",
+        "first_log_line": 40982
+      },
+      {
+        "mint": "CzyTRoHAfq6hwmFEvUx2dPx6cvxc5o3CVF6YEw7ybonk",
+        "symbol": "never",
+        "first_log_line": 41058
+      },
+      {
+        "mint": "HpFqeGnJ79zNmkEi3kL7GdaMFf3EzR1CFqsUkRP3qKuG",
+        "symbol": "m\u0254",
+        "first_log_line": 41142
+      },
+      {
+        "mint": "2jfXfDuT3azmEaYivnZ3ee5t41a567X8kE4xAxWwKEdi",
+        "symbol": "DIVIDENDS",
+        "first_log_line": 41368
+      },
+      {
+        "mint": "DEuEJ88zCyAk5cqJXQToziqRquepkK7vRrAWdr4n4s6s",
+        "symbol": "CAPTCHA",
+        "first_log_line": 41371
+      },
+      {
+        "mint": "2HNWRDEzMNUcGQdKdHSsvD6w5NjfNZCCdsYrhCd1Xs9L",
+        "symbol": "OPTIMUS",
+        "first_log_line": 41446
+      },
+      {
+        "mint": "RV27oUs41sdxC9Jhaahn3V3ofmGfNo4gmmDWnw9iL3M",
+        "symbol": "Mcyr20",
+        "first_log_line": 41737
+      },
+      {
+        "mint": "6P5bp1BpxEsdiwYwKU8LVbVvdsEj15EsQttRFAcQY9ox",
+        "symbol": "00",
+        "first_log_line": 41742
+      },
+      {
+        "mint": "wNkmQoGrfxH6dNJfhT57TuMRM9unZMk6AMrh3FBk97p",
+        "symbol": "00",
+        "first_log_line": 41822
+      },
+      {
+        "mint": "FGA5uUCvhkKTk8ELyJ5TGwHAmAQBjxJ7FTByadTNBosK",
+        "symbol": "00",
+        "first_log_line": 41828
+      },
+      {
+        "mint": "4dTsX6HuSWzac1nQtLpP7AiJSfu1ZTBYBJtEtaMC3cy8",
+        "symbol": "MOON",
+        "first_log_line": 42046
+      },
+      {
+        "mint": "EfM7Tq7zPSgEQR87qxU93xbt4LBnqniELBWAhUq7Az5X",
+        "symbol": "OPTIMUS",
+        "first_log_line": 42276
+      },
+      {
+        "mint": "7jjPqSSRKCF39XEmEy6w9R9gUSVL1vdmnYFDrMJs6GfU",
+        "symbol": "m\u0254",
+        "first_log_line": 42354
+      },
+      {
+        "mint": "DYcvVTXaCWvuQLKPx9bqimKaj9i75PtMTSLx4yfQWJd1",
+        "symbol": "CAPTCHA",
+        "first_log_line": 42360
+      },
+      {
+        "mint": "2STcVvxPGMqmdmXXt6iWrzsebd6cQKpunC2veNQD8Zi6",
+        "symbol": "WRT",
+        "first_log_line": 42584
+      },
+      {
+        "mint": "2Jno5wyrbQihZjJ4jFg7fE4pj5HsuSUujhmWYA9f7mXn",
+        "symbol": "Bp",
+        "first_log_line": 42626
+      },
+      {
+        "mint": "3JUtQV7aZAKnMVnuFEb8DuTc1UME9PP4hK8Lwk2pHZ2e",
+        "symbol": "DSNT",
+        "first_log_line": 42655
+      },
+      {
+        "mint": "9LqDfzyWwhwFcSUCoiiQRq3tQxqapqpAsvuACvWiory",
+        "symbol": "LUMIO",
+        "first_log_line": 42660
+      },
+      {
+        "mint": "J6qE8X6uv4mHmJ6Crif8UDJgfaGv1kcBTGxvA4Dndoge",
+        "symbol": "DGOV",
+        "first_log_line": 42667
+      },
+      {
+        "mint": "GKhmH72YYB8oYxb2t7d23m3n5rPRLPJCff9rbQ55D3PU",
+        "symbol": "Colosseum",
+        "first_log_line": 42885
+      },
+      {
+        "mint": "ELDXPwiq3tjKWAwjmi5WupBtzPY9E4EN1Eav63U2RqhJ",
+        "symbol": "Meta",
+        "first_log_line": 42890
+      },
+      {
+        "mint": "FbvH9UfcWzSh8ACCEHDn3yEwe47JXs1n2hYcw9r3fhjS",
+        "symbol": "BurnCoin",
+        "first_log_line": 42962
+      }
+    ],
+    "journal_buy_sell": [
+      {
+        "ts": "2026-03-24T21:36:30.620169+00:00",
+        "action": "BUY",
+        "token_mint": "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+        "symbol": "PRl",
+        "reason": "discovery_entry",
+        "qty_atomic": 20998417671,
+        "qty_ui": 20998.417671,
+        "size_sol": 0.06,
+        "metadata": {
+          "score": 79.36,
+          "price_impact_bps": 0.0,
+          "signature": "5iPvs2rM3noB8887cGkXjJhnEXcEqbjYkacXnzEUz3wFWejQp6dbtZfjUAWWFM1t1UePjvyTitZSgXxbEV5aJuut"
+        }
+      },
+      {
+        "ts": "2026-03-24T21:36:30.620169+00:00",
+        "action": "BUY",
+        "token_mint": "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+        "symbol": "EDGe",
+        "reason": "discovery_entry",
+        "qty_atomic": 19680503596,
+        "qty_ui": 19680.503596,
+        "size_sol": 0.06,
+        "metadata": {
+          "score": 79.28,
+          "price_impact_bps": 4.081722703766769,
+          "signature": "3GcoZm6wonYdyqp53ARnTQuJ2z5SRqVFfAoeZNgguK7UgwZhU3YzWiTHrzSrgwQeYitUamG8xp8fPPBEEq9376N4"
+        }
+      },
+      {
+        "ts": "2026-03-25T01:36:30.596570+00:00",
+        "action": "EXIT_PENDING",
+        "token_mint": "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+        "symbol": "PRl",
+        "reason": "time_stop",
+        "qty_atomic": 20998417671,
+        "qty_ui": null,
+        "size_sol": null,
+        "metadata": {}
+      },
+      {
+        "ts": "2026-03-25T01:36:30.596570+00:00",
+        "action": "SELL_ATTEMPT",
+        "token_mint": "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+        "symbol": "PRl",
+        "reason": "time_stop",
+        "qty_atomic": 20998417671,
+        "qty_ui": null,
+        "size_sol": null,
+        "metadata": {
+          "status": "success",
+          "requested_amount": 20998417671,
+          "executed_amount": 20998417671,
+          "signature": "RsQ3wuQ6DKenHtMe93wKxYcMi9KqyuQuz33cNXRW8Bt3JrGH7NBPkHgfXMbiJ32KcBCa5UoKQe1BbtFPScaaTmA",
+          "error": null,
+          "price_impact_bps": 4.986239713201456,
+          "classification": "tx_confirmed_success",
+          "jupiter_error_code": null
+        }
+      },
+      {
+        "ts": "2026-03-25T01:36:30.596570+00:00",
+        "action": "SELL",
+        "token_mint": "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+        "symbol": "PRl",
+        "reason": "exit_success",
+        "qty_atomic": 20998417671,
+        "qty_ui": 20998.417671,
+        "size_sol": null,
+        "metadata": {
+          "out_sol": 0.064337191,
+          "signature": "RsQ3wuQ6DKenHtMe93wKxYcMi9KqyuQuz33cNXRW8Bt3JrGH7NBPkHgfXMbiJ32KcBCa5UoKQe1BbtFPScaaTmA",
+          "partial": false,
+          "proceeds_pending_reconcile": false,
+          "post_sell_settlement": {
+            "mint": "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+            "signature": "RsQ3wuQ6DKenHtMe93wKxYcMi9KqyuQuz33cNXRW8Bt3JrGH7NBPkHgfXMbiJ32KcBCa5UoKQe1BbtFPScaaTmA",
+            "requested_sell_qty": 20998417671,
+            "jupiter_execute_in_atomic": 20998417671,
+            "jupiter_execute_out_lamports": 64337191,
+            "order_in_atomic": 20998417671,
+            "order_out_sol_hint": 64337191,
+            "quote_in_atomic": 20998417671,
+            "quote_out_sol_atomic": 64401592,
+            "pre_wallet_token_atomic": 20998417671,
+            "sold_atomic_settled": 20998417671,
+            "sold_atomic_source": "jupiter_execute",
+            "out_lamports": 64337191,
+            "proceeds_source": "jupiter_execute",
+            "wallet_post_unavailable": true,
+            "settlement_confirmed": true
+          },
+          "sold_atomic_settled": 20998417671,
+          "remaining_after_sell_atomic": 0
+        }
+      },
+      {
+        "ts": "2026-03-25T01:37:15.596108+00:00",
+        "action": "BUY",
+        "token_mint": "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht",
+        "symbol": "SPAce",
+        "reason": "discovery_entry",
+        "qty_atomic": 28094457511,
+        "qty_ui": 28094.457511,
+        "size_sol": 0.06,
+        "metadata": {
+          "score": 79.76,
+          "price_impact_bps": 2.0599927959306563,
+          "signature": "3Zm6HcnoRzLSm8GwgnDojv8JdYxyf8fDgzVs9zoAWcMHJKhcnHJjdwTfQgHNYo2Zd4JqqiBbesnR88ioqCwPcXeQ"
+        }
+      }
+    ]
+  },
+  "state_summary": {
+    "open_positions": [
+      "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+      "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht"
+    ],
+    "closed_positions": 1,
+    "total_realized_sol": 0.004337191000000004,
+    "last_cycle_at": "2026-03-25T05:05:45.554815+00:00"
+  },
+  "status_snapshot_note": "status.json reflects LAST completed cycle only; entries_succeeded is per that cycle, not lifetime.",
+  "inconsistencies": [
+    {
+      "id": 1,
+      "files": "runtime/status.json vs portfolio history",
+      "observation": "status.summary.entries_succeeded is 0 while state.json shows open positions from prior entries.",
+      "explanation": "By design: per-cycle summary; not contradictory."
+    },
+    {
+      "id": 2,
+      "files": "runtime/logfile.log local timestamps vs journal/state UTC ISO",
+      "observation": "Log lines use local wall-clock prefix; journal uses ts UTC ISO.",
+      "explanation": "Timezone representation difference; align by converting."
+    }
+  ],
+  "git": {
+    "branch": "live-jsds-test",
+    "recent_commits": [
+      "8fffa56 chore: add runtime snapshot 2026-03-25T04-42-49Z for live drip monitoring",
+      "0361f5e chore: add runtime snapshot 2026-03-24T23-23-57Z for live monitoring"
+    ]
+  }
+}

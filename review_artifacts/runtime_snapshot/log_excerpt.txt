@@ -1,0 +1,11 @@
+# Sanitized excerpt from runtime/logfile.log — live run (startup, entries, marks, JSDS watch)
+# Absolute paths in original lines replaced below.
+
+2026-03-24 23:36:30,619 INFO [creeper_dripper.cli.main] Loading Solana keypair from path: <local-path-redacted>
+2026-03-24 23:36:30,619 INFO [creeper_dripper.engine.trader] cache_engine_init: candidate_cache_id=4449301712 route_cache_id=4450897104 candidate_ttl_s=120 route_ttl_s=90
+2026-03-24 23:37:19,898 INFO [creeper_dripper.observability] event=entry_success reason=tx_confirmed_success metadata={'token_mint': 'J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE', 'qty_atomic': 20998417671}
+2026-03-24 23:37:21,003 INFO [creeper_dripper.observability] event=entry_success reason=tx_confirmed_success metadata={'token_mint': '5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA', 'qty_atomic': 19680503596}
+2026-03-24 23:37:21,198 INFO [creeper_dripper.engine.trader] event=position_valuation_sol mint=J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE symbol=PRl value_sol=0.05992845 pnl_sol=-7.154999999999662e-05 source=jupiter_sell status=ok size_bucket=gte_1e9
+2026-03-24 23:37:21,327 INFO [creeper_dripper.engine.trader] event=position_valuation_sol mint=5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA symbol=EDGe value_sol=0.059976621 pnl_sol=-2.3378999999996986e-05 source=jupiter_sell status=ok size_bucket=gte_1e9
+2026-03-24 23:38:50,245 INFO [creeper_dripper.engine.trader] event=liquidity_deterioration_watch mint=5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA position_id=5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA:2026-03-24T21:36:30.620169+00:00 impact_ratio=2.6516080924711005 hop_delta=0 quote_miss_streak=0
+# Note: No DRIP_CHUNK_* lines in this window — drip applies on take-profit exit path; entries/valuation/JSDS watch shown above.
