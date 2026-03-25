@@ -74,6 +74,9 @@ class Settings:
     stale_market_data_minutes: int
     unknown_exit_saturation_limit: int
     max_exit_blocked_positions: int
+    exit_blocked_retry_cycles: int
+    exit_blocked_micro_probe_cycles: int
+    zombie_retry_interval_cycles: int
     log_level: str
     drip_exit_enabled: bool
     drip_chunk_pcts: list[float]
@@ -140,6 +143,14 @@ class Settings:
             errors.append("CANDIDATE_CACHE_TTL_SECONDS must be > 0")
         if self.route_check_cache_ttl_seconds <= 0:
             errors.append("ROUTE_CHECK_CACHE_TTL_SECONDS must be > 0")
+        if self.exit_blocked_retry_cycles <= 0:
+            errors.append("EXIT_BLOCKED_RETRY_CYCLES must be > 0")
+        if self.exit_blocked_micro_probe_cycles <= 0:
+            errors.append("EXIT_BLOCKED_MICRO_PROBE_CYCLES must be > 0")
+        if self.exit_blocked_micro_probe_cycles < self.exit_blocked_retry_cycles:
+            errors.append("EXIT_BLOCKED_MICRO_PROBE_CYCLES must be >= EXIT_BLOCKED_RETRY_CYCLES")
+        if self.zombie_retry_interval_cycles <= 0:
+            errors.append("ZOMBIE_RETRY_INTERVAL_CYCLES must be > 0")
         if self.early_risk_bucket_enabled and self.early_risk_position_size_sol < self.min_order_size_sol:
             errors.append("EARLY_RISK_POSITION_SIZE_SOL must be >= MIN_ORDER_SIZE_SOL when EARLY_RISK_BUCKET_ENABLED=true")
         if errors:
@@ -220,6 +231,9 @@ def load_settings() -> Settings:
         stale_market_data_minutes=env_int("STALE_MARKET_DATA_MINUTES", 10),
         unknown_exit_saturation_limit=env_int("UNKNOWN_EXIT_SATURATION_LIMIT", 6),
         max_exit_blocked_positions=env_int("MAX_EXIT_BLOCKED_POSITIONS", 5),
+        exit_blocked_retry_cycles=env_int("EXIT_BLOCKED_RETRY_CYCLES", 3),
+        exit_blocked_micro_probe_cycles=env_int("EXIT_BLOCKED_MICRO_PROBE_CYCLES", 8),
+        zombie_retry_interval_cycles=env_int("ZOMBIE_RETRY_INTERVAL_CYCLES", 10),
         log_level=env_str("LOG_LEVEL", "INFO"),
         drip_exit_enabled=env_bool("DRIP_EXIT_ENABLED", False),
         drip_chunk_pcts=env_csv_floats("DRIP_CHUNK_PCTS", [0.10, 0.25, 0.50]),

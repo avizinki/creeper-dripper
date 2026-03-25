@@ -747,6 +747,9 @@ def cmd_status(_args: argparse.Namespace) -> int:
     portfolio = load_portfolio(settings.state_path, settings.portfolio_start_sol)
     open_positions = list(portfolio.open_positions.values())
     blocked_positions = [p for p in open_positions if p.status == "EXIT_BLOCKED"]
+    zombie_positions = [p for p in open_positions if p.status == "ZOMBIE"]
+    blocked_or_zombie = [p for p in open_positions if p.status in {"EXIT_BLOCKED", "ZOMBIE"}]
+    blocked_or_zombie_symbols = [p.symbol for p in blocked_or_zombie]
     summary = {
         "dry_run": settings.dry_run,
         "live_trading_enabled": settings.live_trading_enabled,
@@ -754,6 +757,20 @@ def cmd_status(_args: argparse.Namespace) -> int:
         "partial_positions": sum(1 for p in open_positions if p.status == "PARTIAL"),
         "exit_pending_positions": sum(1 for p in open_positions if p.status == "EXIT_PENDING"),
         "exit_blocked_positions": sum(1 for p in open_positions if p.status == "EXIT_BLOCKED"),
+        "zombie_positions": len(zombie_positions),
+        "blocked_or_zombie_symbols": blocked_or_zombie_symbols,
+        "blocked_or_zombie_positions": [
+            {
+                "symbol": p.symbol,
+                "mint": p.token_mint,
+                "status": p.status,
+                "blocked_cycles": getattr(p, "exit_blocked_cycles", 0),
+                "zombie_reason": getattr(p, "zombie_reason", None),
+                "zombie_since": getattr(p, "zombie_since", None),
+                "valuation_status": getattr(p, "valuation_status", None),
+            }
+            for p in blocked_or_zombie
+        ],
         "blocked_positions": [
             {
                 "symbol": p.symbol,

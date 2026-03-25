@@ -209,6 +209,16 @@ class CreeperDripper:
             cash_sol=self.portfolio.cash_sol,
             cash_reserve_sol=self.settings.cash_reserve_sol,
         )
+        blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
+        zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
+        self.events.emit(
+            "exit_blocked_summary",
+            "ok",
+            exit_blocked_positions=len(blocked_positions),
+            zombie_positions=len(zombie_positions),
+            blocked_symbols=[p.symbol for p in blocked_positions],
+            zombie_symbols=[p.symbol for p in zombie_positions],
+        )
         return {
             "timestamp": now,
             "cash_sol": round(self.portfolio.cash_sol, 6),
@@ -291,8 +301,8 @@ class CreeperDripper:
     def _mark_positions(self, candidates: list[TokenCandidate], decisions: list[TradeDecision], now: str) -> None:
         by_mint = {c.address: c for c in candidates}
         for mint, position in list(self.portfolio.open_positions.items()):
-            if position.status == "EXIT_BLOCKED":
-                self._retry_blocked_exit_if_due(position, decisions, now)
+            if position.status in {"EXIT_BLOCKED", "ZOMBIE"}:
+                self._handle_exit_blocked_survival_layer(position, decisions, now, valuation_no_route=False)
                 continue
             candidate = by_mint.get(mint)
             if candidate is None:
@@ -344,6 +354,8 @@ class CreeperDripper:
                     v.size_bucket,
                     v.detail,
                 )
+                # Liquidity survival: track persistent no-route states even before exit triggers.
+                self._handle_exit_blocked_survival_layer(position, decisions, now, valuation_no_route=True)
             position.updated_at = now
             position.last_exit_liquidity_usd = candidate.exit_liquidity_usd
             if position.status == "EXIT_PENDING" or (
@@ -367,6 +379,127 @@ class CreeperDripper:
                         self._start_exit(position, position.remaining_qty_atomic, "time_stop_reconcile_entry", decisions, now)
                 continue
             self._evaluate_exit_rules(position, candidate, decisions, now)
+
+    def _handle_exit_blocked_survival_layer(
+        self,
+        position: PositionState,
+        decisions: list[TradeDecision],
+        now: str,
+        *,
+        valuation_no_route: bool,
+    ) -> None:
+        """Liquidity Survival Layer for EXIT_BLOCKED / persistent no-route positions.
+
+        Stages:
+          - Stage 1 (cycles 1-3): retry normal blocked exit path (existing behavior)
+          - Stage 2 (cycles 4-8): micro-probe sell quote to detect any route
+          - Stage 3 (>= micro probe cycles): mark ZOMBIE and retry micro-probe at low frequency
+        """
+        status = position.status
+        is_blocked_state = status in {"EXIT_BLOCKED", "ZOMBIE"}
+        if not is_blocked_state and not valuation_no_route:
+            return
+
+        # Initialize tracking.
+        position.exit_blocked_cycles = int(getattr(position, "exit_blocked_cycles", 0) or 0) + 1
+        if not getattr(position, "first_blocked_at", None) and is_blocked_state:
+            position.first_blocked_at = now
+        blocked_cycles = int(position.exit_blocked_cycles)
+
+        self.events.emit(
+            "exit_blocked_detected",
+            "no_route" if valuation_no_route else "exit_blocked",
+            mint=position.token_mint,
+            symbol=position.symbol,
+            blocked_cycles=blocked_cycles,
+            status=position.status,
+            valuation_status=position.valuation_status,
+        )
+
+        # Stage 1: existing retry behavior for known retryable blocked exits.
+        if is_blocked_state and blocked_cycles <= int(self.settings.exit_blocked_retry_cycles):
+            self._retry_blocked_exit_if_due(position, decisions, now)
+            return
+
+        # Compute micro-probe qty.
+        remaining = int(position.remaining_qty_atomic or 0)
+        if remaining <= 0:
+            return
+        qty_atomic = 1
+        mark = float(position.last_mark_sol_per_token or 0.0)
+        if mark > 0.0:
+            target_sol = float(self.settings.min_order_size_sol) * 0.25
+            qty_atomic = int((target_sol / mark) * (10 ** int(position.decimals)))
+        if qty_atomic <= 0:
+            qty_atomic = max(1, int(remaining * 0.001))
+        qty_atomic = max(1, min(remaining, qty_atomic))
+
+        micro_stage_max = int(self.settings.exit_blocked_micro_probe_cycles)
+        in_micro_window = (blocked_cycles > int(self.settings.exit_blocked_retry_cycles)) and (blocked_cycles <= micro_stage_max)
+
+        def _attempt_micro_probe() -> bool:
+            position.last_route_check_at = now
+            self.events.emit(
+                "exit_micro_probe_attempt",
+                "ok",
+                mint=position.token_mint,
+                symbol=position.symbol,
+                probe_size_atomic=qty_atomic,
+                blocked_cycles=blocked_cycles,
+            )
+            try:
+                probe = self.executor.quote_sell(position.token_mint, qty_atomic)
+            except Exception as exc:
+                self.events.emit(
+                    "exit_micro_probe_attempt",
+                    "exception",
+                    mint=position.token_mint,
+                    symbol=position.symbol,
+                    probe_size_atomic=qty_atomic,
+                    error=str(exc),
+                )
+                return False
+            ok = bool(getattr(probe, "route_ok", False) and getattr(probe, "out_amount_atomic", None))
+            if ok:
+                # Revive: clear zombie markers and attempt normal exit path if possible.
+                if position.status == "ZOMBIE":
+                    position.status = "EXIT_BLOCKED"
+                position.zombie_reason = None
+                position.zombie_since = None
+                self.events.emit(
+                    "zombie_recovered",
+                    "route_found",
+                    mint=position.token_mint,
+                    symbol=position.symbol,
+                    blocked_cycles=blocked_cycles,
+                )
+                if position.pending_exit_qty_atomic and position.pending_exit_qty_atomic > 0:
+                    position.next_exit_retry_at = now
+                    self._attempt_exit(position, decisions, now)
+                return True
+            return False
+
+        # Stage 2: micro-probe window.
+        if in_micro_window:
+            _attempt_micro_probe()
+            return
+
+        # Stage 3: zombie detection + low-frequency retries.
+        if is_blocked_state and blocked_cycles >= micro_stage_max:
+            if position.status != "ZOMBIE":
+                position.status = "ZOMBIE"
+                position.zombie_reason = "no_route_persistent"
+                position.zombie_since = now
+                self.events.emit(
+                    "position_zombie_detected",
+                    "no_route_persistent",
+                    mint=position.token_mint,
+                    symbol=position.symbol,
+                    blocked_cycles=blocked_cycles,
+                )
+            interval = int(self.settings.zombie_retry_interval_cycles)
+            if interval > 0 and (blocked_cycles % interval) == 0:
+                _attempt_micro_probe()
 
     def _evaluate_jsds_liquidity(self, position: PositionState, decisions: list[TradeDecision], now: str) -> bool:
         """Jupiter sell-quote liquidity deterioration (JSDS). Returns True if an exit was started."""

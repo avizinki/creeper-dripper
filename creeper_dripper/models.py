@@ -156,6 +156,12 @@ class PositionState:
     previous_mark_sol_per_token: float = 0.0
     last_hachi_pnl_pct: float | None = None
     last_hachi_momentum_state: str | None = None
+    # Exit blocked survival layer: tracks persistent no-route/liquidity breaks.
+    exit_blocked_cycles: int = 0
+    first_blocked_at: str | None = None
+    last_route_check_at: str | None = None
+    zombie_reason: str | None = None
+    zombie_since: str | None = None
 
 
 @dataclass(slots=True)

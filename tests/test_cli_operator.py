@@ -6,7 +6,7 @@ from json import JSONDecoder
 from creeper_dripper.cli.main import main
 from creeper_dripper.config import load_settings
 from creeper_dripper.engine.trader import CreeperDripper
-from creeper_dripper.models import PortfolioState
+from creeper_dripper.models import PortfolioState, PositionState, TakeProfitStep
 from creeper_dripper.storage.state import new_portfolio
 
 
@@ -73,6 +73,10 @@ def test_status_command_empty_state(monkeypatch, tmp_path, capsys):
     assert code == 0
     assert out["open_positions"] == 0
     assert out["closed_positions"] == 0
+    assert out["exit_blocked_positions"] == 0
+    assert out["zombie_positions"] == 0
+    assert out["blocked_or_zombie_symbols"] == []
+    assert out["blocked_or_zombie_positions"] == []
 
 
 def test_status_command_populated_state(monkeypatch, tmp_path, capsys):
@@ -82,6 +86,49 @@ def test_status_command_populated_state(monkeypatch, tmp_path, capsys):
     portfolio.safe_mode_active = True
     portfolio.safety_stop_reason = "safety_daily_loss_cap"
     portfolio.opened_today_count = 2
+    now = "2026-01-01T00:00:00+00:00"
+    # Valid Solana pubkeys for persistence tests (save_portfolio drops non-pubkey mints).
+    mint_blocked = "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE"
+    mint_zombie = "Fh2PG8Cnp9cJ3QhL3Zf3V7i8k5hQwJm6n8Yd7s9aQx1B"
+    # Seed one EXIT_BLOCKED and one ZOMBIE position to validate operator visibility.
+    portfolio.open_positions[mint_blocked] = PositionState(
+        token_mint=mint_blocked,
+        symbol="BLK",
+        decimals=6,
+        status="EXIT_BLOCKED",
+        opened_at=now,
+        updated_at=now,
+        entry_price_usd=0.0,
+        avg_entry_price_usd=0.0,
+        entry_sol=0.1,
+        remaining_qty_atomic=1_000_000,
+        remaining_qty_ui=1.0,
+        peak_price_usd=0.0,
+        last_price_usd=0.0,
+        take_profit_steps=[TakeProfitStep(trigger_pct=25.0, fraction=0.1)],
+        valuation_status="no_route",
+        exit_blocked_cycles=7,
+    )
+    portfolio.open_positions[mint_zombie] = PositionState(
+        token_mint=mint_zombie,
+        symbol="ZMB",
+        decimals=6,
+        status="ZOMBIE",
+        opened_at=now,
+        updated_at=now,
+        entry_price_usd=0.0,
+        avg_entry_price_usd=0.0,
+        entry_sol=0.1,
+        remaining_qty_atomic=1_000_000,
+        remaining_qty_ui=1.0,
+        peak_price_usd=0.0,
+        last_price_usd=0.0,
+        take_profit_steps=[TakeProfitStep(trigger_pct=25.0, fraction=0.1)],
+        valuation_status="no_route",
+        exit_blocked_cycles=12,
+        zombie_reason="no_route_persistent",
+        zombie_since=now,
+    )
     from creeper_dripper.storage.state import save_portfolio
 
     save_portfolio(settings.state_path, portfolio)
@@ -90,6 +137,12 @@ def test_status_command_populated_state(monkeypatch, tmp_path, capsys):
     assert code == 0
     assert out["safe_mode_active"] is True
     assert out["opened_today_count"] == 2
+    assert out["exit_blocked_positions"] == 1
+    assert out["zombie_positions"] == 1
+    assert set(out["blocked_or_zombie_symbols"]) == {"BLK", "ZMB"}
+    detailed = {(p["symbol"], p["status"]) for p in out["blocked_or_zombie_positions"]}
+    assert ("BLK", "EXIT_BLOCKED") in detailed
+    assert ("ZMB", "ZOMBIE") in detailed
 
 
 def test_runtime_status_snapshot_creation_after_cycle(monkeypatch, tmp_path):
