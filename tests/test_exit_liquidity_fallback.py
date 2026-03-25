@@ -23,7 +23,6 @@ def test_birdeye_unsupported_exit_liquidity_does_not_fail_build(monkeypatch):
     monkeypatch.setattr(client, "token_security", lambda address: {})
     monkeypatch.setattr(client, "token_holders", lambda address: {})
     monkeypatch.setattr(client, "token_creation_info", lambda address: {})
-    monkeypatch.setattr(client, "token_exit_liquidity", lambda address: (_ for _ in ()).throw(RuntimeError('birdeye_bad_request path=/defi/v3/token/exit-liquidity params={"address":"x"} body={"success":false,"message":"Chain solana not supported"}')))
     c = client.build_candidate({"address": "mint1", "symbol": "TOK"})
     assert c.address == "mint1"
     assert c.exit_liquidity_available is False

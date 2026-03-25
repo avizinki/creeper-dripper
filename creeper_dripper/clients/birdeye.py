@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import requests
 
+from creeper_dripper.clients.birdeye_audit import BirdeyeAuditSession, extract_mint_from_params, sanitize_birdeye_params
 from creeper_dripper.errors import BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
 from creeper_dripper.models import TokenCandidate
 
@@ -14,8 +18,19 @@ LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://public-api.birdeye.so"
 
 
+class _BirdeyeNonRetryableError(RuntimeError):
+    """Internal: do not retry this Birdeye failure."""
+
+
 class BirdeyeClient:
-    def __init__(self, api_key: str, chain: str = "solana", min_interval_s: float = 0.35) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        chain: str = "solana",
+        min_interval_s: float = 0.35,
+        *,
+        audit_jsonl_path: Path | str | None = None,
+    ) -> None:
         self._session = requests.Session()
         self._session.headers.update({
             "Accept": "application/json",
@@ -24,6 +39,62 @@ class BirdeyeClient:
         })
         self._last_request = 0.0
         self._min_interval_s = min_interval_s
+        self._audit_jsonl_path = Path(audit_jsonl_path) if audit_jsonl_path else None
+        self._audit_phase = "default"
+        self._audit_session = BirdeyeAuditSession()
+
+    def audit_reset(self) -> None:
+        """Clear in-memory audit counters (does not delete jsonl file)."""
+        self._audit_session = BirdeyeAuditSession()
+
+    def audit_set_phase(self, phase: str) -> None:
+        """Phase tag for jsonl lines and discovery-only aggregates (e.g. doctor, discovery, credits_meter)."""
+        self._audit_phase = str(phase or "default")
+
+    def audit_snapshot(self) -> BirdeyeAuditSession:
+        return self._audit_session
+
+    def _audit_append_jsonl(
+        self,
+        *,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None,
+        status_code: int,
+        body_snippet: str,
+        attempt: int,
+    ) -> None:
+        if not self._audit_jsonl_path:
+            return
+        mint = extract_mint_from_params(params)
+        sanitized = sanitize_birdeye_params(params)
+        line: dict[str, Any] = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "phase": self._audit_phase,
+            "method": method,
+            "path": path,
+            "http_status": status_code,
+            "mint": mint,
+            "params_sanitized": sanitized,
+            "response_body_snippet": body_snippet if status_code != 200 else "",
+            "attempt": attempt,
+        }
+        if path == "/utils/v1/credits":
+            line["kind"] = "credits_meter"
+        try:
+            self._audit_jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._audit_jsonl_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(line, default=str) + "\n")
+        except OSError as exc:
+            LOGGER.warning("birdeye_audit_jsonl_write_failed: %s", exc)
+
+        self._audit_session.record(
+            path,
+            status_code,
+            phase=self._audit_phase,
+            body_snippet=body_snippet,
+            mint=mint,
+        )
 
     def _throttle(self) -> None:
         now = time.monotonic()
@@ -31,7 +102,14 @@ class BirdeyeClient:
         if elapsed < self._min_interval_s:
             time.sleep(self._min_interval_s - elapsed)
 
-    def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        audit: bool = True,
+    ) -> dict[str, Any]:
         url = f"{BASE_URL}{path}"
         max_attempts = 3
         backoff = 0.4
@@ -41,16 +119,38 @@ class BirdeyeClient:
                 self._throttle()
                 response = self._session.request(method, url, params=params, timeout=20)
                 self._last_request = time.monotonic()
-                if response.status_code == 401:
+                status = response.status_code
+                body_snippet = ""
+                if status != 200:
+                    try:
+                        body_snippet = (response.text or "")[:300]
+                    except Exception:
+                        body_snippet = "<unavailable>"
+                if self._audit_jsonl_path and audit:
+                    self._audit_append_jsonl(
+                        method=method,
+                        path=path,
+                        params=params,
+                        status_code=status,
+                        body_snippet=body_snippet,
+                        attempt=attempt,
+                    )
+
+                if status == 401:
                     raise RuntimeError(f"birdeye_unauthorized:{path}")
-                if response.status_code == 429:
+                if status == 429:
                     raise RuntimeError(f"birdeye_rate_limited:{path}")
-                if response.status_code == 400:
+                if status == 400:
                     body = ""
                     try:
                         body = response.text
                     except Exception:
                         body = "<unavailable>"
+                    lowered = str(body or "").lower()
+                    if "chain solana not supported" in lowered or "chain not supported" in lowered:
+                        raise _BirdeyeNonRetryableError(
+                            f"birdeye_bad_request_non_retryable path={path} params={params} body={body}"
+                        )
                     raise RuntimeError(f"birdeye_bad_request path={path} params={params} body={body}")
                 response.raise_for_status()
                 payload = response.json()
@@ -65,9 +165,15 @@ class BirdeyeClient:
                 last_exc = exc
                 if "birdeye_unauthorized" in str(exc):
                     raise
+                if isinstance(exc, _BirdeyeNonRetryableError):
+                    raise
             if attempt < max_attempts:
                 time.sleep(backoff * attempt)
         raise RuntimeError(f"Birdeye request failed after retries for {path}: {last_exc}")
+
+    def credits_usage(self) -> dict[str, Any]:
+        """GET /utils/v1/credits — current-cycle API credit usage (diagnostic / metering)."""
+        return self._request("GET", "/utils/v1/credits", params=None)
 
     @staticmethod
     def _data(payload: dict[str, Any]) -> Any:
@@ -142,19 +248,27 @@ class BirdeyeClient:
         security = self.token_security(address)
         holders = self.token_holders(address)
         exit_liquidity: dict[str, Any] = {}
+        # Proven by direct probe: `/defi/v3/token/exit-liquidity` returns 400 "Chain solana not supported"
+        # on Solana for our integration. Skip entirely to avoid CU waste and retry amplification.
+        chain = str(self._session.headers.get("x-chain") or "").strip().lower()
         exit_liquidity_available = True
         birdeye_exit_liquidity_supported = True
         exit_liquidity_reason = None
-        try:
-            exit_liquidity = self.token_exit_liquidity(address)
-        except Exception as exc:
-            message = str(exc).lower()
-            if "chain solana not supported" in message or "chain not supported" in message:
-                exit_liquidity_available = False
-                birdeye_exit_liquidity_supported = False
-                exit_liquidity_reason = BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
-            else:
-                raise
+        if chain == "solana":
+            exit_liquidity_available = False
+            birdeye_exit_liquidity_supported = False
+            exit_liquidity_reason = BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
+        else:
+            try:
+                exit_liquidity = self.token_exit_liquidity(address)
+            except Exception as exc:
+                message = str(exc).lower()
+                if "chain solana not supported" in message or "chain not supported" in message:
+                    exit_liquidity_available = False
+                    birdeye_exit_liquidity_supported = False
+                    exit_liquidity_reason = BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
+                else:
+                    raise
         creation = self.token_creation_info(address)
         age_hours, age_source, created_at_raw = _extract_age_info(creation)
 
