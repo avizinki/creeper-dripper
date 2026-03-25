@@ -19,7 +19,6 @@ from creeper_dripper.models import TokenCandidate
 from creeper_dripper.utils import clamp
 
 MAX_DISCOVERY_SELL_IMPACT_BPS = 200.0
-MAX_DISCOVERY_AGE_HOURS = 36.0
 
 
 def score_candidate(candidate: TokenCandidate, settings: Settings) -> TokenCandidate:
@@ -136,7 +135,7 @@ def rejection_reasons(candidate: TokenCandidate, settings: Settings, *, include_
         if candidate.jupiter_buy_price_impact_bps is not None and candidate.jupiter_buy_price_impact_bps > settings.max_acceptable_price_impact_bps:
             reasons.append(REJECT_HIGH_BUY_IMPACT)
     if candidate.age_hours is not None and (
-        candidate.age_hours > settings.max_token_age_hours or candidate.age_hours > MAX_DISCOVERY_AGE_HOURS
+        candidate.age_hours > settings.max_token_age_hours
     ):
         reasons.append(REJECT_TOKEN_TOO_OLD)
     return reasons
