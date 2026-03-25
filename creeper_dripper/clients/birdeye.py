@@ -31,6 +31,7 @@ class BirdeyeClient:
         *,
         audit_jsonl_path: Path | str | None = None,
     ) -> None:
+        self._chain = str(chain or "").strip().lower()
         self._session = requests.Session()
         self._session.headers.update({
             "Accept": "application/json",
@@ -250,14 +251,14 @@ class BirdeyeClient:
         exit_liquidity: dict[str, Any] = {}
         # Proven by direct probe: `/defi/v3/token/exit-liquidity` returns 400 "Chain solana not supported"
         # on Solana for our integration. Skip entirely to avoid CU waste and retry amplification.
-        chain = str(self._session.headers.get("x-chain") or "").strip().lower()
+        chain = self._chain
         exit_liquidity_available = True
         birdeye_exit_liquidity_supported = True
         exit_liquidity_reason = None
         if chain == "solana":
             exit_liquidity_available = False
             birdeye_exit_liquidity_supported = False
-            exit_liquidity_reason = BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
+            exit_liquidity_reason = "birdeye_exit_liquidity_skipped_unsupported_chain"
         else:
             try:
                 exit_liquidity = self.token_exit_liquidity(address)

@@ -19,14 +19,39 @@ def _settings(monkeypatch, require_exit: bool):
 
 def test_birdeye_unsupported_exit_liquidity_does_not_fail_build(monkeypatch):
     client = BirdeyeClient("x", min_interval_s=0.0)
+    def _boom(_address: str):
+        raise AssertionError("token_exit_liquidity must not be called on Solana path")
+
     monkeypatch.setattr(client, "token_overview", lambda address: {"decimals": 6, "price": 1.0, "liquidity": 200000, "v24hUSD": 300000, "buy1h": 10, "sell1h": 5})
     monkeypatch.setattr(client, "token_security", lambda address: {})
     monkeypatch.setattr(client, "token_holders", lambda address: {})
     monkeypatch.setattr(client, "token_creation_info", lambda address: {})
+    monkeypatch.setattr(client, "token_exit_liquidity", _boom)
     c = client.build_candidate({"address": "mint1", "symbol": "TOK"})
     assert c.address == "mint1"
     assert c.exit_liquidity_available is False
-    assert c.exit_liquidity_reason == BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN
+    assert c.exit_liquidity_reason == "birdeye_exit_liquidity_skipped_unsupported_chain"
+
+
+def test_solana_exit_liquidity_skipped_before_http_call(monkeypatch):
+    client = BirdeyeClient("x", min_interval_s=0.0, chain="solana")
+    called = {"n": 0}
+
+    def _count_exit_liquidity(_address: str):
+        called["n"] += 1
+        return {}
+
+    monkeypatch.setattr(client, "token_exit_liquidity", _count_exit_liquidity)
+    monkeypatch.setattr(client, "token_overview", lambda address: {"decimals": 6, "price": 1.0, "liquidity": 200000, "v24hUSD": 300000, "buy1h": 10, "sell1h": 5})
+    monkeypatch.setattr(client, "token_security", lambda address: {})
+    monkeypatch.setattr(client, "token_holders", lambda address: {})
+    monkeypatch.setattr(client, "token_creation_info", lambda address: {})
+
+    c = client.build_candidate({"address": "mint1", "symbol": "TOK"})
+    assert called["n"] == 0
+    assert c.exit_liquidity_available is False
+    assert c.birdeye_exit_liquidity_supported is False
+    assert c.exit_liquidity_reason == "birdeye_exit_liquidity_skipped_unsupported_chain"
 
 
 def test_discovery_fallback_allows_candidate_when_exit_liquidity_unavailable(monkeypatch):
