@@ -137,9 +137,6 @@ def test_discovery_cadence_reuses_recent_results(monkeypatch, tmp_path):
     class DummyExecutor:
         jupiter = object()
 
-        def wallet_token_balance_atomic(self, _mint):
-            return None
-
         def transaction_status(self, _sig):
             return None
 
@@ -257,9 +254,6 @@ def test_discovery_reuse_does_not_block_held_position_marking(monkeypatch, tmp_p
                 route_ok=True,
                 raw={},
             )
-
-        def wallet_token_balance_atomic(self, _mint):
-            return None
 
         def transaction_status(self, _sig):
             return None

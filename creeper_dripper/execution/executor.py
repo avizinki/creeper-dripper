@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -325,13 +324,6 @@ class TradeExecutor:
                 ),
                 quote,
             )
-        pre_sol_lamports = self._wallet_native_sol_lamports_atomic()
-        pre_token = self._retry_wallet_token_balance(token_mint, label="pre_sell_optional", attempts=2, delay_s=0.15)
-        if pre_token is None:
-            LOGGER.info(
-                "sell_pre_wallet_unavailable mint=%s proceeding_with_jupiter_primary",
-                token_mint,
-            )
         try:
             signature, execute_raw = self.sign_and_execute_v2(order)
         except Exception as exc:
@@ -356,8 +348,6 @@ class TradeExecutor:
             order=order,
             signature=signature,
             execute_raw=execute_raw if isinstance(execute_raw, dict) else {},
-            pre_sol_lamports=pre_sol_lamports,
-            pre_token_atomic=pre_token,
         )
         if outcome == "unknown":
             self.events.emit("exit_failed", SETTLEMENT_UNCONFIRMED, token_mint=token_mint, error="sell_settlement_unconfirmed")
@@ -498,7 +488,7 @@ class TradeExecutor:
         signature: str,
         execute_raw: dict,
     ) -> tuple[str, int | None, dict]:
-        """Settlement priority: Jupiter /execute output → order outAmount → quote; wallet RPC = confirm/fallback only."""
+        """Settlement: Jupiter /execute output → order outAmount → quote probe. Jupiter is the sole truth."""
         order_out = self._extract_order_expected_out_atomic(order)
         ex_out = self._extract_execute_response_output_lamports(execute_raw)
         meta: dict[str, object] = {
@@ -520,54 +510,17 @@ class TradeExecutor:
         elif quote.out_amount_atomic is not None and quote.out_amount_atomic > 0:
             primary = int(quote.out_amount_atomic)
             primary_source = "quote_probe"
-
-        bal: int | None = None
-        for attempt in range(1, 4):
-            bal = self.wallet_token_balance_atomic(token.address)
-            if bal is not None:
-                qty_ui_str = "N/A"
-                if token.decimals is not None and token.decimals >= 0:
-                    try:
-                        qty_ui_str = str(bal / (10 ** int(token.decimals)))
-                    except (ValueError, OverflowError, ZeroDivisionError):
-                        qty_ui_str = "N/A"
-                LOGGER.info(
-                    "post_buy_wallet_confirm mint=%s attempt=%s wallet_atomic=%s parsed_qty_ui=%s primary=%s source=%s",
-                    token.address,
-                    attempt,
-                    bal,
-                    qty_ui_str,
-                    primary,
-                    primary_source,
-                )
-                break
-            if attempt < 3:
-                time.sleep(0.25)
-        meta["wallet_rpc_confirm_atomic"] = bal
         meta["primary_amount_atomic"] = primary
         meta["primary_source"] = primary_source
-
         if primary is not None and primary > 0:
-            if bal is not None and bal > 0:
-                slack = max(2, int(primary * 0.05))
-                if abs(bal - primary) > slack:
-                    meta["wallet_vs_primary_mismatch"] = True
-                    LOGGER.warning(
-                        "buy_settlement_wallet_vs_primary mint=%s primary=%s source=%s wallet=%s slack=%s",
-                        token.address,
-                        primary,
-                        primary_source,
-                        bal,
-                        slack,
-                    )
+            LOGGER.info(
+                "buy_execution_settled_jupiter mint=%s primary=%s source=%s signature=%s",
+                token.address,
+                primary,
+                primary_source,
+                signature,
+            )
             return "success", primary, meta
-
-        if bal is not None and bal > 0:
-            meta["primary_source"] = "wallet_rpc_fallback"
-            meta["used_wallet_fallback"] = True
-            return "success", bal, meta
-
-        meta["provisional_quote_atomic"] = quote.out_amount_atomic
         return "unknown", None, meta
 
     def _settle_sell_after_execute(
@@ -579,13 +532,10 @@ class TradeExecutor:
         order: dict,
         signature: str,
         execute_raw: dict,
-        pre_sol_lamports: int | None,
-        pre_token_atomic: int | None,
     ) -> tuple[str, int | None, int | None, dict]:
-        """Settlement priority: Jupiter /execute input → order in → requested size; wallet delta = confirmation only."""
+        """Settlement: Jupiter /execute input → order in → requested size. Jupiter is the sole truth."""
         jup_in = self._extract_execute_response_input_atomic(execute_raw)
         order_in = self._extract_order_in_atomic(order)
-        order_out_sol = self._extract_order_expected_out_atomic(order)
         jup_out_lamports = self._extract_execute_response_output_lamports(execute_raw)
         meta: dict[str, object] = {
             "mint": token_mint,
@@ -594,13 +544,9 @@ class TradeExecutor:
             "jupiter_execute_in_atomic": jup_in,
             "jupiter_execute_out_lamports": jup_out_lamports,
             "order_in_atomic": order_in,
-            "order_out_sol_hint": order_out_sol,
             "quote_in_atomic": quote.input_amount_atomic,
             "quote_out_sol_atomic": quote.out_amount_atomic,
-            "pre_wallet_token_atomic": pre_token_atomic,
         }
-        sold_primary: int
-        source: str
         if jup_in is not None and jup_in > 0:
             sold_primary = min(int(jup_in), requested_qty)
             source = "jupiter_execute"
@@ -612,121 +558,20 @@ class TradeExecutor:
             source = "requested_order_amount"
         meta["sold_atomic_settled"] = sold_primary
         meta["sold_atomic_source"] = source
-
-        out_lamports: int | None = jup_out_lamports
-        proceeds_source = "jupiter_execute" if out_lamports is not None else "unavailable"
-        if out_lamports is None and pre_sol_lamports is not None:
-            post_sol = self._wallet_native_sol_lamports_atomic()
-            meta["post_sol_lamports"] = post_sol
-            if post_sol is not None:
-                delta = int(post_sol - pre_sol_lamports)
-                out_lamports = max(0, delta)
-                proceeds_source = "sol_balance_delta" if delta >= 0 else "sol_balance_delta_clamped"
-                if delta < 0:
-                    LOGGER.warning(
-                        "sell_settlement_negative_sol_delta mint=%s lamports=%s clamped_proceeds",
-                        token_mint,
-                        delta,
-                    )
-        meta["out_lamports"] = out_lamports
-        meta["proceeds_source"] = proceeds_source
-        if out_lamports is None:
+        meta["out_lamports"] = jup_out_lamports
+        meta["proceeds_source"] = "jupiter_execute" if jup_out_lamports is not None else "unavailable"
+        if jup_out_lamports is None:
             meta["proceeds_note"] = EXEC_SELL_PROCEEDS_UNAVAILABLE
-
-        post_token: int | None = None
-        attempts = 6
-        delay_s = 0.5
-        for attempt in range(1, attempts + 1):
-            post_token = self.wallet_token_balance_atomic(token_mint)
-            LOGGER.info(
-                "post_sell_wallet_confirm mint=%s attempt=%s/%s wallet_token_atomic=%s pre_wallet=%s jupiter_sold=%s",
-                token_mint,
-                attempt,
-                attempts,
-                post_token,
-                pre_token_atomic,
-                sold_primary,
-            )
-            if post_token is not None:
-                meta["wallet_post_token_atomic"] = post_token
-                meta["wallet_post_attempt"] = attempt
-                break
-            if attempt < attempts:
-                time.sleep(delay_s)
-        if post_token is None:
-            meta["wallet_post_unavailable"] = True
-            LOGGER.info(
-                "sell_settlement_no_wallet_post mint=%s trusting_jupiter_primary sold=%s",
-                token_mint,
-                sold_primary,
-            )
-            return "success", sold_primary, out_lamports, meta
-
-        if pre_token_atomic is not None:
-            if post_token > pre_token_atomic:
-                meta["wallet_confirmation"] = "inconsistent_post_gt_pre"
-                return "unknown", sold_primary, out_lamports, meta
-            sold_observed = pre_token_atomic - post_token
-            meta["wallet_sold_observed"] = sold_observed
-            tol = max(1, int(sold_primary * 0.02))
-            if sold_primary > 0 and sold_observed <= 0:
-                meta["wallet_confirmation"] = "no_decrease_while_jupiter_reports_sell"
-                return "unknown", sold_primary, out_lamports, meta
-            if abs(sold_observed - sold_primary) > tol:
-                meta["wallet_confirmation"] = "sold_mismatch_vs_jupiter"
-                meta["wallet_tolerance"] = tol
-                return "unknown", sold_primary, out_lamports, meta
-            meta["wallet_confirmation"] = "aligned"
-        else:
-            meta["wallet_confirmation"] = "post_only_no_pre_skip_delta_check"
-
-        return "success", sold_primary, out_lamports, meta
-
-    def _retry_wallet_token_balance(self, mint: str, *, label: str, attempts: int, delay_s: float) -> int | None:
-        last: int | None = None
-        for attempt in range(1, attempts + 1):
-            bal = self.wallet_token_balance_atomic(mint)
-            if bal is not None:
-                last = bal
-                LOGGER.info(
-                    "sell_wallet_read mint=%s phase=%s attempt=%s/%s wallet_token_atomic=%s",
-                    mint,
-                    label,
-                    attempt,
-                    attempts,
-                    bal,
-                )
-                return bal
-            LOGGER.warning("sell_wallet_read mint=%s phase=%s attempt=%s/%s rpc_none", mint, label, attempt, attempts)
-            if attempt < attempts:
-                time.sleep(delay_s)
-        return last
-
-    def _wallet_native_sol_lamports_atomic(self) -> int | None:
-        if not self.owner_address:
-            return None
-        try:
-            response = self._rpc.post(
-                self._rpc_url,
-                json={
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getBalance",
-                    "params": [self.owner_address],
-                },
-                timeout=20,
-            )
-            response.raise_for_status()
-            body = response.json()
-            if body.get("error"):
-                return None
-            val = body.get("result")
-            if val is None:
-                return None
-            return int(val)
-        except Exception as exc:
-            LOGGER.warning("getBalance failed (sell proceeds hint): %s", exc)
-            return None
+        meta["settlement_confirmed"] = True
+        LOGGER.info(
+            "sell_execution_settled_jupiter mint=%s sold=%s source=%s out_lamports=%s signature=%s",
+            token_mint,
+            sold_primary,
+            source,
+            jup_out_lamports,
+            signature,
+        )
+        return "success", sold_primary, jup_out_lamports, meta
 
     @staticmethod
     def _extract_execute_response_output_lamports(raw: dict) -> int | None:
@@ -902,43 +747,6 @@ class TradeExecutor:
             LOGGER.error("tx failure artifact written: %s", path)
         except Exception as artifact_exc:
             LOGGER.error("failed to write tx failure artifact: %s", artifact_exc)
-
-    def wallet_token_balance_atomic(self, token_mint: str) -> int | None:
-        if not self.owner_address:
-            return None
-        try:
-            response = self._rpc.post(
-                self._rpc_url,
-                json={
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getTokenAccountsByOwner",
-                    "params": [
-                        self.owner_address,
-                        {"mint": token_mint},
-                        {"encoding": "jsonParsed"},
-                    ],
-                },
-                timeout=20,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            values = ((payload.get("result") or {}).get("value") or [])
-            total = 0
-            for item in values:
-                amount = (
-                    (((item.get("account") or {}).get("data") or {}).get("parsed") or {})
-                    .get("info", {})
-                    .get("tokenAmount", {})
-                    .get("amount")
-                )
-                if amount is None:
-                    continue
-                total += int(str(amount))
-            return total
-        except Exception as exc:
-            LOGGER.warning("wallet balance fetch failed for %s: %s", token_mint, exc)
-            return None
 
     def transaction_status(self, signature: str) -> str | None:
         if not signature:

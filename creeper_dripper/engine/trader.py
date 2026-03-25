@@ -990,43 +990,14 @@ class CreeperDripper:
         return True
 
     def _retry_entry_settlement_reconciliation(self, position: PositionState, decisions: list[TradeDecision], now: str) -> None:
-        """Resolve ENTRY_RECONCILE_PENDING using wallet RPC as secondary truth (never zero out blindly)."""
-        bal = self.executor.wallet_token_balance_atomic(position.token_mint)
-        if bal is not None and bal > 0:
-            denom = 10 ** max(position.decimals, 0)
-            position.remaining_qty_atomic = bal
-            position.remaining_qty_ui = (bal / denom) if denom else float(bal)
-            if position.entry_sol > 0.0 and position.remaining_qty_ui > 0.0:
-                position.entry_mark_sol_per_token = position.entry_sol / max(position.remaining_qty_ui, 1e-30)
-                if not is_valid_sol_mark(position.last_mark_sol_per_token):
-                    position.last_mark_sol_per_token = position.entry_mark_sol_per_token
-                if not is_valid_sol_mark(position.peak_mark_sol_per_token):
-                    position.peak_mark_sol_per_token = position.entry_mark_sol_per_token
-                else:
-                    position.peak_mark_sol_per_token = max(
-                        float(position.peak_mark_sol_per_token),
-                        float(position.entry_mark_sol_per_token),
-                    )
-            position.status = "OPEN"
-            position.reconcile_context = None
-            position.updated_at = now
-            decisions.append(
-                TradeDecision(
-                    action="RECOVERY_CORRECTION",
-                    token_mint=position.token_mint,
-                    symbol=position.symbol,
-                    reason="entry_settlement_resolved_wallet",
-                    qty_atomic=bal,
-                    metadata={"classification": "entry_settlement_resolved_wallet"},
-                )
-            )
-            return
-        if bal == 0:
-            LOGGER.warning(
-                "entry_reconcile_still_zero mint=%s position_id=%s (keeping RECONCILE_PENDING)",
-                position.token_mint,
-                position.position_id or position.token_mint,
-            )
+        """Entry reconciliation: Jupiter is truth — no wallet RPC. Position stays RECONCILE_PENDING for manual review."""
+        LOGGER.critical(
+            "entry_reconcile_no_rpc mint=%s position_id=%s "
+            "— buy settlement was unknown; Jupiter-only mode cannot auto-resolve. "
+            "Position remains RECONCILE_PENDING for manual intervention.",
+            position.token_mint,
+            position.position_id or position.token_mint,
+        )
 
     def _retry_pending_exit(self, position: PositionState, decisions: list[TradeDecision], now: str) -> None:
         if position.exit_retry_count >= MAX_EXIT_RETRIES:
@@ -1078,31 +1049,11 @@ class CreeperDripper:
             )
         else:
             requested_qty = min(position.pending_exit_qty_atomic, position.remaining_qty_atomic)
-        wallet_balance = self.executor.wallet_token_balance_atomic(position.token_mint)
-        if wallet_balance is not None and wallet_balance < requested_qty:
-            LOGGER.warning("sell balance discrepancy position_id=%s mint=%s expected=%s wallet=%s", position.position_id or position.token_mint, position.token_mint, requested_qty, wallet_balance)
-            requested_qty = max(0, wallet_balance)
-            if not position.drip_exit_active:
-                # Drip: pending_exit_qty_atomic holds the total drip target; do not clobber it.
-                position.pending_exit_qty_atomic = requested_qty
-            decisions.append(TradeDecision(action="SELL_BALANCE_ADJUSTED", token_mint=position.token_mint, symbol=position.symbol, reason="wallet_balance_below_expected", qty_atomic=requested_qty))
+        # Jupiter is truth — no pre-sell wallet read. Proceed with internally tracked qty.
         if requested_qty <= 0:
             _clear_drip_state(position)
-            position.status = POSITION_RECONCILE_PENDING
-            position.reconcile_context = "exit"
-            position.exit_retry_count += 1
-            position.last_exit_attempt_at = now
-            position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
-            decisions.append(
-                TradeDecision(
-                    action="SELL_SETTLEMENT_PENDING",
-                    token_mint=position.token_mint,
-                    symbol=position.symbol,
-                    reason="wallet_balance_zero_reconcile_pending",
-                    qty_atomic=position.remaining_qty_atomic,
-                    metadata={"classification": SETTLEMENT_UNCONFIRMED},
-                )
-            )
+            position.status = "EXIT_BLOCKED"
+            decisions.append(TradeDecision(action="SELL_BLOCKED", token_mint=position.token_mint, symbol=position.symbol, reason="remaining_qty_zero"))
             return
 
         result, quote = self.executor.sell(position.token_mint, requested_qty)

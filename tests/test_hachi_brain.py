@@ -147,9 +147,6 @@ class DummyExecutor:
         self.sell_calls: list[tuple[str, int]] = []
         self.quote_calls: list[tuple[str, int]] = []
 
-    def wallet_token_balance_atomic(self, _m):
-        return self.wallet
-
     def sell(self, mint, qty):
         self.sell_calls.append((mint, qty))
         r = self.sell_results[min(self._idx, len(self.sell_results) - 1)]

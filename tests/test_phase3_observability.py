@@ -63,9 +63,6 @@ class DummyExecutor:
     def __init__(self):
         self.jupiter = object()
 
-    def wallet_token_balance_atomic(self, _mint):
-        return 100
-
     def transaction_status(self, _sig):
         return None
 

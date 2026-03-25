@@ -102,19 +102,14 @@ class DummyExecutor:
         self,
         sell_results: list[ExecutionResult],
         *,
-        wallet_balance: int = 1000,
         quote_out_per_atomic: float = 1.0,
     ) -> None:
         self.sell_results = sell_results
-        self.wallet_balance = wallet_balance
         self.quote_out_per_atomic = quote_out_per_atomic
         self.jupiter = object()
         self._idx = 0
         self.sell_calls: list[tuple[str, int]] = []
         self.quote_calls: list[tuple[str, int]] = []
-
-    def wallet_token_balance_atomic(self, _mint: str) -> int:
-        return self.wallet_balance
 
     def sell(self, token_mint: str, amount_atomic: int):
         self.sell_calls.append((token_mint, amount_atomic))
@@ -168,7 +163,7 @@ def test_take_profit_starts_drip(monkeypatch, tmp_path):
     portfolio.open_positions[_VALID_MINT] = pos
 
     # First chunk: 10% of 1000 = 100 atoms
-    executor = DummyExecutor([_success_result(requested=100, sold=100)], wallet_balance=1000)
+    executor = DummyExecutor([_success_result(requested=100, sold=100)])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions = []
@@ -195,7 +190,7 @@ def test_hard_exit_bypasses_drip(monkeypatch, tmp_path):
     pos = _position(remaining=1000)
     portfolio.open_positions[_VALID_MINT] = pos
 
-    executor = DummyExecutor([_success_result(requested=1000, sold=1000)], wallet_balance=1000)
+    executor = DummyExecutor([_success_result(requested=1000, sold=1000)])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions = []
@@ -223,7 +218,7 @@ def test_drip_chunk_waiting_gate(monkeypatch, tmp_path):
     pos.drip_next_chunk_at = future
     portfolio.open_positions[_VALID_MINT] = pos
 
-    executor = DummyExecutor([], wallet_balance=1000)
+    executor = DummyExecutor([])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions = []
@@ -250,7 +245,7 @@ def test_drip_chunk_decrement_and_resume(monkeypatch, tmp_path):
     # chunk sizes: 10% of 1000=100, then 10% of 900=90
     chunk1 = _success_result(requested=100, sold=100, signature="s1")
     chunk2 = _success_result(requested=90, sold=90, signature="s2")
-    executor = DummyExecutor([chunk1, chunk2], wallet_balance=1000)
+    executor = DummyExecutor([chunk1, chunk2])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     # First chunk
@@ -280,7 +275,7 @@ def test_hard_exit_interrupts_drip(monkeypatch, tmp_path):
 
     chunk1 = _success_result(requested=250, sold=250, signature="s1")
     full_exit = _success_result(requested=750, sold=750, signature="s_full")
-    executor = DummyExecutor([chunk1, full_exit], wallet_balance=1000)
+    executor = DummyExecutor([chunk1, full_exit])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     # Start a drip exit (TP)
@@ -315,7 +310,7 @@ def test_reconcile_clears_drip_state(monkeypatch, tmp_path):
         diagnostic_code=SETTLEMENT_UNCONFIRMED,
         diagnostic_metadata={"post_sell_settlement": None},
     )
-    executor = DummyExecutor([unknown_result], wallet_balance=1000)
+    executor = DummyExecutor([unknown_result])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions: list = []

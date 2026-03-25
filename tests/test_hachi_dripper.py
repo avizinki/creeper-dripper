@@ -113,13 +113,11 @@ class DummyExecutor:
         self,
         sell_results: list[ExecutionResult],
         *,
-        wallet_balance: int = 1000,
         quote_out_per_atomic: float = 1.0,
         quote_impact_bps: float = 50.0,
         quote_route_ok: bool = True,
     ) -> None:
         self.sell_results = sell_results
-        self.wallet_balance = wallet_balance
         self.quote_out_per_atomic = quote_out_per_atomic
         self.quote_impact_bps = quote_impact_bps
         self.quote_route_ok = quote_route_ok
@@ -127,9 +125,6 @@ class DummyExecutor:
         self._idx = 0
         self.sell_calls: list[tuple[str, int]] = []
         self.quote_calls: list[tuple[str, int]] = []
-
-    def wallet_token_balance_atomic(self, _mint: str) -> int:
-        return self.wallet_balance
 
     def sell(self, token_mint: str, amount_atomic: int):
         self.sell_calls.append((token_mint, amount_atomic))
@@ -184,7 +179,6 @@ def test_hachi_sells_before_25pct_tp_threshold(monkeypatch, tmp_path):
     # chunk = 50% of 1000 = 500 atoms (DRIP_CHUNK_PCTS has 0.50 → 500 is the largest viable)
     executor = DummyExecutor(
         [_success_result(requested=500, sold=500)],
-        wallet_balance=1000,
     )
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
@@ -213,7 +207,7 @@ def test_hachi_sells_at_zero_pct_pnl(monkeypatch, tmp_path):
     pos = _position(remaining=1000, pnl_pct=0.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
-    executor = DummyExecutor([_success_result(requested=500, sold=500)], wallet_balance=1000)
+    executor = DummyExecutor([_success_result(requested=500, sold=500)])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions: list[TradeDecision] = []
@@ -241,7 +235,6 @@ def test_hachi_chunk_driven_by_jupiter_quote(monkeypatch, tmp_path):
     # Case 1: good route → should sell
     executor = DummyExecutor(
         [_success_result(requested=500, sold=500)],
-        wallet_balance=1000,
         quote_route_ok=True,
     )
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
@@ -261,7 +254,7 @@ def test_hachi_no_route_emits_dripper_wait(monkeypatch, tmp_path):
     pos = _position(remaining=1000, pnl_pct=10.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
-    executor = DummyExecutor([], wallet_balance=1000, quote_route_ok=False)
+    executor = DummyExecutor([], quote_route_ok=False)
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions: list[TradeDecision] = []
@@ -281,7 +274,7 @@ def test_hachi_high_impact_quote_emits_dripper_wait(monkeypatch, tmp_path):
     portfolio.open_positions[_VALID_MINT] = pos
 
     # Quote returns impact_bps=1000, which exceeds max_impact=300
-    executor = DummyExecutor([], wallet_balance=1000, quote_route_ok=True, quote_impact_bps=1000.0)
+    executor = DummyExecutor([], quote_route_ok=True, quote_impact_bps=1000.0)
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions: list[TradeDecision] = []
@@ -314,7 +307,7 @@ def test_hachi_stop_loss_overrides_dripper_timing_gate(monkeypatch, tmp_path):
     pos.drip_chunks_done = 1
 
     executor = DummyExecutor(
-        [_success_result(requested=1000, sold=1000)], wallet_balance=1000
+        [_success_result(requested=1000, sold=1000)]
     )
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
@@ -371,7 +364,7 @@ def test_hachi_trailing_stop_overrides_dripper(monkeypatch, tmp_path):
     future = (datetime.fromisoformat(_NOW) + timedelta(minutes=2)).isoformat()
     pos.drip_next_chunk_at = future
 
-    executor = DummyExecutor([_success_result(requested=1000, sold=1000)], wallet_balance=1000)
+    executor = DummyExecutor([_success_result(requested=1000, sold=1000)])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions: list[TradeDecision] = []
@@ -398,7 +391,7 @@ def test_hachi_sol_accounting_after_chunk(monkeypatch, tmp_path):
     portfolio.open_positions[_VALID_MINT] = pos
 
     # output_amount = 1_000_000_000 lamports = 1.0 SOL
-    executor = DummyExecutor([_success_result(requested=500, sold=500)], wallet_balance=1000)
+    executor = DummyExecutor([_success_result(requested=500, sold=500)])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions: list[TradeDecision] = []
@@ -422,7 +415,7 @@ def test_hachi_remaining_qty_never_goes_negative(monkeypatch, tmp_path):
     portfolio.open_positions[_VALID_MINT] = pos
 
     # Executor sells all 100 (the 50% chunk = 50, but sell returns sold=100 due to rounding)
-    executor = DummyExecutor([_success_result(requested=50, sold=100)], wallet_balance=100)
+    executor = DummyExecutor([_success_result(requested=50, sold=100)])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions: list[TradeDecision] = []
@@ -449,7 +442,7 @@ def test_hachi_repeated_chunks_drain_position(monkeypatch, tmp_path):
         _success_result(requested=90, sold=90, signature="s2"),
         _success_result(requested=81, sold=81, signature="s3"),
     ]
-    executor = DummyExecutor(results, wallet_balance=1000)
+    executor = DummyExecutor(results)
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     # Chunk 1
@@ -488,7 +481,7 @@ def test_hachi_timing_gate_prevents_rapid_resell(monkeypatch, tmp_path):
     pos = _position(remaining=1000, pnl_pct=5.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
-    executor = DummyExecutor([_success_result(requested=500, sold=500)], wallet_balance=1000)
+    executor = DummyExecutor([_success_result(requested=500, sold=500)])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     # First call: chunk executes
@@ -516,7 +509,7 @@ def test_legacy_tp_ladder_used_when_hachi_disabled(monkeypatch, tmp_path):
     pos = _position(remaining=1000, pnl_pct=5.0)  # below 25% TP → no sell
     portfolio.open_positions[_VALID_MINT] = pos
 
-    executor = DummyExecutor([], wallet_balance=1000)
+    executor = DummyExecutor([])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
     decisions: list[TradeDecision] = []

@@ -57,9 +57,6 @@ class DummyBirdeye:
 class DummyExec:
     jupiter = object()
 
-    def wallet_token_balance_atomic(self, _m):
-        return 1_000_000
-
     def sell(self, *_a, **_k):
         return ExecutionResult(status="skipped", requested_amount=1, diagnostic_code="dry_run"), ProbeQuote(
             input_amount_atomic=1, out_amount_atomic=None, price_impact_bps=None, route_ok=False, raw={}

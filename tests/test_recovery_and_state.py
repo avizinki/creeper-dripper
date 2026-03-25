@@ -4,7 +4,7 @@ import json
 
 from creeper_dripper.config import load_settings
 from creeper_dripper.engine.trader import CreeperDripper
-from creeper_dripper.errors import RECOVERY_WALLET_GT_STATE
+from creeper_dripper.errors import EXIT_RECONCILED_CLOSED, EXIT_UNKNOWN_PENDING_RECONCILE
 from creeper_dripper.models import ExecutionResult, PortfolioState, PositionState, ProbeQuote
 from creeper_dripper.storage.state import load_portfolio, new_portfolio, save_portfolio
 from creeper_dripper.utils import utc_now_iso
@@ -36,16 +36,13 @@ class DummyBirdeye:
 
 
 class DummyExecutor:
-    def __init__(self, balances: dict[str, int], sell_result: ExecutionResult | None = None) -> None:
-        self.balances = balances
+    def __init__(self, tx_status: str | None = None, sell_result: ExecutionResult | None = None) -> None:
+        self._tx_status = tx_status
         self.sell_result = sell_result or ExecutionResult(status="unknown", requested_amount=1, executed_amount=None, output_amount=None, error="timeout")
         self.jupiter = object()
 
-    def wallet_token_balance_atomic(self, token_mint: str) -> int | None:
-        return self.balances.get(token_mint)
-
     def transaction_status(self, _signature: str) -> str | None:
-        return None
+        return self._tx_status
 
     def sell(self, _token_mint: str, _amount_atomic: int):
         return self.sell_result, ProbeQuote(input_amount_atomic=1, out_amount_atomic=500, price_impact_bps=100.0, route_ok=True, raw={})
@@ -84,28 +81,54 @@ def _position(now: str) -> PositionState:
     )
 
 
-def test_startup_recovery_reduces_qty_to_wallet(monkeypatch, tmp_path):
+def test_startup_recovery_closes_exit_pending_when_tx_confirmed(monkeypatch, tmp_path):
+    """EXIT_PENDING position with confirmed tx is closed on startup — Jupiter/tx truth only."""
     settings = _settings(monkeypatch, tmp_path)
     now = utc_now_iso()
     portfolio: PortfolioState = new_portfolio(5.0)
     pos = _position(now)
+    pos.status = "EXIT_PENDING"
+    pos.pending_exit_qty_atomic = 100
+    pos.pending_exit_reason = "stop_loss"
+    pos.pending_exit_signature = "confirmed-sig"
     portfolio.open_positions[pos.token_mint] = pos
-    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor({_VALID_TEST_MINT: 60}), portfolio)
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status="success"), portfolio)
     decisions = engine.run_startup_recovery()
-    assert portfolio.open_positions[_VALID_TEST_MINT].remaining_qty_atomic == 60
-    assert any(d.reason == "recovery_qty_reduced_to_wallet" for d in decisions)
+    assert pos.token_mint not in portfolio.open_positions
+    assert any(d.reason == EXIT_RECONCILED_CLOSED for d in decisions)
 
 
-def test_wallet_balance_greater_than_state_logs_discrepancy(monkeypatch, tmp_path):
+def test_startup_recovery_requeues_exit_pending_when_tx_reverted(monkeypatch, tmp_path):
+    """EXIT_PENDING position with failed tx is re-queued for retry — no wallet read."""
+    settings = _settings(monkeypatch, tmp_path)
+    now = utc_now_iso()
+    portfolio: PortfolioState = new_portfolio(5.0)
+    pos = _position(now)
+    pos.status = "EXIT_PENDING"
+    pos.pending_exit_qty_atomic = 100
+    pos.pending_exit_reason = "stop_loss"
+    pos.pending_exit_signature = "failed-sig"
+    portfolio.open_positions[pos.token_mint] = pos
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status="failed"), portfolio)
+    decisions = engine.run_startup_recovery()
+    # Position is re-queued as EXIT_PENDING (signature cleared for retry).
+    assert _VALID_TEST_MINT in portfolio.open_positions
+    assert portfolio.open_positions[_VALID_TEST_MINT].status == "EXIT_PENDING"
+    assert portfolio.open_positions[_VALID_TEST_MINT].pending_exit_signature is None
+    assert any(d.reason == EXIT_UNKNOWN_PENDING_RECONCILE for d in decisions)
+
+
+def test_startup_recovery_leaves_open_positions_unchanged(monkeypatch, tmp_path):
+    """OPEN positions are not touched by startup recovery."""
     settings = _settings(monkeypatch, tmp_path)
     now = utc_now_iso()
     portfolio: PortfolioState = new_portfolio(5.0)
     pos = _position(now)
     portfolio.open_positions[pos.token_mint] = pos
-    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor({_VALID_TEST_MINT: 140}), portfolio)
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status=None), portfolio)
     decisions = engine.run_startup_recovery()
     assert portfolio.open_positions[_VALID_TEST_MINT].remaining_qty_atomic == 100
-    assert any(d.reason == RECOVERY_WALLET_GT_STATE for d in decisions)
+    assert decisions == []
 
 
 def test_corrupted_state_file_recovery(monkeypatch, tmp_path):
@@ -222,26 +245,29 @@ def test_opened_today_count_resets_on_new_day(monkeypatch, tmp_path):
     portfolio: PortfolioState = new_portfolio(5.0)
     portfolio.opened_today_count = 3
     portfolio.opened_today_date = "1999-01-01"
-    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor({_VALID_TEST_MINT: 100}), portfolio)
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status=None), portfolio)
     engine.run_startup_recovery()
     assert portfolio.opened_today_count == 0
     assert portfolio.opened_today_date == now[:10]
 
 
-def test_unknown_exit_reconciled_on_startup(monkeypatch, tmp_path):
+def test_exit_pending_with_no_signature_left_unchanged(monkeypatch, tmp_path):
+    """EXIT_PENDING with no signature stays unchanged — will retry on next cycle."""
     settings = _settings(monkeypatch, tmp_path)
     now = utc_now_iso()
     portfolio: PortfolioState = new_portfolio(5.0)
     pos = _position(now)
     pos.status = "EXIT_PENDING"
-    pos.pending_exit_qty_atomic = 50
-    pos.pending_exit_reason = "take_profit_25"
-    pos.pending_exit_signature = "sig-1"
+    pos.pending_exit_qty_atomic = 100
+    pos.pending_exit_reason = "stop_loss"
+    pos.pending_exit_signature = None
     portfolio.open_positions[pos.token_mint] = pos
-    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor({_VALID_TEST_MINT: 20}), portfolio)
+    engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(tx_status="success"), portfolio)
     decisions = engine.run_startup_recovery()
-    assert portfolio.open_positions[_VALID_TEST_MINT].status == "PARTIAL"
-    assert any(d.reason == "exit_reconciled_partial" for d in decisions)
+    # No signature → cannot check tx_status → leave as EXIT_PENDING.
+    assert _VALID_TEST_MINT in portfolio.open_positions
+    assert portfolio.open_positions[_VALID_TEST_MINT].status == "EXIT_PENDING"
+    assert decisions == []
 
 
 def test_realized_proceeds_not_from_quote_when_execution_missing(monkeypatch, tmp_path):
@@ -253,7 +279,7 @@ def test_realized_proceeds_not_from_quote_when_execution_missing(monkeypatch, tm
     engine = CreeperDripper(
         settings,
         DummyBirdeye(),
-        DummyExecutor({_VALID_TEST_MINT: 100}, sell_result=_sell_success_reconciled(40, 40, None)),
+        DummyExecutor(sell_result=_sell_success_reconciled(40, 40, None)),
         portfolio,
     )
     decisions = []

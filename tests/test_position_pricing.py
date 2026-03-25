@@ -106,9 +106,6 @@ def test_trader_exit_rules_run_using_last_known_mark_when_valuation_stale(monkey
     class FakeExecutor:
         jupiter = object()
 
-        def wallet_token_balance_atomic(self, _mint):
-            return 1_000_000
-
         def sell(self, _mint, _qty):
             from creeper_dripper.models import ExecutionResult, ProbeQuote
             return (

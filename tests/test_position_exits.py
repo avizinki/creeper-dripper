@@ -42,14 +42,10 @@ class DummyBirdeye:
 
 
 class DummyExecutor:
-    def __init__(self, sell_results: list[ExecutionResult], wallet_balance: int = 1_000_000) -> None:
+    def __init__(self, sell_results: list[ExecutionResult]) -> None:
         self.sell_results = sell_results
-        self.wallet_balance = wallet_balance
         self.jupiter = object()
         self._idx = 0
-
-    def wallet_token_balance_atomic(self, _token_mint: str) -> int:
-        return self.wallet_balance
 
     def sell(self, _token_mint: str, _amount_atomic: int):
         result = self.sell_results[min(self._idx, len(self.sell_results) - 1)]
@@ -279,7 +275,7 @@ def test_settlement_unconfirmed_unknown_not_exit_blocked(monkeypatch, tmp_path):
                 error="sell_settlement_unconfirmed",
                 signature="sig-u",
                 executed_amount=40,
-                diagnostic_metadata={"post_sell_settlement": {"wallet_confirmation": "sold_mismatch_vs_jupiter"}},
+                diagnostic_metadata={"post_sell_settlement": {"settlement_confirmed": False}},
             ),
         ]
     )
@@ -293,16 +289,16 @@ def test_settlement_unconfirmed_unknown_not_exit_blocked(monkeypatch, tmp_path):
     assert any(d.reason == "sell_settlement_unconfirmed" for d in decisions)
 
 
-def test_wallet_zero_does_not_force_exit_blocked_with_positive_state(monkeypatch, tmp_path):
+def test_exit_proceeds_with_internally_tracked_qty(monkeypatch, tmp_path):
+    """Jupiter-only: exit proceeds immediately using internally tracked qty, no wallet read."""
     now = utc_now_iso()
     settings = _settings(monkeypatch, tmp_path)
     portfolio: PortfolioState = new_portfolio(5.0)
     position = _position(now)
     portfolio.open_positions[position.token_mint] = position
-    executor = DummyExecutor([_sell_success_result(requested_amount=40, sold_atomic=40)], wallet_balance=0)
+    executor = DummyExecutor([_sell_success_result(requested_amount=40, sold_atomic=40)])
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
     decisions = []
     engine._start_exit(position, 40, "take_profit_25", decisions, now)
-    assert position.status == POSITION_RECONCILE_PENDING
-    assert position.remaining_qty_atomic == 100
-    assert any("wallet_balance_zero" in d.reason for d in decisions)
+    # No wallet check — sell proceeds immediately from internal state.
+    assert any(d.action == "SELL_ATTEMPT" for d in decisions)
