@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>creeper-dripper</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --text: #e6edf3;
+      --muted: #8b9bab;
+      --accent: #3fb950;
+      --warn: #d29922;
+      --danger: #f85149;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+    header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    h1 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+    #clock { color: var(--muted); font-size: 0.85rem; }
+    main { padding: 1rem 1.25rem 2rem; max-width: 1200px; margin: 0 auto; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    h2 {
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin: 0 0 0.75rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+    .stat {
+      padding: 0.5rem 0.65rem;
+      background: var(--bg);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .stat label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
+    .stat span { font-variant-numeric: tabular-nums; font-weight: 600; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 500; }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .pnl-pos { color: var(--accent); }
+    .pnl-neg { color: var(--danger); }
+    pre {
+      margin: 0;
+      font-size: 0.75rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .feed-item {
+      padding: 0.4rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.82rem;
+    }
+    .feed-item:last-child { border-bottom: none; }
+    .feed-type { color: var(--accent); font-weight: 500; }
+    .feed-ts { color: var(--muted); font-size: 0.75rem; }
+    .err {
+      color: var(--danger);
+      padding: 0.5rem;
+      border: 1px solid var(--danger);
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+    }
+    .cycle-block {
+      margin-bottom: 0.75rem;
+      padding: 0.5rem;
+      background: var(--bg);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .cycle-block.latest { border-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>creeper-dripper</h1>
+    <span id="clock"></span>
+  </header>
+  <main>
+    <div id="banner"></div>
+
+    <section>
+      <h2>Portfolio</h2>
+      <div class="grid" id="portfolio"></div>
+    </section>
+
+    <section>
+      <h2>Positions</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>PnL %</th>
+              <th>Status</th>
+              <th>hachi_drip_completed</th>
+              <th>drip_chunks_done</th>
+              <th>hachi_last_tp_level</th>
+            </tr>
+          </thead>
+          <tbody id="positions"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Events (last 50, filtered)</h2>
+      <div id="events"></div>
+    </section>
+
+    <section>
+      <h2>Cycle summary (last 10)</h2>
+      <div id="summaries"></div>
+    </section>
+  </main>
+  <script>
+    const REFRESH_MS = 2500;
+
+    function el(html) {
+      const t = document.createElement("template");
+      t.innerHTML = html.trim();
+      return t.content.firstChild;
+    }
+
+    function fmtPnL(v) {
+      if (v === null || v === undefined || Number.isNaN(Number(v))) return "N/A";
+      const n = Number(v);
+      const cls = n >= 0 ? "pnl-pos" : "pnl-neg";
+      return `<span class="${cls}">${n.toFixed(2)}%</span>`;
+    }
+
+    function fmt(v) {
+      if (v === null || v === undefined) return "N/A";
+      if (typeof v === "boolean") return v ? "true" : "false";
+      return String(v);
+    }
+
+    function setClock() {
+      document.getElementById("clock").textContent = new Date().toISOString();
+    }
+
+    async function tick() {
+      setClock();
+      const banner = document.getElementById("banner");
+      banner.innerHTML = "";
+
+      try {
+        const [stateRes, eventsRes, summaryRes] = await Promise.all([
+          fetch("/state"),
+          fetch("/events"),
+          fetch("/summary"),
+        ]);
+
+        if (!stateRes.ok) {
+          banner.appendChild(el(`<div class="err">GET /state failed: ${stateRes.status}</div>`));
+          return;
+        }
+        const state = await stateRes.json();
+
+        const positions = state.open_positions || {};
+        const list = Object.values(positions);
+        const partial = list.filter((p) => p.status === "PARTIAL").length;
+        const zombie = list.filter((p) => p.status === "ZOMBIE").length;
+        const cash = state.cash_sol;
+        const res = state.reserved_sol;
+        let deploy = null;
+        if (typeof cash === "number" && typeof res === "number") {
+          deploy = Math.max(0, cash - res);
+        }
+
+        document.getElementById("portfolio").innerHTML = [
+          ["open_positions", list.length],
+          ["partial_positions", partial],
+          ["zombie_positions", zombie],
+          ["cash_sol", typeof cash === "number" ? cash.toFixed(6) : "N/A"],
+          ["deployable_sol", deploy !== null ? deploy.toFixed(6) : "N/A"],
+        ].map(
+          ([k, v]) =>
+            `<div class="stat"><label>${k}</label><span>${fmt(v)}</span></div>`
+        ).join("");
+
+        const tbody = document.getElementById("positions");
+        tbody.innerHTML = list
+          .map((p) => {
+            return `<tr>
+              <td>${fmt(p.symbol)}</td>
+              <td>${fmtPnL(p.last_hachi_pnl_pct)}</td>
+              <td>${fmt(p.status)}</td>
+              <td>${fmt(p.hachi_drip_completed)}</td>
+              <td>${fmt(p.drip_chunks_done)}</td>
+              <td>${fmt(p.hachi_last_tp_level)}</td>
+            </tr>`;
+          })
+          .join("");
+
+        if (eventsRes.ok) {
+          const ej = await eventsRes.json();
+          const evs = ej.events || [];
+          document.getElementById("events").innerHTML = evs
+            .map((e) => {
+              const meta = JSON.stringify(e.metadata || {}, null, 0);
+              return `<div class="feed-item">
+                <span class="feed-type">${e.event_type}</span>
+                <span class="feed-ts"> ${e.ts || ""}</span>
+                <span class="feed-ts"> [${e.source || ""}]</span>
+                <pre>${meta}</pre>
+              </div>`;
+            })
+            .join("") || "<div class=\"feed-item\">No matching events in window.</div>";
+        } else {
+          document.getElementById("events").innerHTML = `<div class="err">GET /events failed: ${eventsRes.status}</div>`;
+        }
+
+        if (summaryRes.ok) {
+          const sj = await summaryRes.json();
+          const recent = sj.recent || [];
+          const box = document.getElementById("summaries");
+          if (!recent.length) {
+            box.innerHTML = "<pre>" + JSON.stringify(sj.latest || {}, null, 2) + "</pre>";
+          } else {
+            box.innerHTML = recent
+              .slice(-10)
+              .reverse()
+              .map((row, i) => {
+                const summ = row.summary || row;
+                const isLatest = i === 0;
+                return `<div class="cycle-block${isLatest ? " latest" : ""}">
+                  <div class="feed-ts">${row.ts || ""} cycle ${row.cycle_in_run ?? "?"} run ${row.run_id || ""}</div>
+                  <pre>${JSON.stringify(summ, null, 2)}</pre>
+                </div>`;
+              })
+              .join("");
+          }
+        } else {
+          document.getElementById("summaries").innerHTML = `<div class="err">GET /summary failed: ${summaryRes.status}</div>`;
+        }
+      } catch (e) {
+        banner.appendChild(el(`<div class="err">${String(e)}</div>`));
+      }
+    }
+
+    tick();
+    setInterval(tick, REFRESH_MS);
+  </script>
+</body>
+</html>

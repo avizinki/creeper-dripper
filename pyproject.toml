@@ -21,9 +21,14 @@ dev = [
   "pytest>=8.2.0",
   "pytest-mock>=3.14.0",
 ]
+dashboard = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+]
 
 [project.scripts]
 creeper-dripper = "creeper_dripper.cli.main:main"
+creeper-dashboard = "creeper_dripper.dashboard.__main__:main"
 
 [tool.setuptools]
-packages = ["creeper_dripper", "creeper_dripper.clients", "creeper_dripper.engine", "creeper_dripper.execution", "creeper_dripper.storage", "creeper_dripper.cli"]
+packages = ["creeper_dripper", "creeper_dripper.clients", "creeper_dripper.dashboard", "creeper_dripper.engine", "creeper_dripper.execution", "creeper_dripper.storage", "creeper_dripper.cli"]
