@@ -1,11 +1,11 @@
 ---
-description: After Claude fills claude_task_result.json (files_changed + commit_message), run gate; never bypass
+description: T-001 — when claude_task_result.json is ready_for_cursor_validation, run gate; never bypass
 alwaysApply: true
 ---
 
 # Claude task → Cursor validation
 
-Claude rewrites `docs/workflow/claude_task_result.json` with the real `files_changed`, `commit_message`, and `"status": "ready_for_cursor_validation"`. When that is done, run:
+When Claude writes `docs/workflow/claude_task_result.json` for **T-001** (e.g. `task_id` starts with `T-001-`) with `"status": "ready_for_cursor_validation"`, run:
 
 ```bash
 .venv/bin/python tools/cursor_validation_gate.py
@@ -15,3 +15,5 @@ Claude rewrites `docs/workflow/claude_task_result.json` with the real `files_cha
 - **Commit only if validation passes** (use `--no-commit` only when you intentionally need validation without a commit).
 
 The tool runs `required_validation` in `.venv` (loads `.env` when present), gatekeeps the working tree against `files_changed` / `docs_to_update` / `docs/workflow/`, writes `docs/workflow/cursor_validation_result.json`, and commits using `commit_message` only when checks pass. Add `--include-optional` only when the task requires optional validations.
+
+Other tasks: same procedure; match `task_id` / title in the JSON.
