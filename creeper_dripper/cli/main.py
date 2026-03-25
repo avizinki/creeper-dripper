@@ -239,6 +239,25 @@ def _print_dynamic_capacity(
             effective_max = None
     reserve = float(settings.cash_reserve_sol)
     deployable = None if wallet_available_sol is None else max(0.0, float(wallet_available_sol) - reserve)
+
+    # When doctor runs, we may not have an engine instance. Compute the same effective limit locally.
+    if engine is None:
+        try:
+            baseline = int(settings.max_open_positions)
+            hard_cap = int(getattr(settings, "hard_max_open_positions", baseline) or baseline)
+            if not bool(getattr(settings, "dynamic_capacity_enabled", True)):
+                effective_max = min(baseline, hard_cap)
+            else:
+                available = wallet_available_sol
+                bsol = getattr(settings, "hachi_birth_wallet_sol", None) or birth_sol
+                dynamic_from_birth = baseline
+                if available is not None and bsol is not None and float(bsol) > 0:
+                    dynamic_from_birth = max(1, int(baseline * (float(available) / float(bsol))))
+                denom = max(float(settings.base_position_size_sol), float(settings.min_order_size_sol), 1e-9)
+                funding_cap = int(float(deployable or 0.0) / denom) if deployable and deployable > 0 else 0
+                effective_max = min(hard_cap, max(baseline, min(dynamic_from_birth, funding_cap)))
+        except Exception:
+            effective_max = None
     print(f"dynamic_capacity_enabled={str(bool(getattr(settings, 'dynamic_capacity_enabled', True))).lower()}")
     print(f"hard_max_open_positions={getattr(settings, 'hard_max_open_positions', None)}")
     print(f"effective_max_open_positions={effective_max}")
@@ -894,6 +913,13 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
                 save_portfolio(settings.state_path, portfolio)
             except Exception as exc:
                 LOGGER.warning("doctor_clear_stale_market_safe_mode_failed: %s", exc)
+        # Surface any persisted Hachi birth baseline in this doctor output.
+        if getattr(portfolio, "hachi_birth_wallet_sol", None) is not None:
+            try:
+                settings.hachi_birth_wallet_sol = float(portfolio.hachi_birth_wallet_sol)
+                settings.hachi_birth_timestamp = portfolio.hachi_birth_timestamp
+            except Exception:
+                pass
         checks.append(
             {
                 "check": "safe_mode_state",
@@ -929,6 +955,9 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
             portfolio.hachi_birth_wallet_sol = float(wallet_sol)
             portfolio.hachi_birth_timestamp = now
             save_portfolio(settings.state_path, portfolio)
+            # Also surface in current settings instance for this doctor output.
+            settings.hachi_birth_wallet_sol = float(wallet_sol)
+            settings.hachi_birth_timestamp = now
             LOGGER.warning(
                 "event=hachi_birth_initialized source=doctor wallet_sol=%s timestamp=%s",
                 portfolio.hachi_birth_wallet_sol,
