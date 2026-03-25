@@ -28,6 +28,7 @@ class Settings:
     state_path: Path
     journal_path: Path
     discovery_limit: int
+    discovery_seed_limit: int
     discovery_max_candidates: int
     discovery_interval_seconds: int
     max_active_candidates: int
@@ -43,6 +44,7 @@ class Settings:
     min_buy_sell_ratio: float
     min_discovery_score: float
     max_token_age_hours: float
+    max_token_age_hours_hard: float
     block_mutable_mint: bool
     block_freezable: bool
     require_jup_sell_route: bool
@@ -153,6 +155,12 @@ class Settings:
             errors.append("CANDIDATE_CACHE_TTL_SECONDS must be > 0")
         if self.route_check_cache_ttl_seconds <= 0:
             errors.append("ROUTE_CHECK_CACHE_TTL_SECONDS must be > 0")
+        if self.discovery_seed_limit <= 0:
+            errors.append("DISCOVERY_SEED_LIMIT must be > 0")
+        if self.max_token_age_hours_hard <= 0:
+            errors.append("MAX_TOKEN_AGE_HOURS_HARD must be > 0")
+        if self.max_token_age_hours_hard < self.max_token_age_hours:
+            errors.append("MAX_TOKEN_AGE_HOURS_HARD must be >= MAX_TOKEN_AGE_HOURS")
         if self.exit_blocked_retry_cycles <= 0:
             errors.append("EXIT_BLOCKED_RETRY_CYCLES must be > 0")
         if self.exit_blocked_micro_probe_cycles <= 0:
@@ -195,6 +203,7 @@ def load_settings() -> Settings:
         state_path=Path(env_str("STATE_PATH", str(runtime_dir / "state.json"))),
         journal_path=Path(env_str("JOURNAL_PATH", str(runtime_dir / "journal.jsonl"))),
         discovery_limit=env_int("DISCOVERY_LIMIT", 25),
+        discovery_seed_limit=env_int("DISCOVERY_SEED_LIMIT", env_int("DISCOVERY_LIMIT", 25)),
         discovery_max_candidates=env_int("DISCOVERY_MAX_CANDIDATES", 8),
         discovery_interval_seconds=discovery_interval_seconds,
         max_active_candidates=max_active_candidates,
@@ -210,6 +219,7 @@ def load_settings() -> Settings:
         min_buy_sell_ratio=env_float("MIN_BUY_SELL_RATIO", 1.05),
         min_discovery_score=env_float("MIN_DISCOVERY_SCORE", 55),
         max_token_age_hours=env_float("MAX_TOKEN_AGE_HOURS", 72),
+        max_token_age_hours_hard=env_float("MAX_TOKEN_AGE_HOURS_HARD", 720),
         block_mutable_mint=env_bool("BLOCK_MUTABLE_MINT", True),
         block_freezable=env_bool("BLOCK_FREEZABLE", True),
         require_jup_sell_route=env_bool("REQUIRE_JUP_SELL_ROUTE", True),

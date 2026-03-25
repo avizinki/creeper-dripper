@@ -1,6 +1,6 @@
 from creeper_dripper.config import load_settings
 from creeper_dripper.engine.scoring import passes_filters, rejection_reasons, score_candidate
-from creeper_dripper.errors import REJECT_BAD_BUY_SELL_RATIO, REJECT_LOW_SCORE
+from creeper_dripper.errors import REJECT_BAD_BUY_SELL_RATIO, REJECT_LOW_SCORE, REJECT_TOKEN_TOO_OLD
 from creeper_dripper.models import TokenCandidate
 
 
@@ -75,6 +75,61 @@ def test_age_filter_uses_settings_max_token_age_hours_only(monkeypatch):
     )
     scored = score_candidate(c, settings)
     assert passes_filters(scored, settings), "age should only be gated by MAX_TOKEN_AGE_HOURS"
+
+
+def test_age_is_soft_until_hard_cap(monkeypatch):
+    monkeypatch.setenv("BIRDEYE_API_KEY", "x")
+    monkeypatch.setenv("JUPITER_API_KEY", "x")
+    monkeypatch.setenv("BS58_PRIVATE_KEY", "x")
+    monkeypatch.setenv("MAX_TOKEN_AGE_HOURS", "72")
+    monkeypatch.setenv("MAX_TOKEN_AGE_HOURS_HARD", "720")
+    settings = load_settings()
+    # Older than MAX_TOKEN_AGE_HOURS (penalized in scoring) but younger than hard cap: should NOT be rejected.
+    c = TokenCandidate(
+        address="mint",
+        symbol="TEST",
+        decimals=6,
+        liquidity_usd=500_000,
+        exit_liquidity_usd=500_000,
+        volume_24h_usd=1_000_000,
+        buy_sell_ratio_1h=2.0,
+        change_1h_pct=5,
+        age_hours=200.0,
+        top10_holder_percent=20,
+        jupiter_buy_price_impact_bps=120,
+        jupiter_sell_price_impact_bps=180,
+        sell_route_available=True,
+    )
+    scored = score_candidate(c, settings)
+    reasons = rejection_reasons(scored, settings, include_route_checks=True)
+    assert REJECT_TOKEN_TOO_OLD not in reasons
+
+
+def test_age_hard_cap_still_rejects(monkeypatch):
+    monkeypatch.setenv("BIRDEYE_API_KEY", "x")
+    monkeypatch.setenv("JUPITER_API_KEY", "x")
+    monkeypatch.setenv("BS58_PRIVATE_KEY", "x")
+    monkeypatch.setenv("MAX_TOKEN_AGE_HOURS", "72")
+    monkeypatch.setenv("MAX_TOKEN_AGE_HOURS_HARD", "720")
+    settings = load_settings()
+    c = TokenCandidate(
+        address="mint",
+        symbol="TEST",
+        decimals=6,
+        liquidity_usd=500_000,
+        exit_liquidity_usd=500_000,
+        volume_24h_usd=1_000_000,
+        buy_sell_ratio_1h=2.0,
+        change_1h_pct=5,
+        age_hours=1000.0,
+        top10_holder_percent=20,
+        jupiter_buy_price_impact_bps=120,
+        jupiter_sell_price_impact_bps=180,
+        sell_route_available=True,
+    )
+    scored = score_candidate(c, settings)
+    reasons = rejection_reasons(scored, settings, include_route_checks=True)
+    assert REJECT_TOKEN_TOO_OLD in reasons
 
 
 def test_prefilter_does_not_reject_on_ratio_or_score_before_probe(monkeypatch):

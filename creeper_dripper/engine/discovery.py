@@ -77,13 +77,14 @@ def discover_candidates(
 ) -> tuple[list[TokenCandidate], dict]:
     events = EventCollector()
     trending: list[dict[str, Any]] = []
+    seed_limit = int(getattr(settings, "discovery_seed_limit", settings.discovery_limit) or settings.discovery_limit)
     try:
-        trending = birdeye.trending_tokens(limit=settings.discovery_limit)
+        trending = birdeye.trending_tokens(limit=seed_limit)
     except Exception as exc:
         LOGGER.warning("event=discovery_seed_failed stage=trending error=%s", exc)
     new_listing_seeds: list[dict[str, Any]] = []
     try:
-        new_listing_seeds = birdeye.new_listings(limit=max(4, settings.discovery_limit // 3))
+        new_listing_seeds = birdeye.new_listings(limit=max(4, seed_limit // 3))
     except Exception as exc:
         LOGGER.warning("event=discovery_seed_failed stage=new_listings error=%s", exc)
     seeds = _dedupe_by_address([*trending, *new_listing_seeds])
@@ -106,7 +107,7 @@ def discover_candidates(
     cache_keys_used: list[str] = []
     candidate_keys_used: list[str] = []
     route_keys_used: list[str] = []
-    for seed in seeds[: settings.discovery_limit + 5]:
+    for seed in seeds[:seed_limit]:
         processed_total = built + int(sum(rejection_counts.values()))
         try:
             prefilter_decision = _seed_prefilter(seed, settings)

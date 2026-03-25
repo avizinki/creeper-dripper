@@ -136,9 +136,10 @@ def rejection_reasons(candidate: TokenCandidate, settings: Settings, *, include_
             reasons.append(REJECT_HIGH_SELL_IMPACT)
         if candidate.jupiter_buy_price_impact_bps is not None and candidate.jupiter_buy_price_impact_bps > settings.max_acceptable_price_impact_bps:
             reasons.append(REJECT_HIGH_BUY_IMPACT)
-    if candidate.age_hours is not None and (
-        candidate.age_hours > settings.max_token_age_hours
-    ):
+    # Age is a soft signal (scoring penalty) until a hard cap.
+    # This keeps discovery yield higher while still rejecting extremely old tokens.
+    hard_cap = float(getattr(settings, "max_token_age_hours_hard", settings.max_token_age_hours) or settings.max_token_age_hours)
+    if candidate.age_hours is not None and candidate.age_hours > hard_cap:
         reasons.append(REJECT_TOKEN_TOO_OLD)
     return reasons
 
