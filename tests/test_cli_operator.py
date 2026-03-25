@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+from json import JSONDecoder
 
 from creeper_dripper.cli.main import main
 from creeper_dripper.config import load_settings
 from creeper_dripper.engine.trader import CreeperDripper
 from creeper_dripper.models import PortfolioState
 from creeper_dripper.storage.state import new_portfolio
+
+
+def _parse_json_prefix(output: str) -> dict:
+    decoder = JSONDecoder()
+    obj, _idx = decoder.raw_decode(output)
+    assert isinstance(obj, dict)
+    return obj
 
 
 def _base_env(monkeypatch, tmp_path):
@@ -44,9 +52,11 @@ def test_doctor_without_wallet_scan_safe(monkeypatch, tmp_path, capsys):
     )
 
     code = main(["doctor"])
-    out = json.loads(capsys.readouterr().out)
+    stdout = capsys.readouterr().out
+    out = _parse_json_prefix(stdout)
     assert code == 0
     assert out["ok"] is True
+    assert "=== ENV SNAPSHOT (masked) ===" in stdout
 
 
 def test_doctor_invalid_wallet_path(monkeypatch, tmp_path):

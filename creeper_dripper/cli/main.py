@@ -27,6 +27,124 @@ from creeper_dripper.utils import atomic_write_json, monotonic_sleep_until, setu
 STOP = False
 LOGGER = logging.getLogger(__name__)
 
+_MASK_TOKENS = ("KEY", "SECRET", "PRIVATE", "TOKEN")
+
+
+def mask_value(value: str) -> str:
+    value = str(value or "")
+    n = len(value)
+    if n == 0:
+        return "(len=0)"
+    return f"{value[:4]}...{value[-3:]} (len={n})"
+
+
+def _should_mask_key(key: str) -> bool:
+    # Do not mask paths even if they include "KEY" (e.g. SOLANA_KEYPAIR_PATH).
+    k = str(key or "")
+    if "PATH" in k:
+        return False
+    return any(token in k for token in _MASK_TOKENS)
+
+
+def _format_env_snapshot_line(key: str, value: object) -> str:
+    raw = "" if value is None else str(value)
+    if _should_mask_key(key):
+        return f"{key}={mask_value(raw)}"
+    return f"{key}={raw}"
+
+
+def _print_env_snapshot(settings) -> None:
+    lines: list[str] = []
+    # Execution flags first
+    lines.extend(
+        [
+            _format_env_snapshot_line("DRY_RUN", str(bool(settings.dry_run)).lower()),
+            _format_env_snapshot_line("LIVE_TRADING_ENABLED", str(bool(settings.live_trading_enabled)).lower()),
+            _format_env_snapshot_line("HACHI_DRIPPER_ENABLED", str(bool(settings.hachi_dripper_enabled)).lower()),
+            _format_env_snapshot_line("HACHI_MAX_PRICE_IMPACT_BPS", settings.hachi_max_price_impact_bps),
+            _format_env_snapshot_line("DRIP_EXIT_ENABLED", str(bool(settings.drip_exit_enabled)).lower()),
+            _format_env_snapshot_line("USE_JUPITER_MANAGED_EXECUTION", str(bool(settings.use_jupiter_managed_execution)).lower()),
+        ]
+    )
+    # Paths
+    lines.extend(
+        [
+            _format_env_snapshot_line("RUNTIME_DIR", settings.runtime_dir),
+            _format_env_snapshot_line("STATE_PATH", settings.state_path),
+            _format_env_snapshot_line("JOURNAL_PATH", settings.journal_path),
+            _format_env_snapshot_line("SOLANA_KEYPAIR_PATH", settings.solana_keypair_path or ""),
+            _format_env_snapshot_line("SOLANA_RPC_URL", os.getenv("SOLANA_RPC_URL", "")),
+        ]
+    )
+    # API keys / credentials (masked)
+    lines.extend(
+        [
+            _format_env_snapshot_line("BIRDEYE_API_KEY", settings.birdeye_api_key),
+            _format_env_snapshot_line("JUPITER_API_KEY", settings.jupiter_api_key),
+            _format_env_snapshot_line("BS58_PRIVATE_KEY", settings.bs58_private_key),
+        ]
+    )
+    # Rest (effective settings)
+    lines.extend(
+        [
+            _format_env_snapshot_line("CHAIN", settings.chain),
+            _format_env_snapshot_line("POLL_INTERVAL_SECONDS", settings.poll_interval_seconds),
+            _format_env_snapshot_line("LOG_LEVEL", settings.log_level),
+            _format_env_snapshot_line("DISCOVERY_LIMIT", settings.discovery_limit),
+            _format_env_snapshot_line("DISCOVERY_MAX_CANDIDATES", settings.discovery_max_candidates),
+            _format_env_snapshot_line("DISCOVERY_INTERVAL_SECONDS", settings.discovery_interval_seconds),
+            _format_env_snapshot_line("MAX_ACTIVE_CANDIDATES", settings.max_active_candidates),
+            _format_env_snapshot_line("CANDIDATE_CACHE_TTL_SECONDS", settings.candidate_cache_ttl_seconds),
+            _format_env_snapshot_line("ROUTE_CHECK_CACHE_TTL_SECONDS", settings.route_check_cache_ttl_seconds),
+            _format_env_snapshot_line("MIN_LIQUIDITY_USD", settings.min_liquidity_usd),
+            _format_env_snapshot_line("MIN_EXIT_LIQUIDITY_USD", settings.min_exit_liquidity_usd),
+            _format_env_snapshot_line("REQUIRE_BIRDEYE_EXIT_LIQUIDITY", str(bool(settings.require_birdeye_exit_liquidity)).lower()),
+            _format_env_snapshot_line("MIN_VOLUME_24H_USD", settings.min_volume_24h_usd),
+            _format_env_snapshot_line("MIN_BUY_SELL_RATIO", settings.min_buy_sell_ratio),
+            _format_env_snapshot_line("MIN_DISCOVERY_SCORE", settings.min_discovery_score),
+            _format_env_snapshot_line("MAX_TOKEN_AGE_HOURS", settings.max_token_age_hours),
+            _format_env_snapshot_line("BLOCK_MUTABLE_MINT", str(bool(settings.block_mutable_mint)).lower()),
+            _format_env_snapshot_line("BLOCK_FREEZABLE", str(bool(settings.block_freezable)).lower()),
+            _format_env_snapshot_line("REQUIRE_JUP_SELL_ROUTE", str(bool(settings.require_jup_sell_route)).lower()),
+            _format_env_snapshot_line("PORTFOLIO_START_SOL", settings.portfolio_start_sol),
+            _format_env_snapshot_line("MAX_OPEN_POSITIONS", settings.max_open_positions),
+            _format_env_snapshot_line("BASE_POSITION_SIZE_SOL", settings.base_position_size_sol),
+            _format_env_snapshot_line("MAX_POSITION_SIZE_SOL", settings.max_position_size_sol),
+            _format_env_snapshot_line("CASH_RESERVE_SOL", settings.cash_reserve_sol),
+            _format_env_snapshot_line("MIN_ORDER_SIZE_SOL", settings.min_order_size_sol),
+            _format_env_snapshot_line("MAX_DAILY_NEW_POSITIONS", settings.max_daily_new_positions),
+            _format_env_snapshot_line("COOLDOWN_MINUTES_AFTER_EXIT", settings.cooldown_minutes_after_exit),
+            _format_env_snapshot_line("DEFAULT_SLIPPAGE_BPS", settings.default_slippage_bps),
+            _format_env_snapshot_line("MAX_ACCEPTABLE_PRICE_IMPACT_BPS", settings.max_acceptable_price_impact_bps),
+            _format_env_snapshot_line("STOP_LOSS_PCT", settings.stop_loss_pct),
+            _format_env_snapshot_line("TRAILING_STOP_PCT", settings.trailing_stop_pct),
+            _format_env_snapshot_line("TRAILING_ARM_PCT", settings.trailing_arm_pct),
+            _format_env_snapshot_line("TIME_STOP_MINUTES", settings.time_stop_minutes),
+            _format_env_snapshot_line("TAKE_PROFIT_LEVELS_PCT", ",".join(str(x) for x in settings.take_profit_levels_pct)),
+            _format_env_snapshot_line("TAKE_PROFIT_FRACTIONS", ",".join(str(x) for x in settings.take_profit_fractions)),
+            _format_env_snapshot_line("FORCE_FULL_EXIT_ON_LIQUIDITY_BREAK", str(bool(settings.force_full_exit_on_liquidity_break)).lower()),
+            _format_env_snapshot_line("LIQUIDITY_BREAK_RATIO", settings.liquidity_break_ratio),
+            _format_env_snapshot_line("EXIT_PROBE_FRACTIONS", ",".join(str(x) for x in settings.exit_probe_fractions)),
+            _format_env_snapshot_line("DAILY_REALIZED_LOSS_CAP_SOL", settings.daily_realized_loss_cap_sol),
+            _format_env_snapshot_line("MAX_CONSECUTIVE_EXECUTION_FAILURES", settings.max_consecutive_execution_failures),
+            _format_env_snapshot_line("STALE_MARKET_DATA_MINUTES", settings.stale_market_data_minutes),
+            _format_env_snapshot_line("UNKNOWN_EXIT_SATURATION_LIMIT", settings.unknown_exit_saturation_limit),
+            _format_env_snapshot_line("MAX_EXIT_BLOCKED_POSITIONS", settings.max_exit_blocked_positions),
+            _format_env_snapshot_line("DRIP_CHUNK_PCTS", ",".join(str(x) for x in settings.drip_chunk_pcts)),
+            _format_env_snapshot_line("DRIP_NEAR_EQUAL_BAND", settings.drip_near_equal_band),
+            _format_env_snapshot_line("DRIP_MIN_CHUNK_WAIT_SECONDS", settings.drip_min_chunk_wait_seconds),
+            _format_env_snapshot_line("HACHI_PROFIT_HARVEST_MIN_PCT", settings.hachi_profit_harvest_min_pct),
+            _format_env_snapshot_line("HACHI_NEUTRAL_FLOOR_PCT", settings.hachi_neutral_floor_pct),
+            _format_env_snapshot_line("HACHI_EMERGENCY_PNL_PCT", settings.hachi_emergency_pnl_pct),
+            _format_env_snapshot_line("HACHI_WEAKENING_DROP_PCT", settings.hachi_weakening_drop_pct),
+            _format_env_snapshot_line("HACHI_COLLAPSE_DROP_PCT", settings.hachi_collapse_drop_pct),
+        ]
+    )
+    print("\n=== ENV SNAPSHOT (masked) ===")
+    for line in lines:
+        print(line)
+
+
 
 def _safe_snapshot_copy(src: Path, dst: Path) -> None:
     if not src.exists():
@@ -619,6 +737,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         ok = False
 
     print(json.dumps({"ok": ok, "checks": checks}, indent=2, default=str))
+    _print_env_snapshot(settings)
     return 0 if ok else 1
 
 
