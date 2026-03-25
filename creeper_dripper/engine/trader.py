@@ -9,8 +9,22 @@ from creeper_dripper.clients.birdeye import BirdeyeClient
 from creeper_dripper.cache import TTLCache
 from creeper_dripper.config import SOL_MINT, Settings
 from creeper_dripper.errors import (
+    EXEC_EXECUTE_FAILED,
+    EXEC_EXECUTE_UNKNOWN,
+    EXEC_NO_ROUTE,
+    EXEC_ORDER_FAILED,
+    EXEC_PROVIDER_UNAVAILABLE,
+    EXEC_QUOTE_FAILED,
     EXEC_SKIPPED_DRY_RUN,
     EXEC_SKIPPED_LIVE_DISABLED,
+    EXEC_SELL_PROCEEDS_UNAVAILABLE,
+    EXEC_TX_BUILD_FAILED,
+    EXEC_TX_CONFIRMED_FAILED,
+    EXEC_TX_SEND_FAILED,
+    EXEC_TX_SIGN_FAILED,
+    EXEC_V2_EXECUTE_FAILED,
+    EXEC_V2_ORDER_BUILD_FAILED,
+    EXEC_V2_SIGN_FAILED,
     EXIT_UNKNOWN_PENDING_RECONCILE,
     JOURNAL_APPEND_FAILED,
     POSITION_RECONCILE_PENDING,
@@ -60,6 +74,35 @@ from creeper_dripper.utils import append_jsonl, atomic_write_json, utc_now_iso
 LOGGER = logging.getLogger(__name__)
 MAX_EXIT_RETRIES = 5
 
+
+def _is_system_execution_failure(classification: str | None) -> bool:
+    """Return True only for system/execution failures (not market conditions)."""
+    c = str(classification or "")
+    if not c:
+        return True
+    if c in {EXEC_NO_ROUTE, SELL_THRESHOLD_UNCOMPUTABLE}:
+        return False
+    # Treat probe-only rejections as market conditions.
+    if c.startswith("reject_"):
+        return False
+    if c in {EXEC_SKIPPED_DRY_RUN, EXEC_SKIPPED_LIVE_DISABLED}:
+        return False
+    return c in {
+        EXEC_PROVIDER_UNAVAILABLE,
+        EXEC_QUOTE_FAILED,
+        EXEC_ORDER_FAILED,
+        EXEC_EXECUTE_FAILED,
+        EXEC_EXECUTE_UNKNOWN,
+        EXEC_TX_BUILD_FAILED,
+        EXEC_TX_SIGN_FAILED,
+        EXEC_TX_SEND_FAILED,
+        EXEC_TX_CONFIRMED_FAILED,
+        EXEC_V2_ORDER_BUILD_FAILED,
+        EXEC_V2_SIGN_FAILED,
+        EXEC_V2_EXECUTE_FAILED,
+        EXEC_SELL_PROCEEDS_UNAVAILABLE,
+        SETTLEMENT_UNCONFIRMED,
+    }
 
 def _seed_sol_basis_on_open(
     position: PositionState,
@@ -1453,7 +1496,8 @@ class CreeperDripper:
                 position.exit_retry_count += 1
                 position.last_exit_attempt_at = now
                 position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
-                self.portfolio.consecutive_execution_failures += 1
+                if _is_system_execution_failure(classification):
+                    self.portfolio.consecutive_execution_failures += 1
             decisions.append(
                 TradeDecision(
                     action="SELL_BLOCKED",
@@ -1481,6 +1525,8 @@ class CreeperDripper:
                 position.status = "EXIT_BLOCKED"
                 decisions.append(TradeDecision(action="SELL_BLOCKED", token_mint=position.token_mint, symbol=position.symbol, reason=f"execution_no_signature:{result.status}", qty_atomic=requested_qty))
                 LOGGER.warning("sell_no_signature_blocked position_id=%s status=%s", position.position_id or position.token_mint, result.status)
+                # Signature failure is a system failure signal.
+                self.portfolio.consecutive_execution_failures += 1
 
     def _maybe_open_positions(self, candidates: list[TokenCandidate], decisions: list[TradeDecision], now: str) -> None:
         mode = str(getattr(self.settings, "entry_capacity_mode", "strict") or "strict")
@@ -1741,7 +1787,8 @@ class CreeperDripper:
                 elif classification == EXEC_SKIPPED_LIVE_DISABLED:
                     self.portfolio.entries_skipped_live_disabled += 1
                 else:
-                    self.portfolio.consecutive_execution_failures += 1
+                    if _is_system_execution_failure(classification):
+                        self.portfolio.consecutive_execution_failures += 1
                 continue
             qty_atomic = execution.executed_amount
             if qty_atomic is None or qty_atomic <= 0:
@@ -1937,16 +1984,23 @@ class CreeperDripper:
         entries_succeeded = sum(1 for d in decisions if d.action == "BUY")
         exits_attempted = sum(1 for d in decisions if d.action == "SELL_ATTEMPT")
         exits_succeeded = sum(1 for d in decisions if d.action == "SELL")
-        execution_failures = sum(1 for d in decisions if d.action in {"SELL_BLOCKED", "BUY_SKIP"})
+        def _decision_classification(d: TradeDecision) -> str | None:
+            try:
+                return str((d.metadata or {}).get("classification") or "")
+            except Exception:
+                return None
+
+        execution_failures = sum(
+            1
+            for d in decisions
+            if d.action in {"SELL_BLOCKED", "BUY_SKIP"} and _is_system_execution_failure(_decision_classification(d))
+        )
         entries_skipped_dry_run = sum(1 for d in decisions if d.action == "BUY_SKIP" and d.metadata.get("classification") == EXEC_SKIPPED_DRY_RUN)
         entries_skipped_live_disabled = sum(1 for d in decisions if d.action == "BUY_SKIP" and d.metadata.get("classification") == EXEC_SKIPPED_LIVE_DISABLED)
         entries_blocked_pre_execution = sum(1 for d in decisions if d.action == "BUY_SKIP" and d.metadata.get("phase") == "pre_entry_probe")
         entries_order_failed = sum(1 for d in decisions if d.action == "BUY_SKIP" and d.metadata.get("phase") == "order_build")
         entries_execute_failed = sum(1 for d in decisions if d.action == "BUY_SKIP" and d.metadata.get("phase") == "execute")
-        execution_failures = max(
-            0,
-            execution_failures - entries_skipped_dry_run - entries_skipped_live_disabled,
-        )
+        # execution_failures already excludes mode-gated skips.
         unknown_exits = sum(1 for d in decisions if d.action == "SELL_PENDING")
         return {
             "run_id": self.settings.run_id,

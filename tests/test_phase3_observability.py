@@ -9,8 +9,9 @@ from creeper_dripper.config import load_settings
 from creeper_dripper.engine.scoring import rejection_reasons
 from creeper_dripper.engine.trader import CreeperDripper
 from creeper_dripper.errors import REJECT_EXECUTION_ROUTE_MISSING, REJECT_LOW_LIQUIDITY, SAFETY_DAILY_LOSS_CAP, SAFETY_MAX_CONSEC_EXEC_FAILURES
+from creeper_dripper.errors import EXEC_NO_ROUTE, EXEC_V2_EXECUTE_FAILED
 from creeper_dripper.execution.executor import TradeExecutor
-from creeper_dripper.models import ExecutionResult, PortfolioState, ProbeQuote, TokenCandidate
+from creeper_dripper.models import ExecutionResult, PortfolioState, PositionState, ProbeQuote, TokenCandidate
 from creeper_dripper.storage.state import new_portfolio
 from creeper_dripper.utils import utc_now_iso
 
@@ -299,6 +300,76 @@ def test_run_summary_treats_mode_skips_separately(monkeypatch, tmp_path):
     assert summary["entries_skipped_live_disabled"] == 1
     assert summary["entries_execute_failed"] == 0
     assert summary["execution_failures"] == 0
+
+
+def test_market_no_route_does_not_count_as_execution_failure(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+
+    class NoRouteExitExecutor(DummyExecutor):
+        def sell(self, *_args, **_kwargs):
+            return (
+                ExecutionResult(status="failed", requested_amount=1, diagnostic_code=EXEC_NO_ROUTE, error="no route"),
+                ProbeQuote(input_amount_atomic=1, out_amount_atomic=None, price_impact_bps=None, route_ok=False, raw={"classification": EXEC_NO_ROUTE}),
+            )
+
+    engine = CreeperDripper(settings, DummyBirdeye(), NoRouteExitExecutor(), portfolio)
+    pos = PositionState(
+        token_mint="mintX",
+        symbol="TOK",
+        decimals=6,
+        status="OPEN",
+        opened_at=utc_now_iso(),
+        updated_at=utc_now_iso(),
+        entry_price_usd=0.0,
+        avg_entry_price_usd=0.0,
+        entry_sol=0.1,
+        remaining_qty_atomic=100,
+        remaining_qty_ui=0.0001,
+        peak_price_usd=0.0,
+        last_price_usd=0.0,
+    )
+    pos.pending_exit_qty_atomic = 100
+    pos.pending_exit_reason = "liquidity_break_hard"
+    portfolio.open_positions[pos.token_mint] = pos
+    before = portfolio.consecutive_execution_failures
+    engine._attempt_exit(pos, [], utc_now_iso())
+    assert portfolio.consecutive_execution_failures == before
+
+
+def test_system_execute_failure_counts_toward_safe_mode(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+
+    class ExecFailExitExecutor(DummyExecutor):
+        def sell(self, *_args, **_kwargs):
+            return (
+                ExecutionResult(status="failed", requested_amount=1, diagnostic_code=EXEC_V2_EXECUTE_FAILED, error="boom"),
+                ProbeQuote(input_amount_atomic=1, out_amount_atomic=None, price_impact_bps=None, route_ok=False, raw={"classification": EXEC_V2_EXECUTE_FAILED}),
+            )
+
+    engine = CreeperDripper(settings, DummyBirdeye(), ExecFailExitExecutor(), portfolio)
+    pos = PositionState(
+        token_mint="mintY",
+        symbol="TOK2",
+        decimals=6,
+        status="OPEN",
+        opened_at=utc_now_iso(),
+        updated_at=utc_now_iso(),
+        entry_price_usd=0.0,
+        avg_entry_price_usd=0.0,
+        entry_sol=0.1,
+        remaining_qty_atomic=100,
+        remaining_qty_ui=0.0001,
+        peak_price_usd=0.0,
+        last_price_usd=0.0,
+    )
+    pos.pending_exit_qty_atomic = 100
+    pos.pending_exit_reason = "stop_loss"
+    portfolio.open_positions[pos.token_mint] = pos
+    before = portfolio.consecutive_execution_failures
+    engine._attempt_exit(pos, [], utc_now_iso())
+    assert portfolio.consecutive_execution_failures == before + 1
 
 
 def test_route_proof_artifact_written_for_attempted_entry(monkeypatch, tmp_path):
