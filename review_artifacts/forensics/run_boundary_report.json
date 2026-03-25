@@ -1,0 +1,205 @@
+{
+  "report_id": "run_boundary_report",
+  "generated_at_utc": "2026-03-25T05:39:41Z",
+  "sources": {
+    "runtime_logfile_log": "runtime/logfile.log",
+    "runtime_journal_jsonl": "runtime/journal.jsonl",
+    "runtime_state_json": "runtime/state.json",
+    "runtime_status_json": "runtime/status.json",
+    "review_artifacts_runtime_snapshots": "review_artifacts/runtime_snapshots/*",
+    "runtime_logfile_log_sha256": "689a7fc79d46eb5a6468109fb4ce779fb05c889924e7cf9ef5143074901e55d1",
+    "runtime_logfile_line_count": 46202
+  },
+  "hard_boundaries": {
+    "loading_solana_keypair": {
+      "count_in_logfile": 1,
+      "log_line_numbers_1based": [
+        54
+      ],
+      "evidence_snippet": "2026-03-24 23:36:30,619 INFO [creeper_dripper.cli.main] Loading Solana keypair from path: .../wallet_3LEZ.json"
+    },
+    "cache_engine_init": [
+      {
+        "log_line": 1,
+        "candidate_cache_id": "4415129424",
+        "note": "Before any Loading Solana keypair in this file"
+      },
+      {
+        "log_line": 55,
+        "candidate_cache_id": "4449301712",
+        "note": "Immediately after Loading Solana keypair"
+      }
+    ],
+    "log_segment_split": {
+      "r0_pre_wallet_line_range_inclusive": [
+        1,
+        53
+      ],
+      "r1_wallet_session_starts_at_line": 54,
+      "r1_continues_to_eof": true
+    }
+  },
+  "prior_run_artifact_in_logfile": {
+    "description": "Lines 1\u201353 were emitted by a process that had not yet logged Loading Solana keypair in this file. They are contiguous with later lines in one append-only logfile.",
+    "evidence": [
+      "Line 1: cache_engine_init candidate_cache_id=4415129424",
+      "Line 54: first Loading Solana keypair",
+      "Lines 1\u201353: runtime_cost_lines = 0, entry_success lines = 0",
+      "Lines 54\u2013EOF: all entry_success and runtime_cost lines for wallet-bound trading"
+    ]
+  },
+  "journal_attribution": {
+    "note": "journal.jsonl has no process-id or run_id field. All BUY/SELL rows are attributed to r1_wallet_session because (a) the log shows zero entry_success before line 54, while journal records on-chain buys with signatures, and (b) only one Loading Solana keypair appears in the logfile.",
+    "journal_record_count_at_generation": 10
+  },
+  "runs": [
+    {
+      "run_id": "r0_pre_wallet",
+      "start_evidence": {
+        "type": "cache_engine_init",
+        "log_line": 1,
+        "snippet": "cache_engine_init: candidate_cache_id=4415129424"
+      },
+      "end_evidence": {
+        "type": "boundary_before_loading_solana_keypair",
+        "last_line_in_segment": 53,
+        "next_line": 54,
+        "snippet": "Loading Solana keypair"
+      },
+      "state_runtime_fresh": {
+        "value": "unknown",
+        "evidence": "No state_reset / archive markers in this segment; segment ends before wallet-bound cycle completion."
+      },
+      "cycle_evidence": {
+        "runtime_cost_lines_in_segment": 0,
+        "note": "No creeper_dripper.cli.main runtime_cost line in lines 1\u201353"
+      },
+      "tokens": {
+        "candidate_accepted_mints": [
+          "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+          "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA"
+        ],
+        "candidate_accepted_symbols": [
+          "PRl",
+          "EDGe"
+        ],
+        "candidate_built_ok_unique_mint_count": 11,
+        "actually_bought_mints_from_entry_success": [],
+        "actually_sold_mints_from_exit_success": []
+      },
+      "ending_open_positions": "not_applicable_segment_did_not_complete_wallet_trades_in_log"
+    },
+    {
+      "run_id": "r1_wallet_session",
+      "start_evidence": {
+        "type": "loading_solana_keypair_plus_cache_engine_init",
+        "log_lines": [
+          54,
+          55
+        ]
+      },
+      "end_evidence": {
+        "type": "eof_or_process_still_running",
+        "last_log_line_at_generation": 46202,
+        "note": "No second Loading Solana keypair in file; single wallet session for remainder of log."
+      },
+      "state_runtime_fresh": {
+        "value": "not_proven_fresh",
+        "evidence": "Typical startup loads existing state_path; no empty-portfolio marker found in cited log slice."
+      },
+      "cycle_evidence": {
+        "runtime_cost_lines_in_segment": 645,
+        "status_json_cycle_timestamp_at_generation": "2026-03-25T05:38:45.552740+00:00",
+        "note": "status.json reflects last completed cycle only (per-cycle snapshot)."
+      },
+      "tokens": {
+        "candidate_accepted_unique_count": 6,
+        "candidate_accepted_mint_to_symbol": {
+          "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE": "PRl",
+          "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA": "EDGe",
+          "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht": "SPAce",
+          "7JT1bKtTi6sSAB6bkTfFCyiPmYnZxv372EmaaFKB63A": "VDOR",
+          "2Jno5wyrbQihZjJ4jFg7fE4pj5HsuSUujhmWYA9f7mXn": "Bp",
+          "9z2rzZgp8xDYyxfZe5jUsADHv5exZkVSaXAhgd9S6h51": "BLock"
+        },
+        "candidate_built_ok_unique_mint_count": 408,
+        "actually_bought_mints_entry_success_in_order": [
+          "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+          "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA",
+          "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht",
+          "9z2rzZgp8xDYyxfZe5jUsADHv5exZkVSaXAhgd9S6h51"
+        ],
+        "actually_bought_symbols": [
+          "PRl",
+          "EDGe",
+          "SPAce",
+          "BLock"
+        ],
+        "actually_sold_mints_exit_success_log": [
+          "J7MzyZ4Tvwn2LBREnLU48TmKxJE28qstv35dRGBJPCpE",
+          "Bi1MG6rpHTA1p5UkV6qVZPZMBG4FEv7PLX6EXAm6hpht"
+        ],
+        "exit_success_log_lines_1based": [
+          22444,
+          45970
+        ]
+      },
+      "ending_open_positions_at_generation_from_state_json": [
+        {
+          "symbol": "EDGe",
+          "mint": "5xzHELN3QZuQSm1wEejSkAha1hnxHr6KPn9uGz3dR2MA"
+        },
+        {
+          "symbol": "BLock",
+          "mint": "9z2rzZgp8xDYyxfZe5jUsADHv5exZkVSaXAhgd9S6h51"
+        }
+      ],
+      "closed_in_state_at_generation": [
+        "PRl",
+        "SPAce"
+      ]
+    }
+  ],
+  "summary_table": [
+    {
+      "run_id": "r0_pre_wallet",
+      "fresh": "unknown",
+      "accepted_count": 2,
+      "bought_count": 0,
+      "sold_count": 0,
+      "ending_open_positions": "n/a"
+    },
+    {
+      "run_id": "r1_wallet_session",
+      "fresh": "not_proven_fresh",
+      "accepted_count": 6,
+      "bought_count": 4,
+      "sold_count": 2,
+      "ending_open_positions": "EDGe, BLock"
+    }
+  ],
+  "answers": {
+    "which_run_bought_SPAce": "r1_wallet_session",
+    "which_run_bought_PRl_and_EDGe": "r1_wallet_session (both buys; PRl later closed in same run)",
+    "which_run_sold_PRl": "r1_wallet_session",
+    "current_open_same_run_as_SPAce_buy": "Yes \u2014 SPAce buy journal ts 2026-03-25T01:37:15.596108+00:00 and EDGe/BLock positions are all recorded in the same journal.jsonl after the single Loading Solana keypair boundary; SPAce subsequently sold in same file (journal lines 7\u20139)."
+  },
+  "snapshot_timestamps_folders": [
+    "2026-03-24T21-55-47Z",
+    "2026-03-24T22-16-16Z",
+    "2026-03-24T22-23-48Z",
+    "2026-03-24T22-31-25Z",
+    "2026-03-24T22-38-56Z",
+    "2026-03-24T22-46-23Z",
+    "2026-03-24T22-53-55Z",
+    "2026-03-24T23-01-22Z",
+    "2026-03-24T23-08-53Z",
+    "2026-03-24T23-16-20Z",
+    "2026-03-24T23-23-57Z",
+    "2026-03-25T04-42-49Z"
+  ],
+  "notes": {
+    "status_json": "Does not encode full history; use for last-cycle continuity only.",
+    "logfile": "Append-only; r0 lines are prior-process evidence prepended before r1 keypair session."
+  }
+}
