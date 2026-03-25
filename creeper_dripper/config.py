@@ -75,6 +75,12 @@ class Settings:
     drip_chunk_pcts: list[float]
     drip_near_equal_band: float
     drip_min_chunk_wait_seconds: int
+    # Hachi-style dripper: replaces TP-ladder as the primary sell controller.
+    # When True, every cycle probes Jupiter sell quotes for small chunks and
+    # executes immediately when route quality is acceptable — no TP threshold
+    # required before first sell activity.
+    hachi_dripper_enabled: bool = False
+    hachi_max_price_impact_bps: int = 900
     run_id: str | None = None
     run_dir: Path | None = None
     run_log_path: Path | None = None
@@ -191,6 +197,8 @@ def load_settings() -> Settings:
         drip_chunk_pcts=env_csv_floats("DRIP_CHUNK_PCTS", [0.10, 0.25, 0.50]),
         drip_near_equal_band=env_float("DRIP_NEAR_EQUAL_BAND", 0.002),
         drip_min_chunk_wait_seconds=env_int("DRIP_MIN_CHUNK_WAIT_SECONDS", 30),
+        hachi_dripper_enabled=env_bool("HACHI_DRIPPER_ENABLED", False),
+        hachi_max_price_impact_bps=env_int("HACHI_MAX_PRICE_IMPACT_BPS", 900),
         run_id=None,
         run_dir=None,
         run_log_path=None,

@@ -571,6 +571,18 @@ class CreeperDripper:
             )
             return
 
+        # -------------------------------------------------------------------
+        # Hachi-style dripper: primary sell controller when enabled.
+        # Probes Jupiter sell quotes every cycle and executes small chunks
+        # when route quality is acceptable.  No TP threshold gate — selling
+        # can start immediately once a position is open.
+        # TP ladder is bypassed entirely when hachi is active (it would race
+        # with the dripper and cause double-selling).
+        # -------------------------------------------------------------------
+        if self.settings.hachi_dripper_enabled:
+            self._run_hachi_dripper(position, decisions, now)
+            return
+
         for step in position.take_profit_steps:
             if step.done:
                 continue
@@ -619,7 +631,189 @@ class CreeperDripper:
                 tp_thresholds or "none",
             )
 
+    def _run_hachi_dripper(self, position: PositionState, decisions: list[TradeDecision], now: str) -> bool:
+        """Hachi-style dripper: probe Jupiter sell quotes every cycle for OPEN/PARTIAL positions.
+
+        Executes a small chunk when route quality is acceptable — no TP threshold
+        required before first sell activity.  Jupiter quote is the sole source of
+        truth for sellability; Birdeye liquidity is never consulted here.
+
+        Returns True if a sell chunk was dispatched this cycle.
+        """
+        pos_id = position.position_id or position.token_mint
+        remaining = position.remaining_qty_atomic
+        if remaining <= 0:
+            return False
+
+        # Timing gate: pace chunks so we don't drain the position in a single cycle.
+        if position.drip_next_chunk_at and not _retry_due(position.drip_next_chunk_at, now):
+            LOGGER.info(
+                "event=dripper_wait mint=%s position_id=%s drip_next_chunk_at=%s chunks_done=%s",
+                position.token_mint,
+                pos_id,
+                position.drip_next_chunk_at,
+                position.drip_chunks_done,
+            )
+            decisions.append(
+                TradeDecision(
+                    action="DRIPPER_WAIT",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason="drip_timing_gate",
+                    metadata={
+                        "drip_next_chunk_at": position.drip_next_chunk_at,
+                        "drip_chunks_done": position.drip_chunks_done,
+                    },
+                )
+            )
+            return False
+
+        # Probe each configured chunk size against Jupiter.
+        candidates: list[tuple[int, float, float | None]] = []  # (qty, sol_out_per_token, impact_bps)
+        for pct in self.settings.drip_chunk_pcts:
+            chunk_qty = max(1, int(remaining * pct))
+            try:
+                probe = self.executor.quote_sell(position.token_mint, chunk_qty)
+            except Exception as exc:
+                LOGGER.debug(
+                    "dripper_eval: quote_sell failed mint=%s qty=%s err=%s",
+                    position.token_mint,
+                    chunk_qty,
+                    exc,
+                )
+                continue
+            if not probe.route_ok or not probe.out_amount_atomic or probe.out_amount_atomic <= 0:
+                continue
+            impact = probe.price_impact_bps
+            if impact is not None and abs(float(impact)) > self.settings.hachi_max_price_impact_bps:
+                continue
+            efficiency = probe.out_amount_atomic / float(chunk_qty)
+            candidates.append((chunk_qty, efficiency, impact))
+
+        LOGGER.info(
+            "event=dripper_eval mint=%s position_id=%s remaining=%s chunks_probed=%s viable=%s pnl_source=jupiter_quote",
+            position.token_mint,
+            pos_id,
+            remaining,
+            len(self.settings.drip_chunk_pcts),
+            len(candidates),
+        )
+
+        if not candidates:
+            LOGGER.info(
+                "event=dripper_wait mint=%s position_id=%s reason=no_executable_chunk remaining=%s",
+                position.token_mint,
+                pos_id,
+                remaining,
+            )
+            decisions.append(
+                TradeDecision(
+                    action="DRIPPER_WAIT",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason="no_executable_chunk",
+                )
+            )
+            return False
+
+        # Select largest chunk among near-equal efficiency (fewer total cycles, same SOL out).
+        best_efficiency = max(c[1] for c in candidates)
+        threshold = best_efficiency * (1.0 - self.settings.drip_near_equal_band)
+        near_equal = [(qty, eff, imp) for qty, eff, imp in candidates if eff >= threshold]
+        chosen_qty, chosen_eff, chosen_impact = max(near_equal, key=lambda x: x[0])
+
+        LOGGER.info(
+            "event=dripper_chunk_selected mint=%s position_id=%s chunk_qty=%s efficiency=%s impact_bps=%s chunks_done_so_far=%s",
+            position.token_mint,
+            pos_id,
+            chosen_qty,
+            round(chosen_eff, 8),
+            chosen_impact,
+            position.drip_chunks_done,
+        )
+        decisions.append(
+            TradeDecision(
+                action="DRIPPER_CHUNK_SELECTED",
+                token_mint=position.token_mint,
+                symbol=position.symbol,
+                reason="hachi_dripper",
+                qty_atomic=chosen_qty,
+                metadata={"efficiency": round(chosen_eff, 10), "impact_bps": chosen_impact},
+            )
+        )
+
+        # Execute the chunk; inspect decisions to detect whether the sell settled.
+        decisions_before = len(decisions)
+        self._start_exit(position, chosen_qty, "hachi_dripper", decisions, now)
+
+        sell_executed = any(d.action == "SELL" for d in decisions[decisions_before:])
+        if sell_executed:
+            sold_qty = next(
+                (d.qty_atomic for d in decisions[decisions_before:] if d.action == "SELL"),
+                chosen_qty,
+            )
+            position.drip_chunks_done += 1
+            if position.status != "CLOSED":
+                position.drip_next_chunk_at = _next_normal_retry_at(
+                    now, self.settings.drip_min_chunk_wait_seconds
+                )
+            LOGGER.info(
+                "event=dripper_chunk_executed mint=%s position_id=%s chunks_done=%s sold_qty=%s next_chunk_at=%s",
+                position.token_mint,
+                pos_id,
+                position.drip_chunks_done,
+                sold_qty,
+                position.drip_next_chunk_at,
+            )
+            decisions.append(
+                TradeDecision(
+                    action="DRIPPER_CHUNK_EXECUTED",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason="hachi_dripper",
+                    qty_atomic=sold_qty,
+                    metadata={
+                        "chunks_done": position.drip_chunks_done,
+                        "next_chunk_at": position.drip_next_chunk_at,
+                    },
+                )
+            )
+            self.events.emit(
+                "dripper_chunk_executed",
+                "hachi",
+                position_id=pos_id,
+                chunks_done=position.drip_chunks_done,
+                sold_qty=sold_qty,
+            )
+
+        return sell_executed
+
     def _start_exit(self, position: PositionState, qty_atomic: int, reason: str, decisions: list[TradeDecision], now: str) -> bool:
+        # Detect when a hard exit overrides a pending Hachi dripper chunk.
+        _is_hard = not reason.startswith("take_profit_") and reason != "hachi_dripper"
+        if _is_hard and position.drip_next_chunk_at is not None:
+            LOGGER.info(
+                "event=dripper_override_hard_exit mint=%s position_id=%s override_reason=%s drip_next_chunk_at=%s chunks_done=%s",
+                position.token_mint,
+                position.position_id or position.token_mint,
+                reason,
+                position.drip_next_chunk_at,
+                position.drip_chunks_done,
+            )
+            decisions.append(
+                TradeDecision(
+                    action="DRIPPER_OVERRIDE_HARD_EXIT",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason=reason,
+                    metadata={
+                        "override_reason": reason,
+                        "chunks_done_before_override": position.drip_chunks_done,
+                    },
+                )
+            )
+            position.drip_next_chunk_at = None
+
         if position.status == "EXIT_PENDING":
             # If a drip is in progress and a hard (non-TP) exit arrives, override it.
             hard_exit = not reason.startswith("take_profit_")
