@@ -7,7 +7,7 @@ from creeper_dripper.cli.main import main
 from creeper_dripper.config import load_settings
 from creeper_dripper.engine.trader import CreeperDripper
 from creeper_dripper.models import PortfolioState, PositionState, TakeProfitStep
-from creeper_dripper.storage.state import new_portfolio
+from creeper_dripper.storage.state import load_portfolio, new_portfolio, save_portfolio
 
 
 def _parse_json_prefix(output: str) -> dict:
@@ -30,6 +30,8 @@ def _base_env(monkeypatch, tmp_path):
     monkeypatch.setenv("MAX_ACTIVE_CANDIDATES", "7")
     monkeypatch.setenv("CANDIDATE_CACHE_TTL_SECONDS", "20")
     monkeypatch.setenv("ROUTE_CHECK_CACHE_TTL_SECONDS", "15")
+    # Visibility-only wallet snapshot (doctor) needs a wallet address.
+    monkeypatch.setenv("WALLET_ADDRESS", "Gt4RRcMg2mzEN9SDtSUjEjezC9b1nXjEGDQyEVbrc7Sk")
     monkeypatch.delenv("SOLANA_KEYPAIR_PATH", raising=False)
     monkeypatch.delenv("BS58_PRIVATE_KEY", raising=False)
 
@@ -38,8 +40,14 @@ def test_doctor_without_wallet_scan_safe(monkeypatch, tmp_path, capsys):
     _base_env(monkeypatch, tmp_path)
     from creeper_dripper.clients import birdeye as birdeye_mod
     from creeper_dripper.clients import jupiter as jupiter_mod
+    from creeper_dripper.execution import executor as executor_mod
 
     monkeypatch.setattr(birdeye_mod.BirdeyeClient, "trending_tokens", lambda self, limit=1: [])
+    monkeypatch.setattr(
+        birdeye_mod.BirdeyeClient,
+        "wallet_token_list",
+        lambda self, wallet, ui_amount_mode="scaled": {"wallet": wallet, "totalUsd": 0.0, "items": []},
+    )
     monkeypatch.setattr(
         jupiter_mod.JupiterClient,
         "probe_quote",
@@ -50,6 +58,7 @@ def test_doctor_without_wallet_scan_safe(monkeypatch, tmp_path, capsys):
         "check_swap_reachability",
         lambda self: None,
     )
+    monkeypatch.setattr(executor_mod.TradeExecutor, "native_sol_balance_lamports", lambda self, _w: 1_000_000_000)
 
     code = main(["doctor"])
     stdout = capsys.readouterr().out
@@ -57,6 +66,41 @@ def test_doctor_without_wallet_scan_safe(monkeypatch, tmp_path, capsys):
     assert code == 0
     assert out["ok"] is True
     assert "=== ENV SNAPSHOT (masked) ===" in stdout
+    # Doctor should initialize Hachi birth baseline from first wallet snapshot (and persist it).
+    settings = load_settings()
+    portfolio = load_portfolio(settings.state_path, settings.portfolio_start_sol)
+    assert portfolio.hachi_birth_wallet_sol is not None
+    assert portfolio.hachi_birth_timestamp is not None
+
+
+def test_doctor_does_not_overwrite_hachi_birth(monkeypatch, tmp_path):
+    _base_env(monkeypatch, tmp_path)
+    from creeper_dripper.clients import birdeye as birdeye_mod
+    from creeper_dripper.clients import jupiter as jupiter_mod
+    from creeper_dripper.execution import executor as executor_mod
+
+    # Seed existing birth baseline in state.
+    settings = load_settings()
+    portfolio = new_portfolio(settings.portfolio_start_sol)
+    portfolio.hachi_birth_wallet_sol = 9.0
+    portfolio.hachi_birth_timestamp = "2026-01-01T00:00:00+00:00"
+    save_portfolio(settings.state_path, portfolio)
+
+    monkeypatch.setattr(birdeye_mod.BirdeyeClient, "trending_tokens", lambda self, limit=1: [])
+    monkeypatch.setattr(
+        birdeye_mod.BirdeyeClient,
+        "wallet_token_list",
+        lambda self, wallet, ui_amount_mode="scaled": {"wallet": wallet, "totalUsd": 0.0, "items": []},
+    )
+    monkeypatch.setattr(jupiter_mod.JupiterClient, "probe_quote", lambda self, **kwargs: {"ok": True})
+    monkeypatch.setattr(jupiter_mod.JupiterClient, "check_swap_reachability", lambda self: None)
+    monkeypatch.setattr(executor_mod.TradeExecutor, "native_sol_balance_lamports", lambda self, _w: 2_000_000_000)
+
+    code = main(["doctor"])
+    assert code == 0
+    reloaded = load_portfolio(settings.state_path, settings.portfolio_start_sol)
+    assert reloaded.hachi_birth_wallet_sol == 9.0
+    assert reloaded.hachi_birth_timestamp == "2026-01-01T00:00:00+00:00"
 
 
 def test_doctor_invalid_wallet_path(monkeypatch, tmp_path):

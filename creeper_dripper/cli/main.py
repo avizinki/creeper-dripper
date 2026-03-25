@@ -921,6 +921,21 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     # Dynamic capacity (computed from current visibility-only wallet snapshot)
     lamports = executor.native_sol_balance_lamports(wallet) if wallet else None
     wallet_sol = None if lamports is None else float(lamports) / 1_000_000_000.0
+    # Hachi birth baseline initialization (first interaction wins: doctor or run startup).
+    # Never overwrite if already set.
+    try:
+        if portfolio is not None and portfolio.hachi_birth_wallet_sol is None and wallet_sol is not None:
+            now = datetime.now(timezone.utc).isoformat()
+            portfolio.hachi_birth_wallet_sol = float(wallet_sol)
+            portfolio.hachi_birth_timestamp = now
+            save_portfolio(settings.state_path, portfolio)
+            LOGGER.warning(
+                "event=hachi_birth_initialized source=doctor wallet_sol=%s timestamp=%s",
+                portfolio.hachi_birth_wallet_sol,
+                portfolio.hachi_birth_timestamp,
+            )
+    except Exception as exc:
+        LOGGER.warning("doctor_hachi_birth_init_failed: %s", exc)
     _print_dynamic_capacity(
         settings=settings,
         engine=None,
