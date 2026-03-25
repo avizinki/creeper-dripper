@@ -346,6 +346,170 @@ def _print_dynamic_capacity(
 
 
 
+def run_doctor_checks(settings) -> tuple[bool, list[dict], object | None]:
+    """
+    Core health checks shared by `doctor` and `run` preflight.
+
+    Returns (all_ok, checks, portfolio_or_none). May mutate `settings` (Hachi birth
+    fields from portfolio) and persist portfolio when clearing stale-market safe mode.
+    """
+    checks: list[dict] = []
+    ok = True
+
+    checks.append({"check": "config_load", "ok": True})
+    checks.append(
+        {
+            "check": "mode_flags",
+            "ok": True,
+            "dry_run": settings.dry_run,
+            "live_trading_enabled": settings.live_trading_enabled,
+        }
+    )
+
+    if settings.solana_keypair_path:
+        wallet_ok = (
+            settings.solana_keypair_path.exists()
+            and settings.solana_keypair_path.is_file()
+            and os.access(settings.solana_keypair_path, os.R_OK)
+        )
+        checks.append({"check": "wallet_path", "ok": wallet_ok, "path": str(settings.solana_keypair_path)})
+        ok = ok and wallet_ok
+    else:
+        checks.append({"check": "wallet_path", "ok": True, "note": "not configured (allowed for doctor/scan/quote)"})
+
+    runtime_ok = os.access(settings.runtime_dir, os.W_OK)
+    checks.append({"check": "runtime_dir_writable", "ok": runtime_ok, "path": str(settings.runtime_dir)})
+    ok = ok and runtime_ok
+
+    birdeye = BirdeyeClient(settings.birdeye_api_key, chain=settings.chain)
+    try:
+        birdeye.trending_tokens(limit=1)
+        checks.append({"check": "birdeye_auth", "ok": True})
+    except Exception as exc:
+        checks.append({"check": "birdeye_auth", "ok": False, "error": str(exc)})
+        ok = False
+
+    jupiter = JupiterClient(settings.jupiter_api_key)
+    try:
+        jupiter.probe_quote(
+            input_mint=SOL_MINT,
+            output_mint=USDC_MINT,
+            amount_atomic=1_000_000,
+            slippage_bps=settings.default_slippage_bps,
+        )
+        checks.append({"check": "jupiter_probe_reachable_v1_quote", "ok": True, "endpoint": "GET /swap/v1/quote"})
+    except Exception as exc:
+        checks.append(
+            {
+                "check": "jupiter_probe_reachable_v1_quote",
+                "ok": False,
+                "endpoint": "GET /swap/v1/quote",
+                "error": str(exc),
+            }
+        )
+        ok = False
+
+    try:
+        jupiter.check_swap_reachability()
+        checks.append({"check": "jupiter_execution_reachable_v1_swap", "ok": True, "endpoint": "POST /swap/v1/swap"})
+    except Exception as exc:
+        checks.append(
+            {
+                "check": "jupiter_execution_reachable_v1_swap",
+                "ok": False,
+                "endpoint": "POST /swap/v1/swap",
+                "error": str(exc),
+            }
+        )
+        ok = False
+
+    portfolio = None
+    try:
+        portfolio = load_portfolio(settings.state_path, settings.portfolio_start_sol)
+        ignored_stale = False
+        if portfolio.safe_mode_active and portfolio.safety_stop_reason == SAFETY_STALE_MARKET_DATA:
+            portfolio.safe_mode_active = False
+            portfolio.safety_stop_reason = None
+            ignored_stale = True
+            try:
+                save_portfolio(settings.state_path, portfolio)
+            except Exception as exc:
+                LOGGER.warning("doctor_clear_stale_market_safe_mode_failed: %s", exc)
+        if getattr(portfolio, "hachi_birth_wallet_sol", None) is not None:
+            try:
+                settings.hachi_birth_wallet_sol = float(portfolio.hachi_birth_wallet_sol)
+                settings.hachi_birth_timestamp = portfolio.hachi_birth_timestamp
+            except Exception:
+                pass
+        checks.append(
+            {
+                "check": "safe_mode_state",
+                "ok": True,
+                "safe_mode_active": portfolio.safe_mode_active,
+                "safety_stop_reason": portfolio.safety_stop_reason,
+                "ignored_stale_market_data_outside_run": ignored_stale,
+            }
+        )
+    except Exception as exc:
+        checks.append({"check": "safe_mode_state", "ok": False, "error": str(exc)})
+        ok = False
+
+    return ok, checks, portfolio
+
+
+def _print_preflight_summary_lines(checks: list[dict]) -> None:
+    """Compact operator-facing lines for the standard doctor checks."""
+    print("Preflight summary:")
+    for row in checks:
+        name = row.get("check", "?")
+        row_ok = bool(row.get("ok"))
+        label = "ok" if row_ok else "FAIL"
+        bits: list[str] = [f"  {name}: {label}"]
+        if name == "mode_flags" and row_ok:
+            bits.append(f"dry_run={row.get('dry_run')} live_trading_enabled={row.get('live_trading_enabled')}")
+        elif name == "wallet_path":
+            if row.get("path"):
+                bits.append(f"path={row['path']}")
+            if row.get("note"):
+                bits.append(str(row["note"]))
+        elif name == "runtime_dir_writable" and row.get("path"):
+            bits.append(f"path={row['path']}")
+        elif name == "safe_mode_state" and row_ok:
+            bits.append(f"safe_mode_active={row.get('safe_mode_active')} safety_stop_reason={row.get('safety_stop_reason')}")
+        if not row_ok and row.get("error"):
+            bits.append(f"error={row['error']}")
+        elif name in ("jupiter_probe_reachable_v1_quote", "jupiter_execution_reachable_v1_swap") and row.get("endpoint"):
+            bits.append(f"endpoint={row['endpoint']}")
+        print(" | ".join(bits))
+
+
+def _print_preflight_failure(checks: list[dict]) -> None:
+    failed = [c for c in checks if not c.get("ok")]
+    print("Preflight doctor: FAILED")
+    print("Failed checks:")
+    for c in failed:
+        name = c.get("check", "?")
+        err = c.get("error")
+        if err:
+            print(f"  - {name}: {err}")
+        else:
+            print(f"  - {name}: {c}")
+
+
+def _print_run_capacity_config_line(settings) -> None:
+    """Hard caps + baselines before engine/wallet snapshot (effective limits printed in STARTUP DYNAMIC CAPACITY)."""
+    ho = getattr(settings, "hard_max_open_positions", None)
+    hd = getattr(settings, "hard_max_daily_new_positions", None)
+    print(
+        "[preflight] capacity (config): "
+        f"hard_max_open_positions={ho} "
+        f"hard_max_daily_new_positions={hd} "
+        f"max_open_positions={settings.max_open_positions} "
+        f"max_daily_new_positions={settings.max_daily_new_positions} "
+        "(effective_max_* printed after wallet snapshot)"
+    )
+
+
 def _safe_snapshot_copy(src: Path, dst: Path) -> None:
     if not src.exists():
         return
@@ -610,6 +774,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     settings.run_dir.mkdir(parents=True, exist_ok=True)
     settings.run_log_path = settings.run_dir / "logfile.log"
     setup_logging(settings.log_level, runtime_dir=settings.runtime_dir, run_log_path=settings.run_log_path)
+
+    ok, checks, _pf_portfolio = run_doctor_checks(settings)
+    _print_preflight_summary_lines(checks)
+    if not ok:
+        _print_preflight_failure(checks)
+        LOGGER.error("preflight_doctor_failed checks=%s", checks)
+        return 1
+    print("Preflight doctor: ok")
+    _print_run_capacity_config_line(settings)
+
     require_owner = settings.live_trading_enabled and not settings.dry_run
     _settings, engine, executor, birdeye, owner = build_runtime(
         require_owner=require_owner,
@@ -1018,93 +1192,18 @@ def cmd_quote(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(_args: argparse.Namespace) -> int:
-    checks: list[dict] = []
-    ok = True
     settings = None
     try:
         settings = load_settings()
-        checks.append({"check": "config_load", "ok": True})
-        checks.append(
-            {
-                "check": "mode_flags",
-                "ok": True,
-                "dry_run": settings.dry_run,
-                "live_trading_enabled": settings.live_trading_enabled,
-            }
-        )
     except Exception as exc:
-        checks.append({"check": "config_load", "ok": False, "error": str(exc)})
+        checks = [{"check": "config_load", "ok": False, "error": str(exc)}]
         print(json.dumps({"ok": False, "checks": checks}, indent=2, default=str))
         return 1
 
-    if settings.solana_keypair_path:
-        wallet_ok = settings.solana_keypair_path.exists() and settings.solana_keypair_path.is_file() and os.access(settings.solana_keypair_path, os.R_OK)
-        checks.append({"check": "wallet_path", "ok": wallet_ok, "path": str(settings.solana_keypair_path)})
-        ok = ok and wallet_ok
-    else:
-        checks.append({"check": "wallet_path", "ok": True, "note": "not configured (allowed for doctor/scan/quote)"})
-
-    runtime_ok = os.access(settings.runtime_dir, os.W_OK)
-    checks.append({"check": "runtime_dir_writable", "ok": runtime_ok, "path": str(settings.runtime_dir)})
-    ok = ok and runtime_ok
-
-    birdeye = BirdeyeClient(settings.birdeye_api_key, chain=settings.chain)
-    try:
-        birdeye.trending_tokens(limit=1)
-        checks.append({"check": "birdeye_auth", "ok": True})
-    except Exception as exc:
-        checks.append({"check": "birdeye_auth", "ok": False, "error": str(exc)})
-        ok = False
-
-    jupiter = JupiterClient(settings.jupiter_api_key)
-    try:
-        jupiter.probe_quote(input_mint=SOL_MINT, output_mint=USDC_MINT, amount_atomic=1_000_000, slippage_bps=settings.default_slippage_bps)
-        checks.append({"check": "jupiter_probe_reachable_v1_quote", "ok": True, "endpoint": "GET /swap/v1/quote"})
-    except Exception as exc:
-        checks.append({"check": "jupiter_probe_reachable_v1_quote", "ok": False, "endpoint": "GET /swap/v1/quote", "error": str(exc)})
-        ok = False
-
-    try:
-        jupiter.check_swap_reachability()
-        checks.append({"check": "jupiter_execution_reachable_v1_swap", "ok": True, "endpoint": "POST /swap/v1/swap"})
-    except Exception as exc:
-        checks.append({"check": "jupiter_execution_reachable_v1_swap", "ok": False, "endpoint": "POST /swap/v1/swap", "error": str(exc)})
-        ok = False
-
-    portfolio = None
-    try:
-        portfolio = load_portfolio(settings.state_path, settings.portfolio_start_sol)
-        # Doctor is not an active run loop; stale-market safe-mode should not persist outside a run.
-        ignored_stale = False
-        if portfolio.safe_mode_active and portfolio.safety_stop_reason == SAFETY_STALE_MARKET_DATA:
-            portfolio.safe_mode_active = False
-            portfolio.safety_stop_reason = None
-            ignored_stale = True
-            try:
-                save_portfolio(settings.state_path, portfolio)
-            except Exception as exc:
-                LOGGER.warning("doctor_clear_stale_market_safe_mode_failed: %s", exc)
-        # Surface any persisted Hachi birth baseline in this doctor output.
-        if getattr(portfolio, "hachi_birth_wallet_sol", None) is not None:
-            try:
-                settings.hachi_birth_wallet_sol = float(portfolio.hachi_birth_wallet_sol)
-                settings.hachi_birth_timestamp = portfolio.hachi_birth_timestamp
-            except Exception:
-                pass
-        checks.append(
-            {
-                "check": "safe_mode_state",
-                "ok": True,
-                "safe_mode_active": portfolio.safe_mode_active,
-                "safety_stop_reason": portfolio.safety_stop_reason,
-                "ignored_stale_market_data_outside_run": ignored_stale,
-            }
-        )
-    except Exception as exc:
-        checks.append({"check": "safe_mode_state", "ok": False, "error": str(exc)})
-        ok = False
-
+    ok, checks, portfolio = run_doctor_checks(settings)
     print(json.dumps({"ok": ok, "checks": checks}, indent=2, default=str))
+    birdeye = BirdeyeClient(settings.birdeye_api_key, chain=settings.chain)
+    jupiter = JupiterClient(settings.jupiter_api_key)
     # Wallet snapshot (visibility only; never used as settlement truth)
     wallet = _wallet_address_for_snapshot(settings)
     executor = TradeExecutor(jupiter, owner=None, settings=settings)

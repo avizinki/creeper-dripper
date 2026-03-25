@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from json import JSONDecoder
 
+import creeper_dripper.cli.main as main_mod
 from creeper_dripper.cli.main import main
 from creeper_dripper.config import load_settings
 from creeper_dripper.engine.trader import CreeperDripper
@@ -108,6 +109,92 @@ def test_doctor_invalid_wallet_path(monkeypatch, tmp_path):
     monkeypatch.setenv("SOLANA_KEYPAIR_PATH", str(tmp_path / "wallets" / "missing.json"))
     code = main(["doctor"])
     assert code == 1
+
+
+def _run_mocks(monkeypatch):
+    from creeper_dripper.clients import birdeye as birdeye_mod
+    from creeper_dripper.clients import jupiter as jupiter_mod
+    from creeper_dripper.execution import executor as executor_mod
+
+    monkeypatch.setattr(birdeye_mod.BirdeyeClient, "trending_tokens", lambda self, limit=1: [])
+    monkeypatch.setattr(
+        birdeye_mod.BirdeyeClient,
+        "wallet_token_list",
+        lambda self, wallet, ui_amount_mode="scaled": {"wallet": wallet, "totalUsd": 0.0, "items": []},
+    )
+    monkeypatch.setattr(jupiter_mod.JupiterClient, "probe_quote", lambda self, **kwargs: {"ok": True})
+    monkeypatch.setattr(jupiter_mod.JupiterClient, "check_swap_reachability", lambda self: None)
+    monkeypatch.setattr(executor_mod.TradeExecutor, "native_sol_balance_lamports", lambda self, _w: 1_000_000_000)
+
+
+def _minimal_run_cycle_output():
+    return {
+        "timestamp": "2026-01-01T00:00:00+00:00",
+        "cash_sol": 5.0,
+        "open_positions": 0,
+        "candidate_symbols": [],
+        "decisions": [],
+        "summary": {
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "candidate_cache_hits": 0,
+            "candidate_cache_misses": 0,
+            "route_cache_hits": 0,
+            "route_cache_misses": 0,
+            "discovered_candidates": 0,
+            "prefiltered_candidates": 0,
+            "candidates_built": 0,
+            "topn_candidates": 0,
+            "route_checked_candidates": 0,
+            "candidates_accepted": 0,
+            "discovery_cached": False,
+            "cache_debug_first_keys": [],
+            "cache_debug_identity": {},
+            "cache_engine_identity": {},
+            "cache_debug_trace": {},
+            "entries_skipped_dry_run": 0,
+            "entries_skipped_live_disabled": 0,
+            "entries_attempted": 0,
+            "entries_succeeded": 0,
+            "exits_attempted": 0,
+            "exits_succeeded": 0,
+            "exit_blocked_positions": 0,
+            "execution_failures": 0,
+        },
+        "events": [],
+    }
+
+
+def test_run_preflight_fails_when_birdeye_unreachable(monkeypatch, tmp_path, capsys):
+    _base_env(monkeypatch, tmp_path)
+    from creeper_dripper.clients import birdeye as birdeye_mod
+
+    def _boom(self, limit=1):
+        raise RuntimeError("birdeye down")
+
+    monkeypatch.setattr(birdeye_mod.BirdeyeClient, "trending_tokens", _boom)
+    code = main(["run", "--once"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "Preflight doctor: FAILED" in out
+    assert "birdeye_auth" in out
+    assert "run_started" not in out
+
+
+def test_run_preflight_ok_runs_once(monkeypatch, tmp_path, capsys):
+    _base_env(monkeypatch, tmp_path)
+    _run_mocks(monkeypatch)
+    monkeypatch.setattr(main_mod, "_start_dashboard_process", lambda _settings: None)
+    monkeypatch.setattr(CreeperDripper, "run_startup_recovery", lambda self: [])
+    monkeypatch.setattr(CreeperDripper, "run_cycle", lambda self: _minimal_run_cycle_output())
+    code = main(["run", "--once"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Preflight doctor: ok" in out
+    assert "Preflight summary:" in out
+    assert "[preflight] capacity (config):" in out
+    assert "run_started" in out
+    assert "STARTUP DYNAMIC CAPACITY" in out
 
 
 def test_status_command_empty_state(monkeypatch, tmp_path, capsys):
