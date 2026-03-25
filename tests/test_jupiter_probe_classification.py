@@ -87,10 +87,12 @@ def test_jupiter_client_preserves_400_response_body(monkeypatch):
 
     monkeypatch.setattr(client._session, "get", fake_get)
     try:
-        client.order(
+        # execution_order_v2 is the current method that hits /order.
+        client.execution_order_v2(
             input_mint="So11111111111111111111111111111111111111112",
             output_mint="x95HN3DWvbfCBtTjGm587z8suK3ec6cwQwgZNLbWKyp",
             amount_atomic=10_000_000,
+            taker="fake_taker",
             slippage_bps=250,
         )
     except JupiterBadRequestError as exc:
@@ -103,7 +105,8 @@ def test_jupiter_client_preserves_400_response_body(monkeypatch):
 
 
 def test_curl_proofed_success_params_match_app_params():
-    params = JupiterClient.build_order_params(
+    # build_quote_params is the current static method that builds /quote GET params.
+    params = JupiterClient.build_quote_params(
         input_mint="So11111111111111111111111111111111111111112",
         output_mint="x95HN3DWvbfCBtTjGm587z8suK3ec6cwQwgZNLbWKyp",
         amount_atomic=10_000_000,

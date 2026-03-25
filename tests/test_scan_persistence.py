@@ -16,6 +16,9 @@ def _base_env(monkeypatch, tmp_path):
     monkeypatch.setenv("JOURNAL_PATH", str(tmp_path / "runtime" / "journal.jsonl"))
     monkeypatch.delenv("SOLANA_KEYPAIR_PATH", raising=False)
     monkeypatch.delenv("BS58_PRIVATE_KEY", raising=False)
+    # Isolate from LIVE_TRADING_ENABLED leaked into os.environ by load_dotenv in prior tests.
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("DRY_RUN", "true")
 
 
 @dataclass(slots=True)

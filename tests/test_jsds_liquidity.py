@@ -19,7 +19,11 @@ def _settings(monkeypatch, tmp_path):
     monkeypatch.setenv("STATE_PATH", str(tmp_path / "state.json"))
     monkeypatch.setenv("JOURNAL_PATH", str(tmp_path / "journal.jsonl"))
     monkeypatch.setenv("RUNTIME_DIR", str(tmp_path))
-    return load_settings()
+    settings = load_settings()
+    # Force-assign so load_dotenv(override=True) from .env doesn't stomp test values.
+    # JSDS tests exercise JSDS logic only; Hachi dripper must be off.
+    settings.hachi_dripper_enabled = False
+    return settings
 
 
 def _base_position(mint: str, *, opened: str) -> PositionState:

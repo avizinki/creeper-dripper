@@ -11,7 +11,10 @@ def _settings(monkeypatch, require_exit: bool):
     monkeypatch.setenv("BIRDEYE_API_KEY", "x")
     monkeypatch.setenv("JUPITER_API_KEY", "x")
     monkeypatch.setenv("REQUIRE_BIRDEYE_EXIT_LIQUIDITY", "true" if require_exit else "false")
-    return load_settings()
+    settings = load_settings()
+    # Force-assign so load_dotenv(override=True) from .env doesn't stomp the test value.
+    settings.require_birdeye_exit_liquidity = require_exit
+    return settings
 
 
 def test_birdeye_unsupported_exit_liquidity_does_not_fail_build(monkeypatch):

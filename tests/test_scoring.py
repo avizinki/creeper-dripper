@@ -21,6 +21,7 @@ def test_score_candidate_rewards_good_structure(monkeypatch):
         top10_holder_percent=20,
         jupiter_buy_price_impact_bps=120,
         jupiter_sell_price_impact_bps=180,
+        sell_route_available=True,   # explicitly mark route confirmed for filter pass
     )
     scored = score_candidate(c, settings)
     assert scored.discovery_score >= settings.min_discovery_score

@@ -28,12 +28,10 @@ def test_jupiter_swap_endpoint_returns_transaction(monkeypatch):
             return {"swapTransaction": "ZmFrZV90eA=="}
 
     monkeypatch.setattr(client._session, "post", lambda *_args, **_kwargs: Resp())
+    # swap_transaction takes a pre-built quote_response dict, not raw mint/amount params.
     tx = client.swap_transaction(
-        input_mint="So11111111111111111111111111111111111111112",
-        output_mint="mint",
-        amount_atomic=10_000_000,
+        quote_response={"inputMint": "So11111111111111111111111111111111111111112", "outputMint": "mint", "amount": "10000000"},
         user_public_key="owner",
-        slippage_bps=250,
     )
     assert tx == "ZmFrZV90eA=="
 
