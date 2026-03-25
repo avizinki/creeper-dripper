@@ -7,6 +7,7 @@ import os
 import secrets
 import signal
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -331,6 +332,92 @@ def _handle_sigint(_signum, _frame):
     STOP = True
 
 
+def _tcp_port_in_use(host: str, port: int) -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(0.25)
+        return sock.connect_ex((host, port)) == 0
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def _start_dashboard_process(settings) -> subprocess.Popen | None:
+    """Spawn local read-only dashboard (uvicorn); never raises."""
+    host, port = "127.0.0.1", 8765
+    try:
+        if _tcp_port_in_use(host, port):
+            print("Dashboard already running on port 8765")
+            LOGGER.warning("event=dashboard_start_skipped reason=port_in_use port=%s", port)
+            return None
+        venv_uvicorn = Path.cwd() / ".venv" / "bin" / "uvicorn"
+        if venv_uvicorn.is_file():
+            cmd = [
+                str(venv_uvicorn),
+                "creeper_dripper.dashboard.app:app",
+                "--host",
+                host,
+                "--port",
+                str(port),
+            ]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "creeper_dripper.dashboard.app:app",
+                "--host",
+                host,
+                "--port",
+                str(port),
+            ]
+        env = os.environ.copy()
+        env["RUNTIME_DIR"] = str(settings.runtime_dir)
+        env["STATE_PATH"] = str(settings.state_path)
+        env["JOURNAL_PATH"] = str(settings.journal_path)
+        env["STATUS_PATH"] = str(settings.runtime_dir / "status.json")
+        env["LOGFILE_PATH"] = str(settings.run_log_path)
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
+        time.sleep(0.6)
+        if proc.poll() is not None:
+            LOGGER.warning(
+                "event=dashboard_start_failed returncode=%s",
+                proc.returncode,
+            )
+            return None
+        print("Dashboard running at http://127.0.0.1:8765")
+        LOGGER.info("event=dashboard_started host=%s port=%s pid=%s", host, port, proc.pid)
+        return proc
+    except Exception as exc:
+        LOGGER.warning("event=dashboard_start_failed error=%s", exc)
+        return None
+
+
+def _stop_dashboard_process(proc: subprocess.Popen | None) -> None:
+    if proc is None:
+        return
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                LOGGER.warning("dashboard_stop_kill_timeout pid=%s", proc.pid)
+        LOGGER.info("event=dashboard_stopped pid=%s", proc.pid)
+    except Exception as exc:
+        LOGGER.warning("event=dashboard_stopped error=%s pid=%s", exc, getattr(proc, "pid", None))
+
+
 def _load_owner_if_configured(settings):
     if settings.solana_keypair_path:
         LOGGER.info("Loading Solana keypair from path: %s", settings.solana_keypair_path)
@@ -570,261 +657,266 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
     signal.signal(signal.SIGINT, _handle_sigint)
     signal.signal(signal.SIGTERM, _handle_sigint)
-    next_run = time.monotonic()
-    cycles = 0
-    requested_cycles = 1 if args.once else (max(1, int(args.cycles)) if args.cycles is not None else None)
-    prev_cache_debug_keys: list[str] = []
-    stop_reason = "unknown"
-    while not STOP:
-        cycles += 1
-        cycle_started_mono = time.monotonic()
-        cycle_start_ts = datetime.now(timezone.utc).isoformat()
-        prev_positions = {
-            mint: {
-                "symbol": p.symbol,
-                "status": p.status,
-                "last_price_usd": p.last_price_usd,
-                "peak_price_usd": p.peak_price_usd,
-                "last_mark_sol_per_token": p.last_mark_sol_per_token,
-                "peak_mark_sol_per_token": p.peak_mark_sol_per_token,
-                "current_estimated_value_sol": p.last_estimated_exit_value_sol,
-                "unrealized_pnl_sol": p.unrealized_pnl_sol,
-                "valuation_source": p.valuation_source,
-                "usd_mark_unavailable": p.usd_mark_unavailable,
+    dashboard_process: subprocess.Popen | None = None
+    try:
+        dashboard_process = _start_dashboard_process(settings)
+        next_run = time.monotonic()
+        cycles = 0
+        requested_cycles = 1 if args.once else (max(1, int(args.cycles)) if args.cycles is not None else None)
+        prev_cache_debug_keys: list[str] = []
+        stop_reason = "unknown"
+        while not STOP:
+            cycles += 1
+            cycle_started_mono = time.monotonic()
+            cycle_start_ts = datetime.now(timezone.utc).isoformat()
+            prev_positions = {
+                mint: {
+                    "symbol": p.symbol,
+                    "status": p.status,
+                    "last_price_usd": p.last_price_usd,
+                    "peak_price_usd": p.peak_price_usd,
+                    "last_mark_sol_per_token": p.last_mark_sol_per_token,
+                    "peak_mark_sol_per_token": p.peak_mark_sol_per_token,
+                    "current_estimated_value_sol": p.last_estimated_exit_value_sol,
+                    "unrealized_pnl_sol": p.unrealized_pnl_sol,
+                    "valuation_source": p.valuation_source,
+                    "usd_mark_unavailable": p.usd_mark_unavailable,
+                }
+                for mint, p in engine.portfolio.open_positions.items()
             }
-            for mint, p in engine.portfolio.open_positions.items()
-        }
-        summary = engine.run_cycle()
-        cycle_end_ts = datetime.now(timezone.utc).isoformat()
-        print(json.dumps(summary, indent=2, default=str))
-        s = summary.get("summary", {})
-        runtime_cost_line = (
-            "runtime_cost: "
-            f"cache_hits={s.get('cache_hits', 0)} "
-            f"cache_misses={s.get('cache_misses', 0)} "
-            f"candidate_cache_hits={s.get('candidate_cache_hits', 0)} "
-            f"candidate_cache_misses={s.get('candidate_cache_misses', 0)} "
-            f"route_cache_hits={s.get('route_cache_hits', 0)} "
-            f"route_cache_misses={s.get('route_cache_misses', 0)} "
-            f"discovered={s.get('discovered_candidates', 0)} "
-            f"prefiltered={s.get('prefiltered_candidates', 0)} "
-            f"built={s.get('candidates_built', 0)} "
-            f"topN={s.get('topn_candidates', 0)} "
-            f"route_checked={s.get('route_checked_candidates', 0)} "
-            f"accepted={s.get('candidates_accepted', 0)} "
-            f"discovery_reused={s.get('discovery_cached', False)}"
-        )
-        print(runtime_cost_line)
-        LOGGER.info(runtime_cost_line)
-        cache_debug_first_keys = list(s.get("cache_debug_first_keys") or [])
-        repeated_with_prev_cycle = bool(set(cache_debug_first_keys) & set(prev_cache_debug_keys))
-        cache_debug_line = (
-            "cache_debug: "
-            f"first_keys={cache_debug_first_keys} "
-            f"repeat_with_prev_cycle={repeated_with_prev_cycle}"
-        )
-        print(cache_debug_line)
-        LOGGER.info(cache_debug_line)
-        identity = s.get("cache_debug_identity") or {}
-        engine_identity = s.get("cache_engine_identity") or {}
-        cache_identity_line = (
-            "cache_identity: "
-            f"engine_candidate_id={engine_identity.get('candidate_cache_id')} "
-            f"discover_candidate_id={identity.get('candidate_cache_id')} "
-            f"engine_route_id={engine_identity.get('route_cache_id')} "
-            f"discover_route_id={identity.get('route_cache_id')}"
-        )
-        print(cache_identity_line)
-        LOGGER.info(cache_identity_line)
-        cache_trace = s.get("cache_debug_trace") or {}
-        candidate_trace = list(cache_trace.get("candidate") or [])
-        route_trace = list(cache_trace.get("route") or [])
-        cache_trace_line = (
-            "cache_trace: "
-            f"candidate_first_ops={candidate_trace[:6]} "
-            f"route_first_ops={route_trace[:6]}"
-        )
-        print(cache_trace_line)
-        LOGGER.info(cache_trace_line)
-        prev_cache_debug_keys = cache_debug_first_keys
-        if (s.get("entries_skipped_dry_run", 0) or 0) > 0 or (s.get("entries_skipped_live_disabled", 0) or 0) > 0:
-            print(
-                "entry execution skipped by mode: "
-                f"dry_run={s.get('entries_skipped_dry_run', 0)}, "
-                f"live_disabled={s.get('entries_skipped_live_disabled', 0)}"
+            summary = engine.run_cycle()
+            cycle_end_ts = datetime.now(timezone.utc).isoformat()
+            print(json.dumps(summary, indent=2, default=str))
+            s = summary.get("summary", {})
+            runtime_cost_line = (
+                "runtime_cost: "
+                f"cache_hits={s.get('cache_hits', 0)} "
+                f"cache_misses={s.get('cache_misses', 0)} "
+                f"candidate_cache_hits={s.get('candidate_cache_hits', 0)} "
+                f"candidate_cache_misses={s.get('candidate_cache_misses', 0)} "
+                f"route_cache_hits={s.get('route_cache_hits', 0)} "
+                f"route_cache_misses={s.get('route_cache_misses', 0)} "
+                f"discovered={s.get('discovered_candidates', 0)} "
+                f"prefiltered={s.get('prefiltered_candidates', 0)} "
+                f"built={s.get('candidates_built', 0)} "
+                f"topN={s.get('topn_candidates', 0)} "
+                f"route_checked={s.get('route_checked_candidates', 0)} "
+                f"accepted={s.get('candidates_accepted', 0)} "
+                f"discovery_reused={s.get('discovery_cached', False)}"
             )
-        cycle_id = cycles
-        _safe_snapshot_copy(settings.state_path, run_dir / f"state_cycle_{cycle_id}.json")
-        _safe_snapshot_copy(settings.runtime_dir / "status.json", run_dir / f"status_cycle_{cycle_id}.json")
-        _safe_snapshot_copy(settings.journal_path, run_dir / f"journal_cycle_{cycle_id}.jsonl")
-        atomic_write_json(run_dir / f"events_cycle_{cycle_id}.json", summary.get("events", []))
-        copied_artifacts = _copy_new_runtime_artifacts(
-            settings.run_dir or settings.runtime_dir,
-            run_dir,
-            cycle_id,
-            seen_artifacts,
-            cycle_started_mono,
-        )
-
-        decisions = summary.get("decisions", [])
-        for mint, pos in engine.portfolio.open_positions.items():
-            symbol = pos.symbol
-            track = token_tracking.setdefault(
-                mint,
-                {
-                    "symbol": symbol,
-                    "status_transitions": [pos.status],
-                    "start_price_usd": pos.last_price_usd,
-                    "end_price_usd": pos.last_price_usd,
-                    "peak_updates": 0,
-                    "exit_attempts": 0,
-                    "exit_outcomes": [],
-                    "recovery_discrepancies": 0,
-                },
+            print(runtime_cost_line)
+            LOGGER.info(runtime_cost_line)
+            cache_debug_first_keys = list(s.get("cache_debug_first_keys") or [])
+            repeated_with_prev_cycle = bool(set(cache_debug_first_keys) & set(prev_cache_debug_keys))
+            cache_debug_line = (
+                "cache_debug: "
+                f"first_keys={cache_debug_first_keys} "
+                f"repeat_with_prev_cycle={repeated_with_prev_cycle}"
             )
-            old = prev_positions.get(mint)
-            if old and old.get("status") != pos.status:
-                track["status_transitions"].append(pos.status)
-            track["end_price_usd"] = pos.last_price_usd
-            if old and (pos.peak_price_usd or 0.0) > (old.get("peak_price_usd") or 0.0):
-                track["peak_updates"] += 1
-
-        for d in decisions:
-            action = d.get("action")
-            mint = d.get("token_mint")
-            if action == "SELL_ATTEMPT" and mint in token_tracking:
-                token_tracking[mint]["exit_attempts"] += 1
-            if action in {"SELL", "SELL_BLOCKED", "SELL_PENDING"} and mint in token_tracking:
-                token_tracking[mint]["exit_outcomes"].append(action)
-            if d.get("reason") == "recovery_wallet_gt_state" and mint in token_tracking:
-                token_tracking[mint]["recovery_discrepancies"] += 1
-
-            if action in {"SELL_BLOCKED", "SELL", "SELL_PENDING", "RECOVERY_DISCREPANCY", "BUY"}:
-                notable_events.append(
-                    {
-                        "cycle_id": cycle_id,
-                        "action": action,
-                        "symbol": d.get("symbol"),
-                        "reason": d.get("reason"),
-                        "classification": (d.get("metadata") or {}).get("classification"),
-                    }
+            print(cache_debug_line)
+            LOGGER.info(cache_debug_line)
+            identity = s.get("cache_debug_identity") or {}
+            engine_identity = s.get("cache_engine_identity") or {}
+            cache_identity_line = (
+                "cache_identity: "
+                f"engine_candidate_id={engine_identity.get('candidate_cache_id')} "
+                f"discover_candidate_id={identity.get('candidate_cache_id')} "
+                f"engine_route_id={engine_identity.get('route_cache_id')} "
+                f"discover_route_id={identity.get('route_cache_id')}"
+            )
+            print(cache_identity_line)
+            LOGGER.info(cache_identity_line)
+            cache_trace = s.get("cache_debug_trace") or {}
+            candidate_trace = list(cache_trace.get("candidate") or [])
+            route_trace = list(cache_trace.get("route") or [])
+            cache_trace_line = (
+                "cache_trace: "
+                f"candidate_first_ops={candidate_trace[:6]} "
+                f"route_first_ops={route_trace[:6]}"
+            )
+            print(cache_trace_line)
+            LOGGER.info(cache_trace_line)
+            prev_cache_debug_keys = cache_debug_first_keys
+            if (s.get("entries_skipped_dry_run", 0) or 0) > 0 or (s.get("entries_skipped_live_disabled", 0) or 0) > 0:
+                print(
+                    "entry execution skipped by mode: "
+                    f"dry_run={s.get('entries_skipped_dry_run', 0)}, "
+                    f"live_disabled={s.get('entries_skipped_live_disabled', 0)}"
                 )
-
-        observed_cycles.append(
-            {
-                "cycle_id": cycle_id,
-                "start_ts": cycle_start_ts,
-                "end_ts": cycle_end_ts,
-                "entries_attempted": s.get("entries_attempted", 0),
-                "entries_succeeded": s.get("entries_succeeded", 0),
-                "exits_attempted": s.get("exits_attempted", 0),
-                "exits_succeeded": s.get("exits_succeeded", 0),
-                "exit_blocked_positions": s.get("exit_blocked_positions", 0),
-                "execution_failures": s.get("execution_failures", 0),
-                "recovery_discrepancies": sum(1 for d in decisions if d.get("reason") == "recovery_wallet_gt_state"),
-                "cache_hits": s.get("cache_hits", 0),
-                "cache_misses": s.get("cache_misses", 0),
-                "candidate_cache_hits": s.get("candidate_cache_hits", 0),
-                "candidate_cache_misses": s.get("candidate_cache_misses", 0),
-                "route_cache_hits": s.get("route_cache_hits", 0),
-                "route_cache_misses": s.get("route_cache_misses", 0),
-                "discovered": s.get("discovered_candidates", 0),
-                "prefiltered": s.get("prefiltered_candidates", 0),
-                "built": s.get("candidates_built", 0),
-                "topN": s.get("topn_candidates", 0),
-                "route_checked": s.get("route_checked_candidates", 0),
-                "accepted": s.get("candidates_accepted", 0),
-                "discovery_reused": s.get("discovery_cached", False),
-                "cache_debug_first_keys": cache_debug_first_keys,
-                "cache_debug_repeat_with_prev_cycle": repeated_with_prev_cycle,
-                "copied_artifacts": copied_artifacts,
-            }
-        )
-
-        if requested_cycles is not None and cycles >= requested_cycles:
-            stop_reason = "requested_cycles_reached"
-            break
-        next_run += settings.poll_interval_seconds
-        monotonic_sleep_until(next_run)
-    if STOP and stop_reason == "unknown":
-        stop_reason = "signal"
-    # Operator stop guard: stopping manually must not leave the system in stale-market safe-mode.
-    if stop_reason == "signal" and engine.portfolio.safety_stop_reason == SAFETY_STALE_MARKET_DATA:
-        engine.portfolio.safe_mode_active = False
-        engine.portfolio.safety_stop_reason = None
-        try:
-            save_portfolio(settings.state_path, engine.portfolio)
-        except Exception as exc:
-            LOGGER.warning("stop_clear_stale_market_safe_mode_failed: %s", exc)
-
-    open_positions = list(engine.portfolio.open_positions.values())
-    blocked_positions = [p for p in open_positions if p.status == "EXIT_BLOCKED"]
-    blocked_symbols = [p.symbol for p in blocked_positions]
-
-    per_token = []
-    for mint, info in token_tracking.items():
-        start_price = info.get("start_price_usd")
-        end_price = info.get("end_price_usd")
-        price_change = None
-        if isinstance(start_price, (int, float)) and isinstance(end_price, (int, float)) and start_price:
-            price_change = ((end_price - start_price) / start_price) * 100.0
-        per_token.append(
-            {
-                "mint": mint,
-                "symbol": info.get("symbol"),
-                "status_transitions": info.get("status_transitions", []),
-                "price_change_pct": price_change,
-                "peak_updates": info.get("peak_updates", 0),
-                "exit_attempts": info.get("exit_attempts", 0),
-                "exit_outcomes": info.get("exit_outcomes", []),
-                "recovery_discrepancies": info.get("recovery_discrepancies", 0),
-            }
-        )
-
-    summary_payload = {
-        "run_dir": str(run_dir),
-        "run_id": settings.run_id,
-        "total_cycles": len(observed_cycles),
-        "entries_attempted": sum(c.get("entries_attempted", 0) for c in observed_cycles),
-        "entries_succeeded": sum(c.get("entries_succeeded", 0) for c in observed_cycles),
-        "exits_attempted": sum(c.get("exits_attempted", 0) for c in observed_cycles),
-        "exits_succeeded": sum(c.get("exits_succeeded", 0) for c in observed_cycles),
-        "exit_blocked_count": len(blocked_positions),
-        "blocked_symbols": blocked_symbols,
-        "recovery_discrepancies": sum(c.get("recovery_discrepancies", 0) for c in observed_cycles),
-        "execution_failures": sum(c.get("execution_failures", 0) for c in observed_cycles),
-        "cycles": observed_cycles,
-        "per_token_tracking": per_token,
-        "focus_tracking": {
-            "69": next((x for x in per_token if x.get("symbol") == "69"), None),
-            "PRl": next((x for x in per_token if x.get("symbol") == "PRl"), None),
-            "Sandwich": next((x for x in per_token if x.get("symbol") == "Sandwich"), None),
-        },
-        "notable_events": notable_events[:50],
-    }
-    atomic_write_json(run_dir / "summary.json", summary_payload)
-    print(json.dumps({"cycle_run_summary_path": str(run_dir / "summary.json")}, indent=2, default=str))
-    LOGGER.warning(
-        "event=run_stopped run_id=%s reason=%s total_cycles=%s run_dir=%s",
-        settings.run_id,
-        stop_reason,
-        len(observed_cycles),
-        run_dir,
-    )
-    print(
-        json.dumps(
-            {
-                "event": "run_stopped",
-                "run_id": settings.run_id,
-                "reason": stop_reason,
-                "total_cycles": len(observed_cycles),
-                "run_dir": str(run_dir),
+            cycle_id = cycles
+            _safe_snapshot_copy(settings.state_path, run_dir / f"state_cycle_{cycle_id}.json")
+            _safe_snapshot_copy(settings.runtime_dir / "status.json", run_dir / f"status_cycle_{cycle_id}.json")
+            _safe_snapshot_copy(settings.journal_path, run_dir / f"journal_cycle_{cycle_id}.jsonl")
+            atomic_write_json(run_dir / f"events_cycle_{cycle_id}.json", summary.get("events", []))
+            copied_artifacts = _copy_new_runtime_artifacts(
+                settings.run_dir or settings.runtime_dir,
+                run_dir,
+                cycle_id,
+                seen_artifacts,
+                cycle_started_mono,
+            )
+    
+            decisions = summary.get("decisions", [])
+            for mint, pos in engine.portfolio.open_positions.items():
+                symbol = pos.symbol
+                track = token_tracking.setdefault(
+                    mint,
+                    {
+                        "symbol": symbol,
+                        "status_transitions": [pos.status],
+                        "start_price_usd": pos.last_price_usd,
+                        "end_price_usd": pos.last_price_usd,
+                        "peak_updates": 0,
+                        "exit_attempts": 0,
+                        "exit_outcomes": [],
+                        "recovery_discrepancies": 0,
+                    },
+                )
+                old = prev_positions.get(mint)
+                if old and old.get("status") != pos.status:
+                    track["status_transitions"].append(pos.status)
+                track["end_price_usd"] = pos.last_price_usd
+                if old and (pos.peak_price_usd or 0.0) > (old.get("peak_price_usd") or 0.0):
+                    track["peak_updates"] += 1
+    
+            for d in decisions:
+                action = d.get("action")
+                mint = d.get("token_mint")
+                if action == "SELL_ATTEMPT" and mint in token_tracking:
+                    token_tracking[mint]["exit_attempts"] += 1
+                if action in {"SELL", "SELL_BLOCKED", "SELL_PENDING"} and mint in token_tracking:
+                    token_tracking[mint]["exit_outcomes"].append(action)
+                if d.get("reason") == "recovery_wallet_gt_state" and mint in token_tracking:
+                    token_tracking[mint]["recovery_discrepancies"] += 1
+    
+                if action in {"SELL_BLOCKED", "SELL", "SELL_PENDING", "RECOVERY_DISCREPANCY", "BUY"}:
+                    notable_events.append(
+                        {
+                            "cycle_id": cycle_id,
+                            "action": action,
+                            "symbol": d.get("symbol"),
+                            "reason": d.get("reason"),
+                            "classification": (d.get("metadata") or {}).get("classification"),
+                        }
+                    )
+    
+            observed_cycles.append(
+                {
+                    "cycle_id": cycle_id,
+                    "start_ts": cycle_start_ts,
+                    "end_ts": cycle_end_ts,
+                    "entries_attempted": s.get("entries_attempted", 0),
+                    "entries_succeeded": s.get("entries_succeeded", 0),
+                    "exits_attempted": s.get("exits_attempted", 0),
+                    "exits_succeeded": s.get("exits_succeeded", 0),
+                    "exit_blocked_positions": s.get("exit_blocked_positions", 0),
+                    "execution_failures": s.get("execution_failures", 0),
+                    "recovery_discrepancies": sum(1 for d in decisions if d.get("reason") == "recovery_wallet_gt_state"),
+                    "cache_hits": s.get("cache_hits", 0),
+                    "cache_misses": s.get("cache_misses", 0),
+                    "candidate_cache_hits": s.get("candidate_cache_hits", 0),
+                    "candidate_cache_misses": s.get("candidate_cache_misses", 0),
+                    "route_cache_hits": s.get("route_cache_hits", 0),
+                    "route_cache_misses": s.get("route_cache_misses", 0),
+                    "discovered": s.get("discovered_candidates", 0),
+                    "prefiltered": s.get("prefiltered_candidates", 0),
+                    "built": s.get("candidates_built", 0),
+                    "topN": s.get("topn_candidates", 0),
+                    "route_checked": s.get("route_checked_candidates", 0),
+                    "accepted": s.get("candidates_accepted", 0),
+                    "discovery_reused": s.get("discovery_cached", False),
+                    "cache_debug_first_keys": cache_debug_first_keys,
+                    "cache_debug_repeat_with_prev_cycle": repeated_with_prev_cycle,
+                    "copied_artifacts": copied_artifacts,
+                }
+            )
+    
+            if requested_cycles is not None and cycles >= requested_cycles:
+                stop_reason = "requested_cycles_reached"
+                break
+            next_run += settings.poll_interval_seconds
+            monotonic_sleep_until(next_run)
+        if STOP and stop_reason == "unknown":
+            stop_reason = "signal"
+        # Operator stop guard: stopping manually must not leave the system in stale-market safe-mode.
+        if stop_reason == "signal" and engine.portfolio.safety_stop_reason == SAFETY_STALE_MARKET_DATA:
+            engine.portfolio.safe_mode_active = False
+            engine.portfolio.safety_stop_reason = None
+            try:
+                save_portfolio(settings.state_path, engine.portfolio)
+            except Exception as exc:
+                LOGGER.warning("stop_clear_stale_market_safe_mode_failed: %s", exc)
+    
+        open_positions = list(engine.portfolio.open_positions.values())
+        blocked_positions = [p for p in open_positions if p.status == "EXIT_BLOCKED"]
+        blocked_symbols = [p.symbol for p in blocked_positions]
+    
+        per_token = []
+        for mint, info in token_tracking.items():
+            start_price = info.get("start_price_usd")
+            end_price = info.get("end_price_usd")
+            price_change = None
+            if isinstance(start_price, (int, float)) and isinstance(end_price, (int, float)) and start_price:
+                price_change = ((end_price - start_price) / start_price) * 100.0
+            per_token.append(
+                {
+                    "mint": mint,
+                    "symbol": info.get("symbol"),
+                    "status_transitions": info.get("status_transitions", []),
+                    "price_change_pct": price_change,
+                    "peak_updates": info.get("peak_updates", 0),
+                    "exit_attempts": info.get("exit_attempts", 0),
+                    "exit_outcomes": info.get("exit_outcomes", []),
+                    "recovery_discrepancies": info.get("recovery_discrepancies", 0),
+                }
+            )
+    
+        summary_payload = {
+            "run_dir": str(run_dir),
+            "run_id": settings.run_id,
+            "total_cycles": len(observed_cycles),
+            "entries_attempted": sum(c.get("entries_attempted", 0) for c in observed_cycles),
+            "entries_succeeded": sum(c.get("entries_succeeded", 0) for c in observed_cycles),
+            "exits_attempted": sum(c.get("exits_attempted", 0) for c in observed_cycles),
+            "exits_succeeded": sum(c.get("exits_succeeded", 0) for c in observed_cycles),
+            "exit_blocked_count": len(blocked_positions),
+            "blocked_symbols": blocked_symbols,
+            "recovery_discrepancies": sum(c.get("recovery_discrepancies", 0) for c in observed_cycles),
+            "execution_failures": sum(c.get("execution_failures", 0) for c in observed_cycles),
+            "cycles": observed_cycles,
+            "per_token_tracking": per_token,
+            "focus_tracking": {
+                "69": next((x for x in per_token if x.get("symbol") == "69"), None),
+                "PRl": next((x for x in per_token if x.get("symbol") == "PRl"), None),
+                "Sandwich": next((x for x in per_token if x.get("symbol") == "Sandwich"), None),
             },
-            indent=2,
-            default=str,
+            "notable_events": notable_events[:50],
+        }
+        atomic_write_json(run_dir / "summary.json", summary_payload)
+        print(json.dumps({"cycle_run_summary_path": str(run_dir / "summary.json")}, indent=2, default=str))
+        LOGGER.warning(
+            "event=run_stopped run_id=%s reason=%s total_cycles=%s run_dir=%s",
+            settings.run_id,
+            stop_reason,
+            len(observed_cycles),
+            run_dir,
         )
-    )
-    return 0
+        print(
+            json.dumps(
+                {
+                    "event": "run_stopped",
+                    "run_id": settings.run_id,
+                    "reason": stop_reason,
+                    "total_cycles": len(observed_cycles),
+                    "run_dir": str(run_dir),
+                },
+                indent=2,
+                default=str,
+            )
+        )
+        return 0
+    finally:
+        _stop_dashboard_process(dashboard_process)
 
 
 def cmd_quote(args: argparse.Namespace) -> int:
