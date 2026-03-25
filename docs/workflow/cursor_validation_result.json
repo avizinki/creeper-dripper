@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-25T21:59:16.637441+00:00",
+  "generated_at": "2026-03-25T22:29:16.554627+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "cursor-validation-gate-workflow",
+  "task_id": "T-001-fix-per-run-logfile-creation",
   "validations": [
     {
-      "name": "gate_script_syntax",
-      "command": ".venv/bin/python -m py_compile tools/cursor_validation_gate.py && echo ok",
+      "name": "target_test",
+      "command": ".venv/bin/python -m pytest -xvs tests/test_run_id_observability.py::test_setup_logging_creates_per_run_logfile",
       "exit_code": 0,
-      "stdout": "ok\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 1 item\n\ntests/test_run_id_observability.py::test_setup_logging_creates_per_run_logfile PASSED\n\n============================== 1 passed in 0.05s ===============================\n",
       "stderr": "",
       "ok": true
     },
     {
-      "name": "targeted_tests",
-      "command": ".venv/bin/python -m pytest -q tests/test_discovery_optimization.py tests/test_discovery_two_phase_birdeye.py tests/test_discovery_conditional_enrichment_skip.py tests/test_scoring.py",
+      "name": "full_observability_suite",
+      "command": ".venv/bin/python -m pytest -xvs tests/test_run_id_observability.py",
       "exit_code": 0,
-      "stdout": "..................                                                       [100%]\n18 passed in 0.07s\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 3 items\n\ntests/test_run_id_observability.py::test_run_id_persisted_to_state_status_journal PASSED\ntests/test_run_id_observability.py::test_setup_logging_creates_per_run_logfile PASSED\ntests/test_run_id_observability.py::test_snapshot_readme_includes_run_id_metadata PASSED\n\n============================== 3 passed in 0.06s ===============================\n",
       "stderr": "",
       "ok": true
     }
@@ -25,14 +25,13 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
-      ".cursor/rules/claude-task-validation.mdc",
-      "docs/workflow",
-      "tools/cursor_validation_gate.py"
+      "creeper_dripper/utils.py",
+      "docs/workflow"
     ],
     "dirty_paths": [
-      ".cursor/",
-      "docs/workflow/",
-      "tools/cursor_validation_gate.py"
+      "creeper_dripper/utils.py",
+      "docs/workflow/claude_task_result.json",
+      "docs/workflow/cursor_validation_result.json"
     ],
     "passed": true,
     "reason": null
@@ -41,10 +40,9 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "658802b3bf6e5a4c94629101c5f2d19a8edc7ebf",
+    "sha": "31e38f6bf7b2aaa252aafcb0ee360bcdd2296b00",
     "added_paths": [
-      ".cursor/rules/claude-task-validation.mdc",
-      "tools/cursor_validation_gate.py",
+      "creeper_dripper/utils.py",
       "docs/workflow"
     ]
   }

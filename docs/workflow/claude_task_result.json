@@ -1,38 +1,44 @@
 {
-  "task_id": "cursor-validation-gate-workflow",
-  "title": "Add Claude-to-Cursor validation gate workflow",
+  "task_id": "T-001-fix-per-run-logfile-creation",
+  "title": "Fix per-run logfile creation (T-001)",
   "status": "ready_for_cursor_validation",
-  "summary": "Adds the Cursor gatekeeper script (tools/cursor_validation_gate.py) and the Cursor rules file (.cursor/rules/claude-task-validation.mdc) that enforce the two-worker validation workflow. These files were introduced by Cursor as part of establishing the gate contract.",
+  "summary": "Makes the per-run logfile reliably exist after setup_logging() returns. Two-part fix: (1) ensure_parent + touch before the deduplication guard so the file is always created on disk; (2) make the deduplication guard path-specific (baseFilename comparison) so each unique run_log_path registers its own handler instead of being silently blocked by a prior test's handler.",
   "files_changed": [
-    ".cursor/rules/claude-task-validation.mdc",
-    "tools/cursor_validation_gate.py"
+    "creeper_dripper/utils.py"
   ],
   "why_safe": [
-    "No production code changed — only tooling and Cursor rules files",
-    "tools/cursor_validation_gate.py is a local dev/CI helper; not imported by any runtime path",
-    ".cursor/rules/ is a Cursor IDE config directory; has no effect on the trading engine",
-    "No runtime/, logs/, .env, or cache files included"
+    "No trading logic changed — only logging setup",
+    "touch(exist_ok=True) is a no-op if file already exists, so production runs are unaffected",
+    "Guard change is strictly more correct: same path still deduplicates, different paths now register independently",
+    "No Birdeye or Jupiter calls involved — zero CU impact",
+    "No runtime/, state, journal, or position logic touched"
   ],
   "required_validation": [
     {
-      "name": "gate_script_syntax",
-      "command": ".venv/bin/python -m py_compile tools/cursor_validation_gate.py && echo ok"
+      "name": "target_test",
+      "command": ".venv/bin/python -m pytest -xvs tests/test_run_id_observability.py::test_setup_logging_creates_per_run_logfile"
     },
     {
-      "name": "targeted_tests",
-      "command": ".venv/bin/python -m pytest -q tests/test_discovery_optimization.py tests/test_discovery_two_phase_birdeye.py tests/test_discovery_conditional_enrichment_skip.py tests/test_scoring.py"
+      "name": "full_observability_suite",
+      "command": ".venv/bin/python -m pytest -xvs tests/test_run_id_observability.py"
     }
   ],
-  "optional_validation": [],
-  "expected_results": [
-    "gate_script_syntax: exits 0",
-    "targeted_tests: 18 passed (as confirmed in prior validation run)"
+  "optional_validation": [
+    {
+      "name": "full_test_suite",
+      "command": ".venv/bin/python -m pytest -q tests/"
+    }
   ],
-  "commit_message": "chore: add claude-to-cursor validation gate workflow",
+  "expected_results": [
+    "target_test: PASSED",
+    "full_observability_suite: all tests pass",
+    "full_test_suite: 203+ passed (one fewer failure than freeze baseline of 202 passed / 5 failed)"
+  ],
+  "commit_message": "fix: make per-run logfile exist synchronously after setup_logging() (T-001)\n\nFixes AUD-002. touch() the file before the deduplication guard so it\nexists on disk regardless. Also makes the guard path-specific so test\nisolation works correctly when multiple tests call setup_logging() with\ndifferent tmp_path values in the same pytest session.",
   "docs_to_update": [],
   "notes_for_cursor": [
-    "Only .cursor/, tools/cursor_validation_gate.py, and docs/workflow/ should be dirty",
+    "Only creeper_dripper/utils.py should be dirty",
     "Do not include runtime/, logs/, .env, __pycache__, or any cache files",
-    "discovery.py is at HEAD — confirmed clean, do not include in commit"
+    "The change is lines 171-187 in utils.py (7 lines replaced with 12 lines)"
   ]
 }

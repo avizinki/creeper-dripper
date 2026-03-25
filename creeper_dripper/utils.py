@@ -170,9 +170,15 @@ def setup_logging(level: str, *, runtime_dir: Path | None = None, run_log_path: 
         root.addHandler(file_handler)
     if run_log_path is None:
         return
-    if any(getattr(h, _RUN_FILE_HANDLER_MARKER, False) for h in root.handlers):
-        return
     ensure_parent(run_log_path)
+    run_log_path.touch(exist_ok=True)
+    resolved = str(run_log_path.resolve())
+    if any(
+        getattr(h, _RUN_FILE_HANDLER_MARKER, False)
+        and str(getattr(h, "baseFilename", None)) == resolved
+        for h in root.handlers
+    ):
+        return
     _maybe_rotate_logfile(run_log_path, max_bytes=_LOGFILE_MAX_BYTES)
     run_handler = logging.FileHandler(run_log_path, mode="a", encoding="utf-8")
     setattr(run_handler, _RUN_FILE_HANDLER_MARKER, True)
