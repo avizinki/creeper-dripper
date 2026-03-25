@@ -39,10 +39,55 @@ def _settings(monkeypatch, tmp_path, *, hachi_enabled: bool = True, max_impact: 
     monkeypatch.setenv("DRIP_CHUNK_PCTS", "0.10,0.25,0.50")
     monkeypatch.setenv("DRIP_MIN_CHUNK_WAIT_SECONDS", "30")
     monkeypatch.setenv("DRIP_NEAR_EQUAL_BAND", "0.002")
+    monkeypatch.setenv("TAKE_PROFIT_LEVELS_PCT", "25,60,120,250")
+    monkeypatch.setenv("TAKE_PROFIT_FRACTIONS", "0.15,0.2,0.25,0.2")
     settings = load_settings()
     # Force-assign in case load_dotenv(override=True) stomps on monkeypatched values.
     settings.hachi_dripper_enabled = hachi_enabled
     return settings
+
+
+def test_hachi_stops_after_max_chunks(monkeypatch, tmp_path):
+    """After 3 drip chunks, Hachi should stop dripping and mark position as runner."""
+    monkeypatch.setenv("DRIP_CHUNK_PCTS", "0.10")  # deterministic
+    settings = _settings(monkeypatch, tmp_path, hachi_enabled=True)
+    # Allow TP-level gating to advance on small PnL changes.
+    settings.take_profit_levels_pct = [0.0, 1.0, 2.0, 3.0, 4.0]
+    settings.take_profit_fractions = [0.15, 0.2, 0.25, 0.2, 0.0]
+    portfolio = new_portfolio(5.0)
+    pos = _position(remaining=1000, pnl_pct=0.0)
+    portfolio.open_positions[_VALID_MINT] = pos
+
+    results = [
+        _success_result(requested=100, sold=100, signature="s1"),
+        _success_result(requested=90, sold=90, signature="s2"),
+        _success_result(requested=81, sold=81, signature="s3"),
+        _success_result(requested=73, sold=73, signature="s4"),
+    ]
+    executor = DummyExecutor(results)
+    engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
+
+    def _set_pnl(pct: float):
+        entry_mark = pos.entry_mark_sol_per_token
+        pos.last_mark_sol_per_token = float(entry_mark * (1.0 + pct / 100.0))
+
+    # 3 distinct TP levels -> 3 chunks
+    for pct in (0.0, 1.0, 2.0):
+        _set_pnl(pct)
+        pos.drip_next_chunk_at = None
+        engine._run_hachi_dripper(pos, [], _NOW)
+
+    assert pos.drip_chunks_done == 3
+    assert pos.hachi_drip_completed is True
+
+    # Next TP level is treated as a major event and may reset runner latch.
+    _set_pnl(3.0)
+    pos.drip_next_chunk_at = None
+    d4: list[TradeDecision] = []
+    engine._run_hachi_dripper(pos, d4, _NOW)
+    assert any(x.action == "DRIPPER_CHUNK_EXECUTED" for x in d4)
+    assert pos.drip_chunks_done == 1
+    assert pos.hachi_drip_completed is False
 
 
 def _position(
@@ -166,10 +211,9 @@ class DummyExecutor:
 
 
 def test_hachi_sells_before_25pct_tp_threshold(monkeypatch, tmp_path):
-    """Hachi dripper must sell a chunk even when PnL is only 5% (well below the 25% TP trigger).
+    """Hachi dripper should NOT continuously liquidate pre-TP.
 
-    This is the core regression test: the old code would log decision=none /
-    reason=below_threshold here and never sell.  Hachi must sell immediately.
+    Before the first TP level is reached, dripper should wait (runner behavior).
     """
     settings = _settings(monkeypatch, tmp_path, hachi_enabled=True)
     portfolio = new_portfolio(5.0)
@@ -188,20 +232,13 @@ def test_hachi_sells_before_25pct_tp_threshold(monkeypatch, tmp_path):
     engine._evaluate_exit_rules(pos, candidate, decisions, _NOW)
 
     actions = [d.action for d in decisions]
-    assert "DRIPPER_CHUNK_SELECTED" in actions, f"expected DRIPPER_CHUNK_SELECTED, got {actions}"
-    assert "DRIPPER_CHUNK_EXECUTED" in actions, f"expected DRIPPER_CHUNK_EXECUTED, got {actions}"
-    assert "SELL" in actions, f"expected SELL action in decisions, got {actions}"
-    # TP thresholds must NOT have been the trigger
-    assert not any("take_profit" in (d.reason or "") for d in decisions), (
-        "TP reason must not appear when hachi is the driver"
-    )
-    assert pos.remaining_qty_atomic == 500
-    assert pos.drip_chunks_done == 1
-    assert pos.drip_next_chunk_at is not None, "next chunk must be scheduled"
+    assert actions == ["DRIPPER_WAIT"]
+    assert pos.remaining_qty_atomic == 1000
+    assert pos.drip_chunks_done == 0
 
 
 def test_hachi_sells_at_zero_pct_pnl(monkeypatch, tmp_path):
-    """Hachi must sell even when PnL is exactly 0% (position hasn't moved)."""
+    """At 0% PnL (below TP levels), Hachi should not drip."""
     settings = _settings(monkeypatch, tmp_path, hachi_enabled=True)
     portfolio = new_portfolio(5.0)
     pos = _position(remaining=1000, pnl_pct=0.0)
@@ -214,8 +251,8 @@ def test_hachi_sells_at_zero_pct_pnl(monkeypatch, tmp_path):
     candidate = TokenCandidate(address=_VALID_MINT, symbol="HCHI", decimals=0)
     engine._evaluate_exit_rules(pos, candidate, decisions, _NOW)
 
-    assert any(d.action == "DRIPPER_CHUNK_EXECUTED" for d in decisions)
-    assert pos.remaining_qty_atomic == 500
+    assert [d.action for d in decisions] == ["DRIPPER_WAIT"]
+    assert pos.remaining_qty_atomic == 1000
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +266,8 @@ def test_hachi_chunk_driven_by_jupiter_quote(monkeypatch, tmp_path):
     """
     settings = _settings(monkeypatch, tmp_path, hachi_enabled=True)
     portfolio = new_portfolio(5.0)
-    pos = _position(remaining=1000, pnl_pct=10.0)
+    # Above the first TP level (25%) → eligible for one drip at this TP level.
+    pos = _position(remaining=1000, pnl_pct=30.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
     # Case 1: good route → should sell
@@ -251,7 +289,7 @@ def test_hachi_no_route_emits_dripper_wait(monkeypatch, tmp_path):
     """When Jupiter has no sell route, dripper emits DRIPPER_WAIT (never attempts a sell)."""
     settings = _settings(monkeypatch, tmp_path, hachi_enabled=True)
     portfolio = new_portfolio(5.0)
-    pos = _position(remaining=1000, pnl_pct=10.0)
+    pos = _position(remaining=1000, pnl_pct=30.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
     executor = DummyExecutor([], quote_route_ok=False)
@@ -270,7 +308,7 @@ def test_hachi_high_impact_quote_emits_dripper_wait(monkeypatch, tmp_path):
     """If all chunks have price impact above hachi_max_price_impact_bps, no sell fires."""
     settings = _settings(monkeypatch, tmp_path, hachi_enabled=True, max_impact=300)
     portfolio = new_portfolio(5.0)
-    pos = _position(remaining=1000, pnl_pct=5.0)
+    pos = _position(remaining=1000, pnl_pct=30.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
     # Quote returns impact_bps=1000, which exceeds max_impact=300
@@ -387,7 +425,7 @@ def test_hachi_sol_accounting_after_chunk(monkeypatch, tmp_path):
     settings = _settings(monkeypatch, tmp_path, hachi_enabled=True)
     portfolio = new_portfolio(5.0)
     cash_before = portfolio.cash_sol
-    pos = _position(remaining=1000, pnl_pct=5.0)
+    pos = _position(remaining=1000, pnl_pct=30.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
     # output_amount = 1_000_000_000 lamports = 1.0 SOL
@@ -430,11 +468,11 @@ def test_hachi_remaining_qty_never_goes_negative(monkeypatch, tmp_path):
 
 
 def test_hachi_repeated_chunks_drain_position(monkeypatch, tmp_path):
-    """Three consecutive Hachi cycles each sell a chunk, progressively draining the position."""
+    """Dripper should execute once per TP level, not every cycle."""
     monkeypatch.setenv("DRIP_CHUNK_PCTS", "0.10")  # 10% each cycle
     settings = _settings(monkeypatch, tmp_path, hachi_enabled=True)
     portfolio = new_portfolio(5.0)
-    pos = _position(remaining=1000, pnl_pct=3.0)
+    pos = _position(remaining=1000, pnl_pct=30.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
     results = [
@@ -445,40 +483,37 @@ def test_hachi_repeated_chunks_drain_position(monkeypatch, tmp_path):
     executor = DummyExecutor(results)
     engine = CreeperDripper(settings, DummyBirdeye(), executor, portfolio)
 
-    # Chunk 1
+    # Chunk 1 at TP(25%)
     d1: list[TradeDecision] = []
     engine._run_hachi_dripper(pos, d1, _NOW)
     assert pos.remaining_qty_atomic == 900
     assert pos.drip_chunks_done == 1
     assert pos.drip_next_chunk_at is not None
 
-    # Chunk 2: bypass timing gate
+    # Same TP level again: should NOT sell again (runner behavior).
     pos.drip_next_chunk_at = None
     later1 = (datetime.fromisoformat(_NOW) + timedelta(seconds=60)).isoformat()
     d2: list[TradeDecision] = []
     engine._run_hachi_dripper(pos, d2, later1)
-    assert pos.remaining_qty_atomic == 810
-    assert pos.drip_chunks_done == 2
+    assert pos.remaining_qty_atomic == 900
+    assert pos.drip_chunks_done == 1
+    assert any(x.action == "DRIPPER_WAIT" for x in d2)
 
-    # Chunk 3: bypass timing gate again
+    # Still same TP level: still no sell.
     pos.drip_next_chunk_at = None
     later2 = (datetime.fromisoformat(_NOW) + timedelta(seconds=120)).isoformat()
     d3: list[TradeDecision] = []
     engine._run_hachi_dripper(pos, d3, later2)
-    assert pos.remaining_qty_atomic == 729
-    assert pos.drip_chunks_done == 3
-
-    # Confirm chunk sold amounts match
-    for d in (d1, d2, d3):
-        assert any(x.action == "DRIPPER_CHUNK_EXECUTED" for x in d)
-        assert any(x.action == "SELL" for x in d)
+    assert pos.remaining_qty_atomic == 900
+    assert pos.drip_chunks_done == 1
+    assert any(x.action == "DRIPPER_WAIT" for x in d3)
 
 
 def test_hachi_timing_gate_prevents_rapid_resell(monkeypatch, tmp_path):
     """After a chunk executes, DRIPPER_WAIT fires on the immediate next call (gate not yet due)."""
     settings = _settings(monkeypatch, tmp_path, hachi_enabled=True)
     portfolio = new_portfolio(5.0)
-    pos = _position(remaining=1000, pnl_pct=5.0)
+    pos = _position(remaining=1000, pnl_pct=30.0)
     portfolio.open_positions[_VALID_MINT] = pos
 
     executor = DummyExecutor([_success_result(requested=500, sold=500)])
@@ -489,7 +524,7 @@ def test_hachi_timing_gate_prevents_rapid_resell(monkeypatch, tmp_path):
     engine._run_hachi_dripper(pos, d1, _NOW)
     assert any(x.action == "DRIPPER_CHUNK_EXECUTED" for x in d1)
 
-    # Immediate second call with same timestamp: gate must block
+    # Immediate second call with same timestamp: should wait (tp gate or timing gate).
     d2: list[TradeDecision] = []
     engine._run_hachi_dripper(pos, d2, _NOW)
     actions2 = [x.action for x in d2]

@@ -48,6 +48,8 @@ def _position_state_from_raw(raw: dict) -> PositionState:
         ("drip_qty_remaining_atomic", None),
         ("drip_chunks_done", 0),
         ("drip_next_chunk_at", None),
+        ("hachi_drip_completed", False),
+        ("hachi_last_tp_level", None),
     ):
         m.setdefault(key, default)
     for f in fields(PositionState):

@@ -919,6 +919,7 @@ class CreeperDripper:
         Returns True if a sell chunk (or full exit) was dispatched this cycle.
         """
         pos_id = position.position_id or position.token_mint
+        HACHI_MAX_DRIP_CHUNKS = 3
         remaining = position.remaining_qty_atomic
         if remaining <= 0:
             return False
@@ -935,7 +936,7 @@ class CreeperDripper:
             pnl_zone = "unknown"
         urgency = select_urgency(pnl_zone, momentum) if pnl_pct is not None else "conservative"
 
-        # Persist for observability / next-cycle comparison.
+        # Persist for observability / next-cycle comparison (even on wait cycles).
         position.last_hachi_pnl_pct = pnl_pct
         position.last_hachi_momentum_state = momentum
 
@@ -951,6 +952,84 @@ class CreeperDripper:
             remaining,
             round(position.entry_sol, 6),
         )
+
+        # ---------------------------------------------------------------
+        # Runner preservation gates:
+        # - hard cap max chunks per position
+        # - allow only one drip per TP level (profit milestones)
+        # ---------------------------------------------------------------
+        tp_levels = [float(x) for x in (self.settings.take_profit_levels_pct or [])]
+        tp_levels = sorted(tp_levels)
+        current_tp_level: int | None = None
+        if pnl_pct is not None and tp_levels:
+            current_tp_level = -1
+            for idx, lvl in enumerate(tp_levels):
+                if pnl_pct >= float(lvl):
+                    current_tp_level = idx
+        # If we've completed dripping, stay a runner unless a major event occurs.
+        if getattr(position, "hachi_drip_completed", False):
+            major_event = bool(urgency == URGENCY_OVERRIDE_FULL) or (
+                current_tp_level is not None
+                and (position.hachi_last_tp_level is None or current_tp_level > int(position.hachi_last_tp_level))
+            )
+            if not major_event:
+                decisions.append(
+                    TradeDecision(
+                        action="DRIPPER_WAIT",
+                        token_mint=position.token_mint,
+                        symbol=position.symbol,
+                        reason="hachi_drip_completed_runner_mode",
+                    )
+                )
+                position.previous_mark_sol_per_token = float(position.last_mark_sol_per_token)
+                return False
+            # Major event resets the completion latch and drip pacing.
+            position.hachi_drip_completed = False
+            position.drip_chunks_done = 0
+            position.drip_next_chunk_at = None
+
+        # Stop dripping completely after max chunks (unless a major event resets above).
+        if int(getattr(position, "drip_chunks_done", 0) or 0) >= HACHI_MAX_DRIP_CHUNKS:
+            position.hachi_drip_completed = True
+            position.drip_next_chunk_at = None
+            LOGGER.info(
+                "event=hachi_drip_stopped reason=max_chunks_reached mint=%s position_id=%s chunks_done=%s",
+                position.token_mint,
+                pos_id,
+                position.drip_chunks_done,
+            )
+            decisions.append(
+                TradeDecision(
+                    action="DRIPPER_WAIT",
+                    token_mint=position.token_mint,
+                    symbol=position.symbol,
+                    reason="max_chunks_reached",
+                    metadata={"chunks_done": position.drip_chunks_done},
+                )
+            )
+            position.previous_mark_sol_per_token = float(position.last_mark_sol_per_token)
+            return False
+
+        # Dripper should only trigger once per TP level (profit milestone).
+        if urgency != URGENCY_OVERRIDE_FULL:
+            last_tp = position.hachi_last_tp_level
+            eligible_tp = (
+                current_tp_level is not None
+                and current_tp_level >= 0
+                and (last_tp is None or int(current_tp_level) > int(last_tp))
+            )
+            if not eligible_tp:
+                decisions.append(
+                    TradeDecision(
+                        action="DRIPPER_WAIT",
+                        token_mint=position.token_mint,
+                        symbol=position.symbol,
+                        reason="tp_level_gate",
+                        metadata={"current_tp_level": current_tp_level, "last_tp_level": last_tp},
+                    )
+                )
+                position.previous_mark_sol_per_token = float(position.last_mark_sol_per_token)
+                return False
 
         # ------------------------------------------------------------------
         # 4. Emergency / momentum-collapse override: bypass timing gate and
@@ -1137,10 +1216,23 @@ class CreeperDripper:
                 chosen_qty,
             )
             position.drip_chunks_done += 1
+            # Record the TP level that triggered this drip so we only drip once per level.
+            if current_tp_level is not None and current_tp_level >= 0:
+                position.hachi_last_tp_level = int(current_tp_level)
             if position.status != "CLOSED":
                 # Scale inter-chunk wait by urgency: conservative → longer, aggressive → shorter.
                 wait_s = chunk_wait_seconds(urgency, self.settings.drip_min_chunk_wait_seconds)
                 position.drip_next_chunk_at = _next_normal_retry_at(now, wait_s)
+            # If we just hit the chunk cap, latch completion so this becomes a runner.
+            if position.drip_chunks_done >= HACHI_MAX_DRIP_CHUNKS:
+                position.hachi_drip_completed = True
+                position.drip_next_chunk_at = None
+                LOGGER.info(
+                    "event=hachi_drip_stopped reason=max_chunks_reached mint=%s position_id=%s chunks_done=%s",
+                    position.token_mint,
+                    pos_id,
+                    position.drip_chunks_done,
+                )
             LOGGER.info(
                 "event=dripper_chunk_executed mint=%s position_id=%s chunks_done=%s sold_qty=%s "
                 "next_chunk_at=%s urgency=%s",

@@ -156,6 +156,10 @@ class PositionState:
     previous_mark_sol_per_token: float = 0.0
     last_hachi_pnl_pct: float | None = None
     last_hachi_momentum_state: str | None = None
+    # Hachi dripper: once completed, position becomes a runner unless a major event resets it.
+    hachi_drip_completed: bool = False
+    # Hachi dripper: only allow one drip per TP level (tracks highest TP level already dripped).
+    hachi_last_tp_level: int | None = None
     # Exit blocked survival layer: tracks persistent no-route/liquidity breaks.
     exit_blocked_cycles: int = 0
     first_blocked_at: str | None = None
