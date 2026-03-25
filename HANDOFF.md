@@ -31,6 +31,12 @@
 - Start with dry-run and `run --once`.
 - Do not enable live mode before `doctor` passes and wallet path is validated.
 
+## truth model (jupiter-only settlement)
+- Settlement quantities come from Jupiter `/execute` response (with controlled fallbacks).
+- Tx confirmation uses Solana RPC `getSignatureStatuses`.
+- Wallet balances are not used for automatic quantity reconciliation in Jupiter-only mode.
+  - If wallet holdings don’t match state (“dirty wallet”), resolve manually before live runs.
+
 ## runtime files
 - `runtime/state.json` - current portfolio state
 - `runtime/journal.jsonl` - decision and action journal
