@@ -2005,7 +2005,9 @@ class CreeperDripper:
             return SAFETY_DAILY_LOSS_CAP
         if self.portfolio.consecutive_execution_failures >= self.settings.max_consecutive_execution_failures:
             return SAFETY_MAX_CONSEC_EXEC_FAILURES
-        if market_data_checked_at:
+        # Stale-market safety is only meaningful during an active run loop.
+        # Do not persistently "lock" the bot into safe mode when no run is active.
+        if market_data_checked_at and self.settings.run_id and self.portfolio.last_cycle_at is not None:
             age_seconds = _age_seconds_between(now, market_data_checked_at)
             threshold_seconds = max(1, int(self.settings.stale_market_data_minutes * 60))
             if age_seconds is not None and age_seconds > threshold_seconds:

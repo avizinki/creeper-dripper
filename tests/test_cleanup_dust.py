@@ -24,6 +24,9 @@ def _base_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CANDIDATE_CACHE_TTL_SECONDS", "20")
     monkeypatch.setenv("ROUTE_CHECK_CACHE_TTL_SECONDS", "15")
     monkeypatch.setenv("WALLET_ADDRESS", "Gt4RRcMg2mzEN9SDtSUjEjezC9b1nXjEGDQyEVbrc7Sk")
+    # Ensure no ambient dev environment leaks into this test.
+    monkeypatch.delenv("SOLANA_KEYPAIR_PATH", raising=False)
+    monkeypatch.delenv("BS58_PRIVATE_KEY", raising=False)
 
 
 def test_cleanup_dust_classifies_and_summarizes(monkeypatch, tmp_path, capsys):

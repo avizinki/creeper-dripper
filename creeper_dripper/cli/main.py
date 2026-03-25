@@ -19,6 +19,7 @@ from creeper_dripper.clients.jupiter import JupiterClient
 from creeper_dripper.config import SOL_MINT, USDC_MINT, load_settings
 from creeper_dripper.engine.discovery import discover_candidates, serialize_candidates
 from creeper_dripper.engine.trader import CreeperDripper
+from creeper_dripper.errors import SAFETY_STALE_MARKET_DATA
 from creeper_dripper.execution.executor import TradeExecutor
 from creeper_dripper.execution.wallet import load_keypair_from_base58, load_keypair_from_file
 from creeper_dripper.storage.state import load_portfolio, save_portfolio
@@ -433,6 +434,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         settings=settings,
         configure_logging=False,
     )
+    # Startup guard: ignore any persisted stale-market safe-mode from a previous run.
+    # Stale-market safety applies only during an active run loop.
+    if engine.portfolio.safe_mode_active and engine.portfolio.safety_stop_reason == SAFETY_STALE_MARKET_DATA:
+        engine.portfolio.safe_mode_active = False
+        engine.portfolio.safety_stop_reason = None
+        try:
+            save_portfolio(settings.state_path, engine.portfolio)
+        except Exception as exc:
+            LOGGER.warning("startup_clear_stale_market_safe_mode_failed: %s", exc)
     run_dir = _cycle_run_dir(settings.run_dir)
     observed_cycles: list[dict] = []
     seen_artifacts: set[str] = set()
@@ -719,6 +729,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         monotonic_sleep_until(next_run)
     if STOP and stop_reason == "unknown":
         stop_reason = "signal"
+    # Operator stop guard: stopping manually must not leave the system in stale-market safe-mode.
+    if stop_reason == "signal" and engine.portfolio.safety_stop_reason == SAFETY_STALE_MARKET_DATA:
+        engine.portfolio.safe_mode_active = False
+        engine.portfolio.safety_stop_reason = None
+        try:
+            save_portfolio(settings.state_path, engine.portfolio)
+        except Exception as exc:
+            LOGGER.warning("stop_clear_stale_market_safe_mode_failed: %s", exc)
 
     open_positions = list(engine.portfolio.open_positions.values())
     blocked_positions = [p for p in open_positions if p.status == "EXIT_BLOCKED"]

@@ -113,6 +113,9 @@ def test_fresh_same_cycle_data_does_not_trigger_stale_market_data(monkeypatch, t
 def test_old_market_data_triggers_stale_market_data(monkeypatch, tmp_path):
     settings = _settings(monkeypatch, tmp_path)
     portfolio: PortfolioState = new_portfolio(5.0)
+    # Stale-market safety applies only during an active run loop.
+    settings.run_id = "test_run"
+    portfolio.last_cycle_at = "2026-01-01T00:10:00+00:00"
     engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(), portfolio)
     reason = engine._evaluate_safety("2026-01-01T00:30:00+00:00", market_data_checked_at="2026-01-01T00:00:00+00:00")
     assert reason == "safety_stale_market_data"
@@ -408,7 +411,9 @@ def test_route_proof_artifact_written_for_attempted_entry(monkeypatch, tmp_path)
 
 def test_stale_diagnostics_included_in_safety_event(monkeypatch, tmp_path):
     settings = _settings(monkeypatch, tmp_path)
+    settings.run_id = "test_run"
     portfolio: PortfolioState = new_portfolio(5.0)
+    portfolio.last_cycle_at = "2026-01-01T00:00:00+00:00"
     engine = CreeperDripper(settings, DummyBirdeye(), DummyExecutor(), portfolio)
 
     old_checked = "2026-01-01T00:00:00+00:00"
