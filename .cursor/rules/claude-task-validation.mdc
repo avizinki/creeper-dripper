@@ -1,0 +1,17 @@
+---
+description: After Claude fills claude_task_result.json (files_changed + commit_message), run gate; never bypass
+alwaysApply: true
+---
+
+# Claude task → Cursor validation
+
+Claude rewrites `docs/workflow/claude_task_result.json` with the real `files_changed`, `commit_message`, and `"status": "ready_for_cursor_validation"`. When that is done, run:
+
+```bash
+.venv/bin/python tools/cursor_validation_gate.py
+```
+
+- **Do not bypass the gate** (no manual `git commit` of the same changes without running the tool).
+- **Commit only if validation passes** (use `--no-commit` only when you intentionally need validation without a commit).
+
+The tool runs `required_validation` in `.venv` (loads `.env` when present), gatekeeps the working tree against `files_changed` / `docs_to_update` / `docs/workflow/`, writes `docs/workflow/cursor_validation_result.json`, and commits using `commit_message` only when checks pass. Add `--include-optional` only when the task requires optional validations.

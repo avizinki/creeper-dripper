@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-03-25T21:59:16.637441+00:00",
+  "task_file": "docs/workflow/claude_task_result.json",
+  "repo_root": "/Users/yoav/git/creeper-dripper",
+  "task_id": "cursor-validation-gate-workflow",
+  "validations": [
+    {
+      "name": "gate_script_syntax",
+      "command": ".venv/bin/python -m py_compile tools/cursor_validation_gate.py && echo ok",
+      "exit_code": 0,
+      "stdout": "ok\n",
+      "stderr": "",
+      "ok": true
+    },
+    {
+      "name": "targeted_tests",
+      "command": ".venv/bin/python -m pytest -q tests/test_discovery_optimization.py tests/test_discovery_two_phase_birdeye.py tests/test_discovery_conditional_enrichment_skip.py tests/test_scoring.py",
+      "exit_code": 0,
+      "stdout": "..................                                                       [100%]\n18 passed in 0.07s\n",
+      "stderr": "",
+      "ok": true
+    }
+  ],
+  "all_validations_passed": true,
+  "gate": {
+    "allowed_paths_basis": [
+      ".cursor/rules/claude-task-validation.mdc",
+      "docs/workflow",
+      "tools/cursor_validation_gate.py"
+    ],
+    "dirty_paths": [
+      ".cursor/",
+      "docs/workflow/",
+      "tools/cursor_validation_gate.py"
+    ],
+    "passed": true,
+    "reason": null
+  },
+  "status": "passed_committed",
+  "commit": {
+    "attempted": true,
+    "ok": true,
+    "sha": "658802b3bf6e5a4c94629101c5f2d19a8edc7ebf",
+    "added_paths": [
+      ".cursor/rules/claude-task-validation.mdc",
+      "tools/cursor_validation_gate.py",
+      "docs/workflow"
+    ]
+  }
+}
