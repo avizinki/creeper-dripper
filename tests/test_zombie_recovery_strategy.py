@@ -118,7 +118,112 @@ def test_fake_liquid_classification_and_partial_exit_attempt(monkeypatch, tmp_pa
     decisions: list[TradeDecision] = []
     engine._attempt_exit(pos, decisions, now)
     assert pos.zombie_class == "FAKE_LIQUID"
-    # Next attempt should shrink qty to 25%.
+    # Repeated route-present execution failures promote to terminal dead path.
     engine._attempt_exit(pos, decisions, now)
-    assert len(sell_calls) >= 2
+    engine._attempt_exit(pos, decisions, now)
+    assert pos.status == "FINAL_ZOMBIE"
+    assert len(sell_calls) >= 3
     assert sell_calls[1] < sell_calls[0]
+
+
+def test_route_present_extreme_impact_becomes_fake_liquid_terminal(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+    now = utc_now_iso()
+    pos = _zombie_position(now)
+    pos.status = "ZOMBIE"
+    interval = int(settings.zombie_retry_interval_cycles)
+    pos.exit_blocked_cycles = max(int(settings.exit_blocked_micro_probe_cycles), interval) - 1
+    pos.pending_exit_qty_atomic = None
+    portfolio.open_positions[pos.token_mint] = pos
+
+    quote_calls = {"n": 0}
+
+    class _Exec:
+        def __init__(self):
+            self.jupiter = object()
+
+        def transaction_status(self, _sig):
+            return None
+
+        def quote_sell(self, *_a, **_kw):
+            quote_calls["n"] += 1
+            return ProbeQuote(input_amount_atomic=1, out_amount_atomic=10, price_impact_bps=9000.0, route_ok=True, raw={})
+
+    engine = CreeperDripper(settings, _DummyBirdeye(), _Exec(), portfolio)
+    decisions: list[TradeDecision] = []
+    engine._handle_exit_blocked_survival_layer(pos, decisions, now, valuation_no_route=False)
+    assert pos.zombie_class == "FAKE_LIQUID"
+    assert pos.status == "FINAL_ZOMBIE"
+    assert quote_calls["n"] == 1
+    # Next cycle should not keep probing normal recovery path.
+    engine._handle_exit_blocked_survival_layer(pos, decisions, now, valuation_no_route=False)
+    assert quote_calls["n"] == 1
+
+
+def test_route_present_sane_quote_stays_soft_recoverable(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+    now = utc_now_iso()
+    pos = _zombie_position(now)
+    pos.status = "ZOMBIE"
+    interval = int(settings.zombie_retry_interval_cycles)
+    pos.exit_blocked_cycles = max(int(settings.exit_blocked_micro_probe_cycles), interval) - 1
+    pos.pending_exit_qty_atomic = None
+    portfolio.open_positions[pos.token_mint] = pos
+
+    class _Exec:
+        def __init__(self):
+            self.jupiter = object()
+
+        def transaction_status(self, _sig):
+            return None
+
+        def quote_sell(self, *_a, **_kw):
+            return ProbeQuote(input_amount_atomic=1, out_amount_atomic=200_000_000, price_impact_bps=120.0, route_ok=True, raw={})
+
+    engine = CreeperDripper(settings, _DummyBirdeye(), _Exec(), portfolio)
+    decisions: list[TradeDecision] = []
+    engine._handle_exit_blocked_survival_layer(pos, decisions, now, valuation_no_route=False)
+    assert pos.zombie_class == "SOFT_ZOMBIE"
+    assert pos.status in {"ZOMBIE", "EXIT_BLOCKED"}
+
+
+def test_dead_vs_recoverable_capital_and_dashboard_truth_split(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path)
+    portfolio: PortfolioState = new_portfolio(5.0)
+    now = utc_now_iso()
+    soft = _zombie_position(now)
+    soft.token_mint = "mintSoft"
+    soft.symbol = "SOFT"
+    soft.zombie_class = "SOFT_ZOMBIE"
+    soft.status = "ZOMBIE"
+    soft.last_estimated_exit_value_sol = 0.40
+    dead = _zombie_position(now)
+    dead.token_mint = "mintDead"
+    dead.symbol = "DEAD"
+    dead.zombie_class = "FAKE_LIQUID"
+    dead.status = "FINAL_ZOMBIE"
+    dead.last_estimated_exit_value_sol = 0.30
+    portfolio.open_positions[soft.token_mint] = soft
+    portfolio.open_positions[dead.token_mint] = dead
+
+    class _Exec:
+        def __init__(self):
+            self.jupiter = object()
+
+        def transaction_status(self, _sig):
+            return None
+
+        def quote_sell(self, *_a, **_kw):
+            return ProbeQuote(input_amount_atomic=1, out_amount_atomic=None, price_impact_bps=None, route_ok=False, raw={})
+
+    engine = CreeperDripper(settings, _DummyBirdeye(), _Exec(), portfolio)
+    monkeypatch.setattr(engine, "_discover_with_cadence", lambda: ([], {"seeds_total": 0, "candidates_built": 0, "candidates_accepted": 0, "candidates_rejected_total": 0, "rejection_counts": {}}))
+    out = engine.run_cycle()
+    summary = out["summary"]
+    assert summary["recoverable_sol_estimate"] >= 0.39
+    assert summary["dead_sol_estimate"] >= 0.29
+    path_counts = summary.get("zombie_recovery_path_counts") or {}
+    assert path_counts.get("recoverable", 0) >= 1
+    assert path_counts.get("dead", 0) >= 1
