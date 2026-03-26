@@ -1,27 +1,25 @@
 {
-  "task_id": "T-020",
-  "title": "Liquidity-aware entry gating and adaptive discovery cadence",
+  "task_id": "T-022",
+  "title": "Data Capture Hardening for discovery + runtime artifacts",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Add liquidity-aware entry gating: age-banded liquidity floors plus cheap route survivability scoring (1–2 buckets) to reject fragile candidates before execution. Add adaptive discovery cadence using derived policy effective_discovery_interval_seconds and expose cadence reason. Preserve minimal operator config; legacy env vars remain optional overrides only. Update operator docs to explain derived policy and liquidity-aware gating.",
+  "summary": "Normalize and harden token data capture across discovery events and runtime journal artifacts so analytics/policy can rely on consistent fields (score, liquidity, buy/sell ratio, age, route state, exit value, zombie classification, and blocked/recovery signals). Changes are additive metadata only; no trading behavior changes.",
   "files_changed": [
-    "creeper_dripper/engine/runtime_policy.py",
+    "creeper_dripper/engine/discovery.py",
     "creeper_dripper/engine/trader.py",
-    "creeper_dripper/config.py",
-    "README.md",
-    "tests/test_liquidity_aware_entry_gating.py",
+    "tests/test_t022_data_capture_hardening.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "Entry gating adds pre-execution rejects only; it does not loosen any existing safety rails.",
-    "Survivability uses at most one additional quote_sell in the youngest age band; no probing ladder or spam loops.",
-    "Discovery cadence changes only reduce frequency under pressure; no new services or async complexity."
+    "Discovery changes only add/normalize emitted metadata for candidate_accepted/candidate_rejected; acceptance logic is unchanged.",
+    "Trader changes only enrich persisted journal decision metadata at persistence time; execution sizing, routing, and safety checks are unchanged.",
+    "All new fields are explicit (including nulls) and do not remove existing metadata keys."
   ],
   "required_validation": [
     {
-      "name": "liquidity_entry_gating_tests",
-      "command": ".venv/bin/python -m pytest tests/test_liquidity_aware_entry_gating.py -v"
+      "name": "t022_tests",
+      "command": ".venv/bin/python -m pytest tests/test_t022_data_capture_hardening.py -v"
     },
     {
       "name": "full_suite",
@@ -32,7 +30,7 @@
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Add liquidity-aware entry gating, survivability checks, and adaptive discovery cadence",
-  "notes_for_cursor": "Scope limited to runtime_policy/trader/config/docs + focused liquidity gating tests and workflow artifacts."
+  "commit_message": "Harden runtime data capture for token analytics and policy",
+  "notes_for_cursor": "Normalized fields added primarily under candidate events (discovery) and journal decision metadata (trader persistence). Focused tests assert presence of required normalized keys."
 }
 

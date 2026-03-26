@@ -30,6 +30,41 @@ LOGGER = logging.getLogger(__name__)
 
 _EARLY_RISK_SOFT_REJECTS = {REJECT_BAD_BUY_SELL_RATIO, REJECT_LOW_SCORE}
 
+def _normalized_candidate_metadata(candidate: TokenCandidate, *, liq: float | None = None, liq_min: float | None = None) -> dict[str, Any]:
+    """
+    Normalized, additive discovery metadata for runtime artifacts.
+
+    This is observability/data-capture only: do not change acceptance behavior.
+    """
+    sell_quality = candidate.sell_route_quality
+    fragile_route = True if sell_quality in {"fragile", "bad"} else False if sell_quality in {"good"} else None
+    buy_ok = bool(candidate.jupiter_buy_out_amount)
+    sell_ok = bool(candidate.sell_quote_success and candidate.sell_quote_out_amount)
+    no_route = (not buy_ok) or (not sell_ok)
+    return {
+        # identity
+        "mint": candidate.address,
+        "symbol": candidate.symbol,
+        # required fields (explicit None when unknown)
+        "score": candidate.discovery_score,
+        "liquidity_usd": float(liq) if liq is not None else (float(candidate.liquidity_usd) if candidate.liquidity_usd is not None else None),
+        "min_liquidity_usd": float(liq_min) if liq_min is not None else None,
+        "buy_sell_ratio": candidate.buy_sell_ratio_1h,
+        "age_hours": candidate.age_hours,
+        # price impacts
+        "price_impact_bps_buy": candidate.jupiter_buy_price_impact_bps,
+        "price_impact_bps_sell": candidate.sell_quote_price_impact_bps,
+        # route state
+        "route_exists_buy": buy_ok,
+        "route_exists_sell": sell_ok,
+        "route_exists": bool(buy_ok and sell_ok),
+        "no_route": bool(no_route),
+        "fragile_route": fragile_route,
+        "sell_route_quality": sell_quality,
+        # rejection/acceptance context
+        "rejection_reason": None,
+    }
+
 
 def serialize_candidate(candidate: object) -> dict:
     """Return a stable JSON-safe candidate payload for scan artifacts."""
@@ -353,11 +388,12 @@ def discover_candidates(
         candidate.jupiter_buy_price_impact_bps = buy_probe.price_impact_bps
         if not buy_probe.out_amount_atomic:
             rejection_counts[REJECT_NO_BUY_ROUTE] += 1
+            md = _normalized_candidate_metadata(candidate)
+            md["rejection_reason"] = REJECT_NO_BUY_ROUTE
             events.emit(
                 "candidate_rejected",
                 REJECT_NO_BUY_ROUTE,
-                symbol=candidate.symbol,
-                mint=candidate.address,
+                **md,
                 probe_amount_lamports=probe_buy_amount,
                 slippage_bps=settings.default_slippage_bps,
                 jupiter_error_body=buy_probe.raw,
@@ -385,11 +421,12 @@ def discover_candidates(
             except JupiterBadRequestError as exc:
                 reason = _classify_sell_probe_failure(exc)
                 rejection_counts[reason] += 1
+                md = _normalized_candidate_metadata(candidate)
+                md["rejection_reason"] = reason
                 events.emit(
                     "candidate_rejected",
                     reason,
-                    symbol=candidate.symbol,
-                    mint=candidate.address,
+                    **md,
                     probe_amount_lamports=sell_probe_amount,
                     slippage_bps=settings.default_slippage_bps,
                     jupiter_error_body=exc.body,
@@ -489,26 +526,25 @@ def discover_candidates(
                 events.emit(
                     "candidate_accepted",
                     "early_risk_bucket",
-                    mint=candidate.address,
-                    symbol=candidate.symbol,
-                    score=candidate.discovery_score,
-                    soft_rejects="soft_low_liquidity",
-                    liquidity_usd=liq,
-                    min_liquidity_usd=liq_min,
-                    liquidity_score_delta=(candidate.raw or {}).get("liquidity_score_delta"),
+                    **{
+                        **_normalized_candidate_metadata(candidate, liq=liq, liq_min=liq_min),
+                        "rejection_reason": None,
+                        "soft_rejects": "soft_low_liquidity",
+                        "liquidity_soft": True,
+                        "liquidity_score_delta": (candidate.raw or {}).get("liquidity_score_delta"),
+                    },
                 )
                 continue
             candidates.append(candidate)
             events.emit(
                 "candidate_accepted",
                 "ok",
-                mint=candidate.address,
-                symbol=candidate.symbol,
-                score=candidate.discovery_score,
-                liquidity_usd=liq,
-                min_liquidity_usd=liq_min,
-                liquidity_soft=liquidity_soft,
-                liquidity_score_delta=(candidate.raw or {}).get("liquidity_score_delta"),
+                **{
+                    **_normalized_candidate_metadata(candidate, liq=liq, liq_min=liq_min),
+                    "rejection_reason": None,
+                    "liquidity_soft": liquidity_soft,
+                    "liquidity_score_delta": (candidate.raw or {}).get("liquidity_score_delta"),
+                },
             )
             continue
         if settings.early_risk_bucket_enabled:
@@ -523,26 +559,22 @@ def discover_candidates(
                 events.emit(
                     "candidate_accepted",
                     "early_risk_bucket",
-                    mint=candidate.address,
-                    symbol=candidate.symbol,
-                    score=candidate.discovery_score,
-                    soft_rejects=",".join(soft),
-                    liquidity_usd=liq,
-                    min_liquidity_usd=liq_min,
-                    liquidity_score_delta=(candidate.raw or {}).get("liquidity_score_delta"),
+                    **{
+                        **_normalized_candidate_metadata(candidate, liq=liq, liq_min=liq_min),
+                        "rejection_reason": None,
+                        "soft_rejects": ",".join(soft),
+                        "liquidity_soft": liquidity_soft,
+                        "liquidity_score_delta": (candidate.raw or {}).get("liquidity_score_delta"),
+                    },
                 )
                 continue
         for reason in reasons:
             rejection_counts[reason] += 1
-            metadata = {
-                "mint": candidate.address,
-                "symbol": candidate.symbol,
-                "score": candidate.discovery_score,
-            }
+            metadata = _normalized_candidate_metadata(candidate, liq=liq, liq_min=liq_min)
+            metadata["rejection_reason"] = reason
             if reason == REJECT_TOKEN_TOO_OLD:
                 metadata.update(
                     {
-                        "age_hours": candidate.age_hours,
                         "age_source": candidate.age_source,
                         "created_at_raw": candidate.created_at_raw,
                     }
@@ -552,7 +584,7 @@ def discover_candidates(
                     {
                         "sell_route_available": candidate.sell_route_available,
                         "sell_quote_success": candidate.sell_quote_success,
-                        "sell_price_impact_bps": candidate.sell_quote_price_impact_bps,
+                        "price_impact_bps_sell": candidate.sell_quote_price_impact_bps,
                     }
                 )
             events.emit("candidate_rejected", reason, **metadata)

@@ -82,6 +82,78 @@ from creeper_dripper.utils import append_jsonl, atomic_write_json, utc_now_iso
 LOGGER = logging.getLogger(__name__)
 MAX_EXIT_RETRIES = 5
 
+def _extract_score_from_position_notes(notes: list[str]) -> float | None:
+    for n in notes or []:
+        if not isinstance(n, str):
+            continue
+        if "score=" not in n:
+            continue
+        try:
+            val = float(n.split("score=", 1)[1].split()[0].strip().strip(","))
+            return val
+        except Exception:
+            continue
+    return None
+
+
+def _normalized_token_context(
+    *,
+    mint: str,
+    symbol: str | None,
+    candidate: TokenCandidate | None,
+    position: PositionState | None,
+) -> dict:
+    """
+    Normalized token fields for journal artifacts.
+
+    Additive observability only: do not affect execution logic.
+    """
+    score = None
+    if candidate is not None:
+        score = float(candidate.discovery_score or 0.0)
+    elif position is not None:
+        score = _extract_score_from_position_notes(getattr(position, "notes", []) or [])
+
+    liquidity_usd = None if candidate is None else candidate.liquidity_usd
+    buy_sell_ratio = None if candidate is None else candidate.buy_sell_ratio_1h
+    age_hours = None if candidate is None else candidate.age_hours
+    price_impact_bps_buy = None if candidate is None else candidate.jupiter_buy_price_impact_bps
+    price_impact_bps_sell = None
+    if candidate is not None:
+        price_impact_bps_sell = candidate.jupiter_sell_price_impact_bps or candidate.sell_quote_price_impact_bps
+    if price_impact_bps_sell is None and position is not None:
+        price_impact_bps_sell = getattr(position, "last_sell_impact_bps", None)
+
+    valuation_status = None if position is None else getattr(position, "valuation_status", None)
+    no_route = True if str(valuation_status or "").lower() == "no_route" else False if valuation_status else None
+
+    est_exit_value = None if position is None else getattr(position, "last_estimated_exit_value_sol", None)
+    zombie_class = None if position is None else getattr(position, "zombie_class", None)
+    blocked_reason = None
+    if position is not None:
+        blocked_reason = getattr(position, "zombie_reason", None) or getattr(position, "pending_exit_reason", None)
+
+    return {
+        "mint": mint,
+        "symbol": symbol,
+        "score": score,
+        "liquidity_usd": liquidity_usd,
+        "buy_sell_ratio": buy_sell_ratio,
+        "age_hours": age_hours,
+        "price_impact_bps_buy": price_impact_bps_buy,
+        "price_impact_bps_sell": price_impact_bps_sell,
+        "route_exists": None,
+        "no_route": no_route,
+        "fragile_route": None,
+        "estimated_exit_value_sol": est_exit_value,
+        "zombie_class": zombie_class,
+        "blocked_reason": blocked_reason,
+        "route_found": None,
+        "partial_liquidation_attempted": None,
+        "partial_liquidation_succeeded": None,
+        "execution_failed_with_route": None,
+    }
+
 
 def _is_system_execution_failure(classification: str | None) -> bool:
     """Return True only for system/execution failures (not market conditions)."""
@@ -2674,8 +2746,23 @@ class CreeperDripper:
             LOGGER.error("%s path=%s error=%s", STATE_SAVE_FAILED, self.settings.state_path, exc)
             self.events.emit("persistence_issue", STATE_SAVE_FAILED, path=str(self.settings.state_path), error=str(exc))
             raise
+        candidates_by_mint = {c.address: c for c in (self._last_discovery_candidates or [])}
+        positions_by_mint = dict(self.portfolio.open_positions or {})
         for decision in decisions:
             try:
+                mint = decision.token_mint
+                candidate = candidates_by_mint.get(mint)
+                position = positions_by_mint.get(mint)
+                symbol = decision.symbol or (candidate.symbol if candidate else None) or (position.symbol if position else None)
+                normalized = _normalized_token_context(mint=mint, symbol=symbol, candidate=candidate, position=position)
+                # Ensure normalized keys are present (explicit nulls allowed). Do not overwrite existing metadata.
+                for k, v in normalized.items():
+                    decision.metadata.setdefault(k, v)
+                # Recovery signals / blocked classification (when inferable from decision)
+                if decision.action in {"SELL_BLOCKED", "EXIT_FAILED"}:
+                    decision.metadata.setdefault("blocked_reason", decision.reason)
+                if decision.action == "SELL" and str(getattr(position, "zombie_class", "") or "") == "FAKE_LIQUID":
+                    decision.metadata.setdefault("partial_liquidation_succeeded", True)
                 append_jsonl(
                     self.settings.journal_path,
                     {

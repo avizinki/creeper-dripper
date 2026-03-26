@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T15:09:26.965518+00:00",
+  "generated_at": "2026-03-26T15:48:43.571889+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-020",
+  "task_id": "T-022",
   "validations": [
     {
-      "name": "liquidity_entry_gating_tests",
-      "command": ".venv/bin/python -m pytest tests/test_liquidity_aware_entry_gating.py -v",
+      "name": "t022_tests",
+      "command": ".venv/bin/python -m pytest tests/test_t022_data_capture_hardening.py -v",
       "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 2 items\n\ntests/test_liquidity_aware_entry_gating.py::test_young_token_requires_two_bucket_survivability PASSED [ 50%]\ntests/test_liquidity_aware_entry_gating.py::test_old_token_requires_higher_liquidity_floor PASSED [100%]\n\n============================== 2 passed in 0.06s ===============================\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 2 items\n\ntests/test_t022_data_capture_hardening.py::test_discovery_events_emit_normalized_candidate_metadata PASSED [ 50%]\ntests/test_t022_data_capture_hardening.py::test_journal_decisions_include_normalized_token_fields PASSED [100%]\n\n============================== 2 passed in 0.06s ===============================\n",
       "stderr": "",
       "ok": true
     },
@@ -17,7 +17,7 @@
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q",
       "exit_code": 0,
-      "stdout": "........................................................................ [ 29%]\n........................................................................ [ 59%]\n........................................................................ [ 88%]\n............................                                             [100%]\n244 passed in 1.74s\n",
+      "stdout": "........................................................................ [ 29%]\n........................................................................ [ 58%]\n........................................................................ [ 87%]\n..............................                                           [100%]\n246 passed in 1.72s\n",
       "stderr": "",
       "ok": true
     }
@@ -25,21 +25,18 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
-      "README.md",
-      "creeper_dripper/config.py",
-      "creeper_dripper/engine/runtime_policy.py",
+      "creeper_dripper/engine/discovery.py",
       "creeper_dripper/engine/trader.py",
       "docs/workflow",
       "docs/workflow/claude_task_result.json",
-      "tests/test_liquidity_aware_entry_gating.py"
+      "tests/test_t022_data_capture_hardening.py"
     ],
     "dirty_paths": [
-      "README.md",
-      "creeper_dripper/config.py",
-      "creeper_dripper/engine/runtime_policy.py",
+      "creeper_dripper/engine/discovery.py",
       "creeper_dripper/engine/trader.py",
       "docs/workflow/claude_task_result.json",
-      "tests/test_liquidity_aware_entry_gating.py"
+      "docs/workflow/cursor_validation_result.json",
+      "tests/test_t022_data_capture_hardening.py"
     ],
     "passed": true,
     "reason": null
@@ -48,13 +45,11 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "5ec8e40c5d99bbff5dcb7d6216bbe79af08923fc",
+    "sha": "b1204c51a77944e2cd148764eedd0b951e73d031",
     "added_paths": [
-      "creeper_dripper/engine/runtime_policy.py",
+      "creeper_dripper/engine/discovery.py",
       "creeper_dripper/engine/trader.py",
-      "creeper_dripper/config.py",
-      "README.md",
-      "tests/test_liquidity_aware_entry_gating.py",
+      "tests/test_t022_data_capture_hardening.py",
       "docs/workflow/claude_task_result.json",
       "docs/workflow"
     ]
