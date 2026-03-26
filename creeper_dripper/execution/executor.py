@@ -406,6 +406,244 @@ class TradeExecutor:
             quote,
         )
 
+    def sell_with_probe_fidelity(
+        self,
+        token_mint: str,
+        selected_qty: int,
+        selected_probe: "ProbeQuote",
+    ) -> tuple["ExecutionResult", "ProbeQuote", dict]:
+        """Hachi-aligned sell: skip redundant re-quote, go straight to /order + execute.
+
+        The Hachi standalone script selects the best candidate via /order, then signs
+        and executes that SAME order without issuing a second /order.  The bot's normal
+        ``sell()`` path re-quotes inside executor, introducing a second /quote probe whose
+        result may differ from the selection probe.
+
+        This method closes that gap:
+        - Uses ``selected_probe`` (already computed by the caller) for mode gating.
+        - Calls /order (build_v2_execution_order) once, immediately executes it.
+        - Returns a ``probe_fidelity`` dict with proof fields so callers can record
+          whether execution matched the selected candidate.
+
+        Returns:
+            (ExecutionResult, ProbeQuote used for gating, probe_fidelity_metadata)
+        """
+        requested = max(1, selected_qty)
+
+        # --- mode gates (same as sell()) ---
+        if not self._quote_ok(selected_probe):
+            route_code = (
+                EXEC_PROVIDER_UNAVAILABLE
+                if (selected_probe.raw or {}).get("error") == "jupiter_timeout"
+                else EXEC_NO_ROUTE
+            )
+            self.events.emit("exit_failed", route_code, token_mint=token_mint)
+            fidelity = _make_probe_fidelity(
+                selected_qty=requested,
+                selected_probe=selected_probe,
+                order=None,
+                order_qty=None,
+            )
+            return (
+                ExecutionResult(
+                    status="failed",
+                    requested_amount=requested,
+                    diagnostic_code=route_code,
+                    error="sell_probe_unusable",
+                    diagnostic_metadata={"phase": "probe_fidelity_gate", "side": "sell", **(selected_probe.raw or {})},
+                ),
+                selected_probe,
+                fidelity,
+            )
+
+        if self.settings.dry_run:
+            fidelity = _make_probe_fidelity(
+                selected_qty=requested,
+                selected_probe=selected_probe,
+                order=None,
+                order_qty=None,
+            )
+            return (
+                ExecutionResult(
+                    status="skipped",
+                    requested_amount=requested,
+                    diagnostic_code=EXEC_SKIPPED_DRY_RUN,
+                    error="sell_not_executed_dry_run",
+                    diagnostic_metadata={"phase": "mode_gate", "side": "sell", "dry_run": True},
+                ),
+                selected_probe,
+                fidelity,
+            )
+
+        if not self.settings.live_trading_enabled:
+            fidelity = _make_probe_fidelity(
+                selected_qty=requested,
+                selected_probe=selected_probe,
+                order=None,
+                order_qty=None,
+            )
+            return (
+                ExecutionResult(
+                    status="skipped",
+                    requested_amount=requested,
+                    diagnostic_code=EXEC_SKIPPED_LIVE_DISABLED,
+                    error="sell_not_executed_live_disabled",
+                    diagnostic_metadata={"phase": "mode_gate", "side": "sell", "live_trading_enabled": False},
+                ),
+                selected_probe,
+                fidelity,
+            )
+
+        if self.owner is None or self.owner_address is None:
+            fidelity = _make_probe_fidelity(
+                selected_qty=requested,
+                selected_probe=selected_probe,
+                order=None,
+                order_qty=None,
+            )
+            return (
+                ExecutionResult(
+                    status="failed",
+                    requested_amount=requested,
+                    diagnostic_code=EXEC_ORDER_FAILED,
+                    error="missing_wallet_keypair",
+                    diagnostic_metadata={"phase": "order_build", "side": "sell"},
+                ),
+                selected_probe,
+                fidelity,
+            )
+
+        # --- single /order call (no second /quote) ---
+        try:
+            order = self.build_v2_execution_order(
+                input_mint=token_mint,
+                output_mint=SOL_MINT,
+                amount_atomic=requested,
+            )
+        except Exception as exc:
+            self.events.emit("exit_failed", EXEC_V2_ORDER_BUILD_FAILED, token_mint=token_mint, error=str(exc))
+            fidelity = _make_probe_fidelity(
+                selected_qty=requested,
+                selected_probe=selected_probe,
+                order=None,
+                order_qty=None,
+            )
+            return (
+                ExecutionResult(
+                    status="failed",
+                    requested_amount=requested,
+                    diagnostic_code=EXEC_V2_ORDER_BUILD_FAILED,
+                    error=str(exc),
+                    diagnostic_metadata={
+                        "phase": "order_build",
+                        "side": "sell",
+                        "endpoint": "/order",
+                        "classification": EXEC_V2_ORDER_BUILD_FAILED,
+                    },
+                ),
+                selected_probe,
+                fidelity,
+            )
+
+        order_qty = self._extract_order_in_atomic(order) or requested
+        fidelity = _make_probe_fidelity(
+            selected_qty=requested,
+            selected_probe=selected_probe,
+            order=order,
+            order_qty=order_qty,
+        )
+
+        # --- sign + execute ---
+        try:
+            signature, execute_raw = self.sign_and_execute_v2(order)
+        except Exception as exc:
+            code = EXEC_V2_EXECUTE_FAILED
+            if str(exc).startswith("sign_failed:"):
+                code = EXEC_V2_SIGN_FAILED
+            self.events.emit("exit_failed", code, token_mint=token_mint, error=str(exc))
+            return (
+                ExecutionResult(
+                    status="failed",
+                    requested_amount=requested,
+                    diagnostic_code=code,
+                    error=str(exc),
+                    diagnostic_metadata={"phase": "execute", "side": "sell", "classification": code},
+                ),
+                selected_probe,
+                fidelity,
+            )
+
+        outcome, sold_atomic, out_lamports, settle_meta = self._settle_sell_after_execute(
+            token_mint=token_mint,
+            requested_qty=requested,
+            quote=selected_probe,
+            order=order,
+            signature=signature,
+            execute_raw=execute_raw if isinstance(execute_raw, dict) else {},
+        )
+        if outcome == "unknown":
+            self.events.emit("exit_failed", SETTLEMENT_UNCONFIRMED, token_mint=token_mint, error="sell_settlement_unconfirmed")
+            return (
+                ExecutionResult(
+                    status="unknown",
+                    requested_amount=requested,
+                    executed_amount=sold_atomic,
+                    diagnostic_code=SETTLEMENT_UNCONFIRMED,
+                    error="sell_settlement_unconfirmed",
+                    signature=signature,
+                    diagnostic_metadata={
+                        "phase": "post_execute_settlement",
+                        "side": "sell",
+                        "classification": SETTLEMENT_UNCONFIRMED,
+                        "post_sell_settlement": settle_meta,
+                        "probe_fidelity": fidelity,
+                    },
+                ),
+                selected_probe,
+                fidelity,
+            )
+        if sold_atomic is None or sold_atomic < 0:
+            self.events.emit("exit_failed", SETTLEMENT_UNCONFIRMED, token_mint=token_mint, error="sell_settlement_invalid_amount")
+            return (
+                ExecutionResult(
+                    status="unknown",
+                    requested_amount=requested,
+                    executed_amount=sold_atomic,
+                    diagnostic_code=SETTLEMENT_UNCONFIRMED,
+                    error="sell_settlement_invalid_amount",
+                    signature=signature,
+                    diagnostic_metadata={
+                        "phase": "post_execute_settlement",
+                        "side": "sell",
+                        "classification": SETTLEMENT_UNCONFIRMED,
+                        "post_sell_settlement": settle_meta,
+                        "probe_fidelity": fidelity,
+                    },
+                ),
+                selected_probe,
+                fidelity,
+            )
+        return (
+            ExecutionResult(
+                status="success",
+                requested_amount=requested,
+                executed_amount=sold_atomic,
+                output_amount=out_lamports,
+                diagnostic_code=EXEC_TX_CONFIRMED_SUCCESS,
+                signature=signature,
+                error=None,
+                diagnostic_metadata={
+                    "phase": "execute",
+                    "side": "sell",
+                    "send_status": "submitted",
+                    "post_sell_settlement": settle_meta,
+                    "probe_fidelity": fidelity,
+                },
+            ),
+            selected_probe,
+            fidelity,
+        )
+
     def build_swap_transaction(self, *, quote_response: dict) -> str:
         if not self.owner_address:
             raise RuntimeError("missing_wallet_keypair")
@@ -903,3 +1141,69 @@ class TradeExecutor:
             error=raw_result.error,
             is_partial=bool(raw_result.input_amount_result and raw_result.input_amount_result < requested_amount),
         )
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+def _make_probe_fidelity(
+    *,
+    selected_qty: int,
+    selected_probe: "ProbeQuote",
+    order: dict | None,
+    order_qty: int | None,
+) -> dict:
+    """Build proof-field metadata for DRIPPER_CHUNK_SELECTED / DRIPPER_CHUNK_EXECUTED logs.
+
+    Mirrors the fields tracked by hachi_swap_only_drip_sell.py so observers can
+    verify that the order that executed matched the candidate that was selected.
+
+    Fields:
+        selected_chunk_qty          — qty sent to /order (atomic)
+        selected_price_impact_bps   — bps from the ProbeQuote used for selection
+        selected_router             — router field from the selection probe raw dict (if present)
+        executed_router             — router field from the /order response (if present)
+        executed_price_impact_bps   — priceImpactPct from /order response converted to bps (if present)
+        executed_matches_selected   — True when order_qty matches selected_qty exactly
+    """
+    raw_probe = selected_probe.raw if selected_probe is not None else {}
+    raw_order = order if isinstance(order, dict) else {}
+
+    # Router from probe (quote endpoint does not reliably return router; may be absent)
+    selected_router = str(raw_probe.get("router", "") or "").strip() or None
+
+    # Router from /order response
+    executed_router = str(raw_order.get("router", "") or "").strip() or None
+
+    # Price impact from /order — stored as decimal string e.g. "0.0012"; convert to bps
+    executed_price_impact_bps: float | None = None
+    order_impact_raw = raw_order.get("priceImpactPct")
+    if order_impact_raw is not None:
+        try:
+            executed_price_impact_bps = float(order_impact_raw) * 10_000
+        except (TypeError, ValueError):
+            pass
+    # Fallback: quoteResponse nested inside /order
+    if executed_price_impact_bps is None:
+        nested_qr = raw_order.get("quoteResponse")
+        if isinstance(nested_qr, dict):
+            nested_impact = nested_qr.get("priceImpactPct")
+            if nested_impact is not None:
+                try:
+                    executed_price_impact_bps = float(nested_impact) * 10_000
+                except (TypeError, ValueError):
+                    pass
+
+    executed_matches_selected = (
+        order_qty is not None and order_qty == selected_qty
+    )
+
+    return {
+        "selected_chunk_qty": selected_qty,
+        "selected_price_impact_bps": selected_probe.price_impact_bps if selected_probe is not None else None,
+        "selected_router": selected_router,
+        "executed_router": executed_router,
+        "executed_price_impact_bps": executed_price_impact_bps,
+        "executed_matches_selected": executed_matches_selected,
+    }

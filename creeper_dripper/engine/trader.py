@@ -1780,6 +1780,7 @@ class CreeperDripper:
         # 5. Probe Jupiter sell quotes for each configured chunk fraction.
         # ------------------------------------------------------------------
         candidates: list[tuple[int, float, float | None]] = []  # (qty, sol_out/token, impact_bps)
+        _probe_by_qty: dict[int, object] = {}  # qty → ProbeQuote for proof-fidelity metadata
         for pct in self.settings.drip_chunk_pcts:
             chunk_qty = max(1, int(remaining * pct))
             try:
@@ -1799,6 +1800,7 @@ class CreeperDripper:
                 continue
             efficiency = probe.out_amount_atomic / float(chunk_qty)
             candidates.append((chunk_qty, efficiency, impact))
+            _probe_by_qty[chunk_qty] = probe
 
         LOGGER.info(
             "event=dripper_eval mint=%s position_id=%s remaining=%s chunks_probed=%s viable=%s pnl_source=jupiter_quote",
@@ -1850,6 +1852,8 @@ class CreeperDripper:
         # Derive chosen_eff / chosen_impact for logging from candidates (best match by qty).
         _cmap = {qty: (eff, imp) for qty, eff, imp in candidates}
         chosen_eff, chosen_impact = _cmap.get(chosen_qty, (0.0, None))
+        # Retrieve the ProbeQuote for the selected chunk (for proof-fidelity metadata).
+        chosen_probe = _probe_by_qty.get(chosen_qty)
 
         LOGGER.info(
             "event=dripper_chunk_selected mint=%s position_id=%s chunk_qty=%s efficiency=%s "
@@ -1877,6 +1881,11 @@ class CreeperDripper:
                     "pnl_zone": pnl_zone,
                     "momentum": momentum,
                     "selection_reason": selection_reason,
+                    # Proof fields: allows verifying what was selected vs what executed.
+                    "selected_chunk_qty": chosen_qty,
+                    "selected_efficiency": round(chosen_eff, 10),
+                    "selected_price_impact_bps": chosen_impact,
+                    "selected_router": str((chosen_probe.raw or {}).get("router", "") or "").strip() or None if chosen_probe is not None else None,
                 },
             )
         )
@@ -1934,6 +1943,9 @@ class CreeperDripper:
                         "urgency": urgency,
                         "pnl_zone": pnl_zone,
                         "momentum": momentum,
+                        # Proof fields: cross-reference with DRIPPER_CHUNK_SELECTED.
+                        "selected_chunk_qty": chosen_qty,
+                        "executed_matches_selected": sold_qty == chosen_qty,
                     },
                 )
             )
