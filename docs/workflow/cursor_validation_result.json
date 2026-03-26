@@ -1,15 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T14:21:03.369219+00:00",
+  "generated_at": "2026-03-26T14:24:19.137017+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-016-ENV-CLEANUP",
+  "task_id": "T-017",
   "validations": [
+    {
+      "name": "runtime_policy_tests",
+      "command": ".venv/bin/python -m pytest tests/test_runtime_policy.py -v",
+      "exit_code": 0,
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 5 items\n\ntests/test_runtime_policy.py::test_low_wallet_shrinks_effective_position_size PASSED [ 20%]\ntests/test_runtime_policy.py::test_zombie_pressure_tightens_policy_caps PASSED [ 40%]\ntests/test_runtime_policy.py::test_base_position_size_sol_is_primary_operator_input PASSED [ 60%]\ntests/test_runtime_policy.py::test_observability_exposes_runtime_risk_mode PASSED [ 80%]\ntests/test_runtime_policy.py::test_aggressive_mode_still_respects_accounting_guard PASSED [100%]\n\n============================== 5 passed in 0.06s ===============================\n",
+      "stderr": "",
+      "ok": true
+    },
     {
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q",
       "exit_code": 0,
-      "stdout": "........................................................................ [ 30%]\n........................................................................ [ 61%]\n........................................................................ [ 91%]\n....................                                                     [100%]\n236 passed in 1.70s\n",
+      "stdout": "........................................................................ [ 30%]\n........................................................................ [ 60%]\n........................................................................ [ 91%]\n.....................                                                    [100%]\n237 passed in 1.69s\n",
       "stderr": "",
       "ok": true
     }
@@ -17,18 +25,17 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
-      ".env.example",
-      "README.md",
-      "creeper_dripper/config.py",
+      "creeper_dripper/engine/runtime_policy.py",
+      "creeper_dripper/engine/trader.py",
       "docs/workflow",
-      "docs/workflow/claude_task_result.json"
+      "docs/workflow/claude_task_result.json",
+      "tests/test_runtime_policy.py"
     ],
     "dirty_paths": [
-      ".env.example",
-      "README.md",
-      "creeper_dripper/config.py",
+      "creeper_dripper/engine/runtime_policy.py",
+      "creeper_dripper/engine/trader.py",
       "docs/workflow/claude_task_result.json",
-      "docs/workflow/cursor_validation_result.json"
+      "tests/test_runtime_policy.py"
     ],
     "passed": true,
     "reason": null
@@ -37,11 +44,11 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "9a9a6798b45343a4cc838af3333d3c600a9ab622",
+    "sha": "7171d7dc67c718e2f96e71aa6521c7f28b7b5e5e",
     "added_paths": [
-      ".env.example",
-      "creeper_dripper/config.py",
-      "README.md",
+      "creeper_dripper/engine/runtime_policy.py",
+      "creeper_dripper/engine/trader.py",
+      "tests/test_runtime_policy.py",
       "docs/workflow/claude_task_result.json",
       "docs/workflow"
     ]

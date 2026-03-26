@@ -508,6 +508,11 @@ class CreeperDripper:
         accounting_drift_sol = self._last_accounting_drift_sol
         effective_max_daily_new_positions = self._effective_max_daily_new_positions()
         policy = self._last_runtime_policy
+        if policy is not None:
+            effective_max_open_positions = min(int(effective_max_open_positions), int(policy.effective_max_open_positions))
+            effective_max_daily_new_positions = min(
+                int(effective_max_daily_new_positions), int(policy.effective_max_daily_new_positions)
+            )
         self.events.emit(
             "entry_capacity_mode_summary",
             "ok",
@@ -535,12 +540,23 @@ class CreeperDripper:
             reconciliation_applied=self._last_reconciliation_applied,
             reconciliation_delta_sol=self._last_reconciliation_delta_sol,
             runtime_risk_mode=None if policy is None else policy.runtime_risk_mode,
+            policy_posture=None if policy is None else policy.policy_posture,
             effective_position_size_sol=None if policy is None else policy.effective_position_size_sol,
             effective_policy_max_open_positions=None if policy is None else policy.effective_max_open_positions,
             effective_policy_max_daily_new_positions=None if policy is None else policy.effective_max_daily_new_positions,
             effective_min_score=None if policy is None else policy.effective_min_score,
             effective_min_liquidity_usd=None if policy is None else policy.effective_min_liquidity_usd,
+            effective_min_buy_sell_ratio=None if policy is None else policy.effective_min_buy_sell_ratio,
             policy_reason_summary=None if policy is None else policy.policy_reason_summary,
+            policy_adjustments_applied=None if policy is None else list(policy.policy_adjustments_applied),
+            wallet_pressure_level=None if policy is None else policy.wallet_pressure_level,
+            zombie_pressure_level=None if policy is None else policy.zombie_pressure_level,
+            deployable_pressure_level=None if policy is None else policy.deployable_pressure_level,
+            effective_final_zombie_recovery_probe_interval_cycles=None
+            if policy is None
+            else policy.effective_final_zombie_recovery_probe_interval_cycles,
+            effective_exit_probe_aggressiveness=None if policy is None else policy.effective_exit_probe_aggressiveness,
+            effective_dripper_enabled=None if policy is None else policy.effective_dripper_enabled,
         )
         blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
         zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
@@ -827,6 +843,8 @@ class CreeperDripper:
         # retry/micro-probe windows.
         if position.status == POSITION_FINAL_ZOMBIE:
             interval = int(getattr(self.settings, "final_zombie_recovery_probe_interval_cycles", 360) or 360)
+            if self._last_runtime_policy is not None and self._last_runtime_policy.effective_final_zombie_recovery_probe_interval_cycles:
+                interval = int(self._last_runtime_policy.effective_final_zombie_recovery_probe_interval_cycles)
             interval = max(1, int(interval))
             due = (blocked_cycles % interval) == 0
             if not due:
@@ -2150,6 +2168,9 @@ class CreeperDripper:
                     continue
                 if float(candidate.liquidity_usd or 0.0) < float(self._last_runtime_policy.effective_min_liquidity_usd):
                     _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_policy_min_liquidity")
+                    continue
+                if float(candidate.buy_sell_ratio_1h or 0.0) < float(self._last_runtime_policy.effective_min_buy_sell_ratio):
+                    _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_policy_min_buy_sell_ratio")
                     continue
             if self.portfolio.cash_sol - size_sol < self.settings.cash_reserve_sol:
                 _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_cash_reserve")

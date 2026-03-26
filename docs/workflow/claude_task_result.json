@@ -1,21 +1,26 @@
 {
-  "task_id": "T-016-ENV-CLEANUP",
-  "title": "Simplify env to minimal operator config",
+  "task_id": "T-017",
+  "title": "Expand derived runtime policy and adaptive control surface",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Update .env.example to the minimal operator-level configuration (secrets + intent), slim local .env to match (untracked), and add lightweight README documentation describing the minimal operator config and derived runtime policy. Backward compatibility is preserved in code (legacy env vars remain supported as overrides).",
+  "summary": "Expand the derived runtime policy layer to compute additional entry thresholds and pressure levels, expose a richer policy explanation, and apply policy outputs as the primary control plane for entry sizing/caps and FINAL_ZOMBIE recovery probe cadence. Safety guards (T-013/T-014) and FINAL_ZOMBIE lifecycle (T-015/T-016) remain intact; legacy env vars remain optional overrides.",
   "files_changed": [
-    ".env.example",
-    "creeper_dripper/config.py",
-    "README.md",
+    "creeper_dripper/engine/runtime_policy.py",
+    "creeper_dripper/engine/trader.py",
+    "tests/test_runtime_policy.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    ".env.example/README changes are documentation only; runtime logic is unchanged.",
-    "Legacy env vars remain supported in code; this change only makes the minimal set the preferred operator surface."
+    "Policy changes are conservative: they tighten thresholds and reduce size/caps under pressure; they do not bypass existing safety rails.",
+    "Accounting safety guard/reconciliation still gate entries first; policy cannot override those blocks.",
+    "FINAL_ZOMBIE recovery probes remain rare and cheap; the policy only adjusts cadence."
   ],
   "required_validation": [
+    {
+      "name": "runtime_policy_tests",
+      "command": ".venv/bin/python -m pytest tests/test_runtime_policy.py -v"
+    },
     {
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q"
@@ -25,6 +30,6 @@
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Simplify env to minimal operator config",
-  "notes_for_cursor": "Commit only .env.example, README.md, and workflow artifacts. Do not commit .env."
+  "commit_message": "Expand derived runtime policy and adaptive control surface",
+  "notes_for_cursor": "Scope limited to runtime_policy, trader wiring, focused tests, and workflow artifacts."
 }

@@ -5,6 +5,7 @@ from creeper_dripper.engine.trader import CreeperDripper
 from creeper_dripper.models import PortfolioState, PositionState, TakeProfitStep
 from creeper_dripper.storage.state import new_portfolio
 from creeper_dripper.utils import utc_now_iso
+from creeper_dripper.engine.runtime_policy import derive_runtime_policy
 
 
 def _settings(monkeypatch, tmp_path, *, extra_env: dict | None = None):
@@ -100,4 +101,19 @@ def test_observability_exposes_runtime_risk_mode(monkeypatch, tmp_path):
     out = engine.run_cycle()
     md = next(e for e in out.get("events", []) if e.get("event_type") == "entry_capacity_mode_summary").get("metadata") or {}
     assert md.get("runtime_risk_mode") == "aggressive"
+
+
+def test_aggressive_mode_still_respects_accounting_guard(monkeypatch, tmp_path):
+    settings = _settings(monkeypatch, tmp_path, extra_env={"RISK_MODE": "aggressive"})
+    portfolio: PortfolioState = new_portfolio(5.0)
+    pol = derive_runtime_policy(
+        settings=settings,
+        portfolio=portfolio,
+        wallet_available_sol=5.0,
+        deployable_sol=5.0,
+        accounting_entries_blocked_reason="blocked_accounting_drift_cash_gt_wallet",
+        safe_mode_active=False,
+    )
+    assert pol.entry_enabled is False
+    assert pol.entries_blocked_reason == "blocked_accounting_drift_cash_gt_wallet"
 
