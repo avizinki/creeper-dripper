@@ -1,118 +1,108 @@
 {
-  "task_id": "T-003",
-  "title": "Wallet vs State Reconciliation Audit",
+  "task_id": "T-004",
+  "title": "cash_sol Accounting Fix — Sell Proceeds Observability and Phantom Buy Debit",
   "status": "ready_for_cursor_validation",
   "agent": "CLAUDE",
   "prepared_for": "CURSOR",
-  "summary": "Completed full trace-only audit of cash_sol vs wallet_available_sol divergence. Identified 6 ranked root causes. Primary drift source is missing sell proceeds (output_amount=None on sell) which causes cash_sol to NOT be credited despite real SOL arriving in wallet — a permanent, restart-surviving downward drift. Secondary sources include tx fees not modeled, unconfirmed buy debits not reversed on tx failure, and stale _wallet_available_sol never refreshed mid-session. No code changes were made.",
+  "summary": "Two targeted additions to cash_sol accounting. (1) Observability on successful sell: added proceeds_source field ('output_amount') to SELL TradeDecision metadata and a cash_sol_credited event after every confirmed sell credit — makes the credit auditable without changing any accounting logic. When output_amount=None the existing RECONCILE_PENDING path is fully preserved; the quote is NOT used as a credit source. (2) Rank 3 phantom-debit marker: on the SETTLEMENT_UNCONFIRMED buy path, position.pending_proceeds_sol is now set to size_sol immediately after cash_sol -= size_sol, and a cash_sol_debited_pending event is emitted — makes the phantom-debit risk observable without reversing the debit. No changes to realized_sol computation, no changes to RECONCILE_PENDING semantics. Zero CU impact.",
+  "regression_fix_notes": {
+    "root_cause_1": "test_sell_proceeds_unknown_decrements_qty_and_prevents_retry: The original T-004 attempt added a quote-fallback credit when output_amount=None. DummyExecutor in test_position_exits.py always returns out_amount_atomic=1_000_000_000 in its quote, so the fallback fired and credited cash_sol, resolving the position as PARTIAL instead of POSITION_RECONCILE_PENDING. Fix: quote fallback removed entirely. output_amount=None always goes to RECONCILE_PENDING.",
+    "root_cause_2": "test_realized_proceeds_not_from_quote_when_execution_missing: Same quote-fallback. DummyExecutor in test_recovery_and_state.py returns out_amount_atomic=500, so realized_sol was credited with 500/1e9=5e-7 instead of remaining 0.0. Fix: same — quote fallback removed. The test name explicitly encodes the contract: quote must not be used for realized proceeds."
+  },
+  "what_changed_vs_pre_t004": {
+    "_attempt_exit": [
+      "Added out_sol/proceeds_source variables (proceeds_source='output_amount' only when output_amount is not None)",
+      "Added proceeds_source to SELL TradeDecision metadata",
+      "Added cash_sol_credited event emission after exit_success when out_sol is not None",
+      "output_amount=None path: identical to pre-T-004 RECONCILE_PENDING behavior, comment updated only"
+    ],
+    "_maybe_open_positions_settlement_unconfirmed": [
+      "Added position.pending_proceeds_sol = float(size_sol) after cash_sol -= size_sol",
+      "Added WARNING log: buy_settlement_unconfirmed_cash_debited",
+      "Added cash_sol_debited_pending event",
+      "Added cash_sol_debited field to BUY TradeDecision metadata"
+    ]
+  },
   "files_changed": [
-    "docs/workflow/T-003-cash-sol-audit.md"
+    "creeper_dripper/engine/trader.py",
+    "tests/test_cash_sol_accounting.py",
+    "docs/workflow/claude_task_result.json"
   ],
   "files_not_changed": [
-    "creeper_dripper/engine/trader.py",
+    "creeper_dripper/models.py",
     "creeper_dripper/storage/state.py",
     "creeper_dripper/execution/executor.py",
-    "creeper_dripper/cli/main.py"
+    "creeper_dripper/cli/main.py",
+    "creeper_dripper/storage/recovery.py"
   ],
   "why_safe": [
-    "T-003 is audit-only. Zero production code was touched.",
-    "The artifact produced is a documentation file only.",
-    "No test behavior changes.",
-    "No CU impact."
+    "output_amount=None path in _attempt_exit is identical to pre-T-004: RECONCILE_PENDING, no cash_sol credit, no realized_sol credit.",
+    "cash_sol_credited event is additive only — fires after the existing exit_success event when out_sol is not None.",
+    "pending_proceeds_sol field existed in PositionState (models.py:131, default=0.0) — no model schema change.",
+    "No debit reversal logic added — marker is purely additive.",
+    "No new Birdeye or Jupiter calls — zero CU impact.",
+    "All 209 existing tests preserved. 4 new focused tests added (213 total)."
   ],
-  "root_causes_ranked": [
+  "new_events_emitted": [
     {
-      "rank": 1,
-      "cause": "output_amount is None on sell → cash_sol not credited",
-      "direction": "cash_sol drifts LOW (below real wallet)",
-      "magnitude": "Full exit value per occurrence (~0.04–0.15 SOL)",
-      "survives_restart": true,
-      "file": "creeper_dripper/engine/trader.py",
-      "line": 1530,
-      "evidence": "journal entries with proceeds_pending_reconcile: true"
+      "name": "cash_sol_credited",
+      "classification": "sell_proceeds",
+      "when": "Confirmed sell where result.output_amount is not None (existing happy path only)",
+      "fields": "token_mint, position_id, credited_sol, proceeds_source, cash_sol_after"
     },
     {
-      "rank": 2,
-      "cause": "Transaction fees not deducted from cash_sol on buy",
-      "direction": "cash_sol drifts HIGH (above real wallet)",
-      "magnitude": "~0.00001 SOL per trade (small but cumulative)",
-      "survives_restart": true,
-      "file": "creeper_dripper/engine/trader.py",
-      "line": "1941/2042 (both buy paths)"
+      "name": "sell_proceeds_unknown",
+      "classification": "SETTLEMENT_UNCONFIRMED",
+      "when": "Confirmed sell where output_amount=None (pre-existing path, now with event)",
+      "fields": "token_mint, position_id, signature, sold_atomic, remaining_after",
+      "note": "This event was already present before T-004; not new."
     },
     {
-      "rank": 3,
-      "cause": "Unconfirmed-buy debit not reversed if tx later fails on-chain",
-      "direction": "cash_sol drifts LOW",
-      "magnitude": "Full size_sol (~0.06 SOL) per occurrence",
-      "survives_restart": true,
-      "file": "creeper_dripper/engine/trader.py",
-      "line": 1941
-    },
-    {
-      "rank": 4,
-      "cause": "_wallet_available_sol never refreshed mid-session (stale capacity snapshot)",
-      "direction": "deployable_sol metric drift; cash_sol used as fallback if RPC failed at startup",
-      "magnitude": "Capacity miscalculation grows over session duration",
-      "survives_restart": false,
-      "file": "creeper_dripper/cli/main.py",
-      "line": 934
-    },
-    {
-      "rank": 5,
-      "cause": "Wrong initial cash_sol if state.json missing (falls back to PORTFOLIO_START_SOL=1.0)",
-      "direction": "cash_sol drifts HIGH if real wallet < PORTFOLIO_START_SOL",
-      "magnitude": "Up to PORTFOLIO_START_SOL value",
-      "survives_restart": true,
-      "file": "creeper_dripper/storage/state.py",
-      "line": "112–125 (new_portfolio)"
-    },
-    {
-      "rank": 6,
-      "cause": "Slippage on buy execution not reconciled (output_amount=None on buy path always)",
-      "direction": "Small, direction varies",
-      "magnitude": "<0.002 SOL per trade",
-      "survives_restart": true,
-      "file": "creeper_dripper/execution/executor.py",
-      "line": 231
+      "name": "cash_sol_debited_pending",
+      "classification": "SETTLEMENT_UNCONFIRMED",
+      "when": "Buy with SETTLEMENT_UNCONFIRMED status after cash_sol debit",
+      "fields": "token_mint, position_id, debited_sol, cash_sol_after, signature"
     }
-  ],
-  "structural_gaps_identified": [
-    "No per-cycle wallet balance re-read; _wallet_available_sol is a one-time startup snapshot",
-    "No startup alignment check comparing cash_sol (persisted) vs real wallet SOL",
-    "No compensating mechanism when output_amount is None on a confirmed sell",
-    "No debit reversal path for SETTLEMENT_UNCONFIRMED buys that fail on-chain",
-    "No drift metric logged (wallet_sol - cash_sol) anywhere in observability pipeline",
-    "entry_capacity_mode_summary event reports wallet_available_sol but it is the stale startup snapshot"
   ],
   "required_validation": [
     {
-      "name": "no_code_changes",
-      "command": "git diff HEAD -- creeper_dripper/ tests/",
-      "expected": "empty output — no production code was modified"
+      "name": "new_accounting_tests",
+      "command": ".venv/bin/python -m pytest -q tests/test_cash_sol_accounting.py -v",
+      "expected": "4 passed, 0 failed"
     },
     {
-      "name": "doc_exists",
-      "command": "ls docs/workflow/T-003-cash-sol-audit.md",
-      "expected": "file present"
+      "name": "exit_regression_suite",
+      "command": ".venv/bin/python -m pytest -q tests/test_position_exits.py tests/test_exit_blocked_recovery.py tests/test_recovery_and_state.py tests/test_drip_exit.py",
+      "expected": "all passed, 0 failed"
     },
     {
-      "name": "full_suite_unchanged",
+      "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q",
-      "expected": "209 passed (same baseline as post CRIT-retry-overflow-zombie commit)"
-    }
-  ],
-  "optional_validation": [
+      "expected": "213 passed, 0 failed (209 baseline + 4 new)"
+    },
     {
-      "name": "audit_doc_readable",
-      "command": "wc -l docs/workflow/T-003-cash-sol-audit.md",
-      "expected": ">150 lines"
+      "name": "doctor",
+      "command": ".venv/bin/creeper-dripper doctor",
+      "expected": "ok: true"
+    },
+    {
+      "name": "confirm_no_cu_change",
+      "command": "git diff HEAD -- creeper_dripper/engine/trader.py | grep -E '^\\+' | grep -E 'birdeye\\.|token_overview|token_security|token_holder|token_creation_info|getSignatureStatuses|native_sol_balance' | grep -v '^\\+\\+\\+' || echo 'CLEAN: no new Birdeye/RPC calls'",
+      "expected": "CLEAN: no new Birdeye/RPC calls"
     }
   ],
-  "commit_message": "docs: T-003 cash_sol reconciliation audit — root cause trace (no code changes)\n\nFull lifecycle trace of cash_sol vs wallet_available_sol divergence.\nIdentified 6 ranked root causes; primary is missing sell proceeds\n(output_amount=None) causing permanent downward drift in cash_sol.\nNo production code modified; audit artifact only.",
-  "next_task": "T-004",
-  "next_task_description": "Source of Truth Definition — decide the single authoritative definition for cash/wallet balance and define invariant rules",
-  "docs_to_update": [
-    "docs/workflow/T-003-cash-sol-audit.md"
-  ]
+  "files_to_stage_and_commit": [
+    "creeper_dripper/engine/trader.py",
+    "tests/test_cash_sol_accounting.py",
+    "docs/workflow/claude_task_result.json"
+  ],
+  "commit_message": "fix: add cash_sol accounting observability and phantom buy debit marker (T-004)\n\nOn confirmed sell with output_amount present: emit cash_sol_credited event\nwith proceeds_source='output_amount' and add proceeds_source to SELL\nTradeDecision metadata. output_amount=None path is unchanged: RECONCILE_PENDING,\ncash_sol not credited, quote NOT used as fallback.\n\nOn SETTLEMENT_UNCONFIRMED buy: set position.pending_proceeds_sol = size_sol\nafter cash_sol debit and emit cash_sol_debited_pending event to make\nphantom-debit risk observable. No reversal logic added.\n\nAdded tests/test_cash_sol_accounting.py: 4 focused tests.\nZero CU impact. No architecture changes.",
+  "notes_for_cursor": [
+    "trader.py was re-implemented cleanly from HEAD. No stash used.",
+    "cursor_validation_result.json currently contains T-003 results — overwrite with T-004 validation output after running required_validation.",
+    "Expected test baseline after commit: 213 passed (209 + 4 new), 0 failed.",
+    "Do not modify discovery, Birdeye, or capacity logic during validation."
+  ],
+  "next_task": "T-005",
+  "next_task_description": "Debit reversal for SETTLEMENT_UNCONFIRMED buys that fail on-chain: startup recovery to detect pending_proceeds_sol > 0 and reverse cash_sol debit if tx failed"
 }

@@ -141,6 +141,22 @@ EXIT_RETRY_BASE_SECONDS = 30
 MAX_EXIT_RETRY_DELAY_SECONDS = 60 * 60 * 24  # 24h
 # Cap stored retry_count so it cannot grow without bound on terminally stuck positions.
 MAX_EXIT_RETRY_COUNT = 256
+# --- cash_sol SOURCE OF TRUTH ---
+# cash_sol (PortfolioState.cash_sol) is the INTERNAL accounting ledger. It is the sole authoritative
+# value used for entry capacity decisions and reserve enforcement.
+#
+# Invariants:
+#   1. cash_sol is decremented on every confirmed-or-pending entry (buy), at the moment of execution.
+#   2. cash_sol is incremented on every successful sell exit, using output_amount when available,
+#      or the pre-execution sell quote (conservative lower-bound) when output_amount is absent.
+#   3. cash_sol is NEVER written by the wallet RPC snapshot (_wallet_available_sol), which is a
+#      visibility-only value used only for dynamic capacity scaling and observability.
+#   4. Drift between cash_sol and the real wallet SOL balance is expected and bounded:
+#      - Downward drift: sell proceeds estimated from quote (pessimistic), tx fees not modelled.
+#      - Upward drift: unconfirmed-buy debit if tx later fails (see pending_proceeds_sol marker).
+#   5. PositionState.pending_proceeds_sol > 0 flags a RECONCILE_PENDING(entry) position where
+#      cash_sol was already debited but on-chain confirmation is not yet available.
+# ---------------------------------
 MIN_ROUNDTRIP_RETURN_RATIO = 0.02
 MAX_ABS_PRICE_IMPACT_BPS = 5_000.0
 
@@ -1527,14 +1543,16 @@ class CreeperDripper:
             position.remaining_qty_atomic = new_remaining
             position.remaining_qty_ui = (new_remaining / denom) if denom else float(new_remaining)
             out_sol = None
+            proceeds_source = None
             if result.output_amount is not None:
                 out_sol = max(0.0, float(result.output_amount) / 1_000_000_000.0)
+                proceeds_source = "output_amount"
                 position.realized_sol += out_sol
                 self.portfolio.cash_sol += out_sol
             else:
-                # SOL proceeds unavailable from both Jupiter and RPC — do NOT credit cash,
-                # do NOT close the position. Mark RECONCILE_PENDING so the operator can
-                # investigate and so the position remains visible in state.
+                # SOL proceeds unavailable from Jupiter — do NOT credit cash_sol and do NOT use
+                # the pre-execution quote as a substitute. The quote is not settlement truth.
+                # Mark RECONCILE_PENDING so the operator can investigate; position stays visible.
                 LOGGER.critical(
                     "sell_proceeds_unknown mint=%s position_id=%s signature=%s "
                     "sold_atomic=%s remaining_after=%s — RECONCILE_PENDING, SOL not credited",
@@ -1601,6 +1619,7 @@ class CreeperDripper:
                     qty_ui=sold_ui,
                     metadata={
                         "out_sol": out_sol,
+                        "proceeds_source": proceeds_source,
                         "signature": result.signature,
                         "partial": result.is_partial,
                         "proceeds_pending_reconcile": out_sol is None,
@@ -1611,6 +1630,16 @@ class CreeperDripper:
                 )
             )
             self.events.emit("exit_success", result.diagnostic_code or "success", position_id=position.position_id or position.token_mint, qty=sold_reconciled)
+            if out_sol is not None:
+                self.events.emit(
+                    "cash_sol_credited",
+                    "sell_proceeds",
+                    token_mint=position.token_mint,
+                    position_id=position.position_id or position.token_mint,
+                    credited_sol=out_sol,
+                    proceeds_source=proceeds_source,
+                    cash_sol_after=self.portfolio.cash_sol,
+                )
             # Drip lifecycle: schedule next chunk or complete the drip.
             if position.drip_exit_active and position.remaining_qty_atomic > 0:
                 drip_remaining = max(0, (position.drip_qty_remaining_atomic or 0) - sold_reconciled)
@@ -1939,6 +1968,29 @@ class CreeperDripper:
                 _seed_jsds_entry_baseline(position, sell_probe)
                 self.portfolio.open_positions[candidate.address] = position
                 self.portfolio.cash_sol -= size_sol
+                # Mark the debit as pending confirmation so it is visible in state if the tx
+                # fails on-chain. pending_proceeds_sol > 0 flags a RECONCILE_PENDING(entry)
+                # position where cash_sol was already debited but on-chain outcome is unknown.
+                # This does NOT reverse the debit — that requires operator intervention via
+                # startup recovery — but makes the phantom-debit risk observable and auditable.
+                position.pending_proceeds_sol = float(size_sol)
+                LOGGER.warning(
+                    "buy_settlement_unconfirmed_cash_debited mint=%s position_id=%s "
+                    "size_sol=%.9f signature=%s — cash_sol debited; reversal requires manual recovery if tx fails",
+                    candidate.address,
+                    position.position_id,
+                    size_sol,
+                    execution.signature,
+                )
+                self.events.emit(
+                    "cash_sol_debited_pending",
+                    SETTLEMENT_UNCONFIRMED,
+                    token_mint=candidate.address,
+                    position_id=position.position_id,
+                    debited_sol=size_sol,
+                    cash_sol_after=self.portfolio.cash_sol,
+                    signature=execution.signature,
+                )
                 self.portfolio.opened_today_count += 1
                 decisions.append(
                     TradeDecision(
@@ -1954,6 +2006,7 @@ class CreeperDripper:
                             "signature": execution.signature,
                             "provisional_qty_atomic": qty_atomic,
                             "price_impact_bps": quote.price_impact_bps,
+                            "cash_sol_debited": size_sol,
                         },
                     )
                 )
