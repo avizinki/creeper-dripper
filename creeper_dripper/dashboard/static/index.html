@@ -3,309 +3,1195 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>creeper-dripper</title>
+  <title>creeper-dripper · dashboard of truth</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --panel: #1a222c;
-      --text: #e6edf3;
-      --muted: #8b9bab;
-      --accent: #3fb950;
-      --warn: #d29922;
-      --danger: #f85149;
-      --border: #30363d;
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --surface2: #1c2333;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #3fb950;
+      --warn:     #d29922;
+      --danger:   #f85149;
+      --info:     #58a6ff;
+      --purple:   #bc8cff;
+      --subtle:   #21262d;
     }
-    * { box-sizing: border-box; }
+    *, *::before, *::after { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: ui-sans-serif, system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.45;
-      font-size: 14px;
+      font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", "Fira Code", monospace;
+      font-size: 13px;
+      line-height: 1.5;
     }
-    header {
-      padding: 1rem 1.25rem;
+
+    /* ── top bar ── */
+    #topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
       border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1.25rem;
       display: flex;
-      align-items: baseline;
-      justify-content: space-between;
+      align-items: center;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+    #topbar h1 {
+      margin: 0;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      border: 1px solid currentColor;
+    }
+    .pill-ok      { color: var(--accent); }
+    .pill-warn    { color: var(--warn); }
+    .pill-danger  { color: var(--danger); }
+    .pill-muted   { color: var(--muted); }
+    .pill-info    { color: var(--info); }
+
+    #topbar-posture { font-size: 0.8rem; }
+    #topbar-clock   { color: var(--muted); font-size: 0.72rem; margin-left: auto; }
+
+    /* ── layout ── */
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 1rem 1.25rem 3rem;
+    }
+
+    /* ── sections ── */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.875rem 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .section.alert-border { border-color: var(--danger); }
+    .section.warn-border  { border-color: var(--warn); }
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 0.65rem;
+    }
+
+    /* ── stat grid ── */
+    .stat-row {
+      display: flex;
       flex-wrap: wrap;
       gap: 0.5rem;
     }
-    h1 { font-size: 1.1rem; font-weight: 600; margin: 0; }
-    #clock { color: var(--muted); font-size: 0.85rem; }
-    main { padding: 1rem 1.25rem 2rem; max-width: 1200px; margin: 0 auto; }
-    section {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-    }
-    h2 {
-      font-size: 0.95rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--muted);
-      margin: 0 0 0.75rem;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 0.75rem;
-    }
     .stat {
-      padding: 0.5rem 0.65rem;
-      background: var(--bg);
-      border-radius: 6px;
+      background: var(--subtle);
       border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.4rem 0.65rem;
+      min-width: 120px;
     }
-    .stat label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
-    .stat span { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .stat-label {
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-bottom: 0.15rem;
+      white-space: nowrap;
+    }
+    .stat-value {
+      font-size: 0.92rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .stat.wide { min-width: 200px; }
+    .stat.alert { border-color: var(--danger); }
+    .stat.warn  { border-color: var(--warn); }
+    .stat.ok    { border-color: var(--accent); }
+
+    /* ── colors ── */
+    .c-ok      { color: var(--accent); }
+    .c-warn    { color: var(--warn); }
+    .c-danger  { color: var(--danger); }
+    .c-muted   { color: var(--muted); }
+    .c-info    { color: var(--info); }
+    .c-purple  { color: var(--purple); }
+
+    /* ── tables ── */
+    .tbl-wrap { overflow-x: auto; }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
     }
-    th, td {
+    th {
       text-align: left;
-      padding: 0.45rem 0.5rem;
+      padding: 0.35rem 0.5rem;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
       border-bottom: 1px solid var(--border);
+      white-space: nowrap;
     }
-    th { color: var(--muted); font-weight: 500; }
-    tr:hover td { background: rgba(255,255,255,0.03); }
-    .pnl-pos { color: var(--accent); }
-    .pnl-neg { color: var(--danger); }
-    pre {
-      margin: 0;
-      font-size: 0.75rem;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
+    td {
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid rgba(48,54,61,0.5);
+      white-space: nowrap;
     }
-    .feed-item {
-      padding: 0.4rem 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.82rem;
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    tr:last-child td { border-bottom: none; }
+
+    /* ── two-col layout ── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
     }
-    .feed-item:last-child { border-bottom: none; }
-    .feed-type { color: var(--accent); font-weight: 500; }
-    .feed-ts { color: var(--muted); font-size: 0.75rem; }
-    .err {
-      color: var(--danger);
-      padding: 0.5rem;
+    @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+    .three-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.75rem;
+    }
+    @media (max-width: 1000px) { .three-col { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 650px)  { .three-col { grid-template-columns: 1fr; } }
+
+    /* ── error banner ── */
+    #error-banner {
+      background: rgba(248,81,73,0.12);
       border: 1px solid var(--danger);
       border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0.75rem;
+      color: var(--danger);
+      font-size: 0.82rem;
+      display: none;
+    }
+
+    /* ── entry gate block ── */
+    #entry-gate-block {
+      padding: 0.65rem 0.9rem;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    #entry-gate-block.can-enter {
+      background: rgba(63,185,80,0.1);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+    }
+    #entry-gate-block.cannot-enter {
+      background: rgba(248,81,73,0.1);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+    }
+    #entry-gate-block.constrained {
+      background: rgba(210,153,34,0.1);
+      border: 1px solid var(--warn);
+      color: var(--warn);
+    }
+
+    /* ── adjustments tag list ── */
+    .adj-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.4rem;
+    }
+    .adj-tag {
+      font-size: 0.68rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      background: var(--subtle);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    /* ── discovery health ── */
+    .discovery-failed-box {
+      background: rgba(248,81,73,0.08);
+      border: 1px solid var(--danger);
+      border-radius: 5px;
+      padding: 0.45rem 0.65rem;
+      color: var(--danger);
+      font-size: 0.8rem;
+      word-break: break-word;
       margin-bottom: 0.5rem;
     }
-    .cycle-block {
-      margin-bottom: 0.75rem;
-      padding: 0.5rem;
-      background: var(--bg);
-      border-radius: 6px;
-      border: 1px solid var(--border);
+
+    /* ── birdeye endpoint table ── */
+    .ep-ok   { color: var(--accent); }
+    .ep-bad  { color: var(--danger); }
+    .ep-zero { color: var(--muted); }
+
+    /* ── data quality bar ── */
+    .quality-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
-    .cycle-block.latest { border-color: var(--accent); }
+    .quality-bar {
+      flex: 1;
+      height: 5px;
+      background: var(--subtle);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .quality-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+    }
+    .quality-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.2rem 0;
+      border-bottom: 1px solid rgba(48,54,61,0.4);
+      gap: 0.5rem;
+    }
+    .quality-row:last-child { border-bottom: none; }
+    .quality-name { color: var(--muted); font-size: 0.72rem; flex: 1; }
+    .quality-pct  { font-size: 0.72rem; width: 45px; text-align: right; }
+    .quality-n    { color: var(--muted); font-size: 0.68rem; width: 60px; text-align: right; }
+
+    /* ── events feed ── */
+    .event-item {
+      padding: 0.3rem 0;
+      border-bottom: 1px solid rgba(48,54,61,0.5);
+      font-size: 0.78rem;
+    }
+    .event-item:last-child { border-bottom: none; }
+    .event-type { font-weight: 700; }
+    .event-ts   { color: var(--muted); font-size: 0.7rem; }
+    pre.event-meta {
+      margin: 0.15rem 0 0;
+      font-size: 0.7rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* ── zombie badge ── */
+    .zclass {
+      font-size: 0.68rem;
+      padding: 0.05rem 0.35rem;
+      border-radius: 3px;
+      font-weight: 700;
+    }
+    .zclass-soft     { background: rgba(210,153,34,0.2); color: var(--warn); }
+    .zclass-hard     { background: rgba(248,81,73,0.2);  color: var(--danger); }
+    .zclass-final    { background: rgba(188,140,255,0.2); color: var(--purple); }
+    .zclass-unknown  { background: var(--subtle); color: var(--muted); }
+
+    /* ── status badge ── */
+    .status-open    { color: var(--accent); font-weight: 700; }
+    .status-zombie  { color: var(--warn);   font-weight: 700; }
+    .status-final-zombie { color: var(--danger); font-weight: 700; }
+    .status-exit-blocked { color: var(--danger); font-weight: 700; }
+    .status-partial { color: var(--info);   font-weight: 700; }
+    .status-unknown { color: var(--muted);  font-weight: 700; }
+
+    /* ── posture badge colors ── */
+    .posture-balanced    { color: var(--accent); }
+    .posture-aggressive  { color: var(--purple); }
+    .posture-constrained { color: var(--warn); }
+    .posture-recovery    { color: var(--danger); }
+
+    /* ── zombie top-3 row highlight ── */
+    tr.zombie-top1 td { background: rgba(248,81,73,0.07); }
+    tr.zombie-top2 td { background: rgba(248,81,73,0.04); }
+    tr.zombie-top3 td { background: rgba(210,153,34,0.04); }
+    .zombie-rank-badge {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      font-size: 0.65rem;
+      font-weight: 900;
+      line-height: 18px;
+      text-align: center;
+      margin-right: 4px;
+    }
+    .zombie-rank-1 { background: rgba(248,81,73,0.3); color: var(--danger); }
+    .zombie-rank-2 { background: rgba(248,81,73,0.2); color: var(--danger); }
+    .zombie-rank-3 { background: rgba(210,153,34,0.2); color: var(--warn); }
+
+    /* ── data quality confidence groups ── */
+    .dq-group-header {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.4rem 0 0.2rem;
+      margin-top: 0.3rem;
+      border-top: 1px solid var(--border);
+    }
+    .dq-group-high   { color: var(--accent); }
+    .dq-group-medium { color: var(--warn); }
+    .dq-group-low    { color: var(--muted); }
+
+    /* ── birdeye budget mode pill ── */
+    .bm-healthy    { color: var(--accent); }
+    .bm-constrained { color: var(--warn); }
+    .bm-starved    { color: var(--danger); }
+
+    /* ── entry-allowed top bar widget ── */
+    #topbar-entry { font-size: 0.8rem; }
+
+    /* spinner */
+    #loading { color: var(--muted); padding: 2rem 1.25rem; font-size: 0.82rem; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>creeper-dripper</h1>
-    <span id="clock"></span>
-  </header>
-  <main>
-    <div id="banner"></div>
 
-    <section>
-      <h2>Portfolio</h2>
-      <div class="grid" id="portfolio"></div>
-    </section>
+<div id="topbar">
+  <h1>creeper-dripper</h1>
+  <span id="topbar-entry"></span>
+  <span id="topbar-posture"></span>
+  <span id="topbar-capital"></span>
+  <span id="topbar-birdeye"></span>
+  <span id="topbar-discovery"></span>
+  <span id="topbar-clock"></span>
+</div>
 
-    <section>
-      <h2>Daily entry capacity</h2>
-      <div class="grid" id="daily-capacity"></div>
-    </section>
+<main>
+  <div id="error-banner"></div>
+  <div id="loading">Loading…</div>
+  <div id="dash" class="hidden">
 
-    <section>
-      <h2>Positions</h2>
-      <div style="overflow-x:auto">
+    <!-- ── SECTION 1: CAPITAL TRUTH ── -->
+    <div class="section" id="section-capital">
+      <div class="section-title">Capital Truth</div>
+      <div class="stat-row" id="capital-stats"></div>
+      <div id="acct-warning" style="margin-top:0.5rem"></div>
+    </div>
+
+    <!-- ── SECTION 2: ENTRY GATE + POLICY ── -->
+    <div class="two-col">
+      <div class="section" id="section-gate">
+        <div class="section-title">Entry Gate</div>
+        <div id="entry-gate-block"></div>
+        <div id="entry-gate-detail" style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)"></div>
+        <div class="adj-list" id="policy-adjustments"></div>
+      </div>
+      <div class="section" id="section-pressure">
+        <div class="section-title">Pressure Levels</div>
+        <div class="stat-row" id="pressure-stats"></div>
+      </div>
+    </div>
+
+    <!-- ── SECTION 3: PORTFOLIO HEALTH ── -->
+    <div class="section" id="section-portfolio">
+      <div class="section-title">Portfolio Health</div>
+      <div class="stat-row" id="portfolio-stats"></div>
+    </div>
+
+    <!-- ── SECTION 4: EFFECTIVE POLICY ── -->
+    <div class="section" id="section-policy">
+      <div class="section-title">Effective Policy</div>
+      <div class="stat-row" id="policy-stats"></div>
+    </div>
+
+    <!-- ── SECTION 5: POSITIONS TABLE ── -->
+    <div class="section" id="section-positions">
+      <div class="section-title">Open Positions</div>
+      <div class="tbl-wrap">
         <table>
           <thead>
             <tr>
               <th>Symbol</th>
-              <th>PnL %</th>
               <th>Status</th>
-              <th>hachi_drip_completed</th>
-              <th>drip_chunks_done</th>
-              <th>hachi_last_tp_level</th>
+              <th>Entry SOL</th>
+              <th>Exit Val SOL</th>
+              <th>uPnL SOL</th>
+              <th>uPnL %</th>
+              <th>Val Status</th>
+              <th>Impact Entry</th>
+              <th>Impact Now</th>
+              <th>Drip Chunks</th>
+              <th>Hachi TP Lvl</th>
+              <th>Exit Retry</th>
+              <th>Miss Streak</th>
+              <th>Opened</th>
             </tr>
           </thead>
-          <tbody id="positions"></tbody>
+          <tbody id="positions-tbody"></tbody>
         </table>
       </div>
-    </section>
+    </div>
 
-    <section>
-      <h2>Events (last 50, filtered)</h2>
-      <div id="events"></div>
-    </section>
+    <!-- ── SECTION 6: ZOMBIES ── -->
+    <div class="section" id="section-zombies">
+      <div class="section-title">Zombie &amp; Stuck Positions</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Class</th>
+              <th>Status</th>
+              <th>Locked SOL</th>
+              <th>Recoverable SOL</th>
+              <th>Dead SOL</th>
+              <th>Reason</th>
+              <th>Age Cycles</th>
+              <th>Recovery Tries</th>
+              <th>Last Attempt</th>
+              <th>Zombie Since</th>
+            </tr>
+          </thead>
+          <tbody id="zombies-tbody"></tbody>
+        </table>
+      </div>
+      <div id="zombie-none" style="color:var(--accent);font-size:0.8rem;margin-top:0.4rem"></div>
+    </div>
 
-    <section>
-      <h2>Cycle summary (last 10)</h2>
-      <div id="summaries"></div>
-    </section>
-  </main>
-  <script>
-    const REFRESH_MS = 2500;
+    <!-- ── SECTION 7: DISCOVERY + BIRDEYE ── -->
+    <div class="two-col">
+      <div class="section" id="section-discovery">
+        <div class="section-title">Discovery Health</div>
+        <div id="discovery-failed-box"></div>
+        <div class="stat-row" id="discovery-stats"></div>
+        <div id="rejection-breakdown" style="margin-top:0.5rem"></div>
+      </div>
+      <div class="section" id="section-birdeye">
+        <div class="section-title">Birdeye Budget</div>
+        <div class="stat-row" id="birdeye-stats"></div>
+        <div id="birdeye-endpoints" style="margin-top:0.5rem"></div>
+        <div id="birdeye-warnings" style="margin-top:0.4rem"></div>
+      </div>
+    </div>
 
-    function el(html) {
-      const t = document.createElement("template");
-      t.innerHTML = html.trim();
-      return t.content.firstChild;
+    <!-- ── SECTION 8: DATA QUALITY ── -->
+    <div class="section" id="section-quality">
+      <div class="section-title">Data Quality / Enrichment Coverage</div>
+      <div id="quality-content"></div>
+    </div>
+
+    <!-- ── SECTION 9: EVENTS FEED ── -->
+    <div class="section" id="section-events">
+      <div class="section-title">Recent Critical Events</div>
+      <div id="events-feed"></div>
+    </div>
+
+  </div><!-- /#dash -->
+</main>
+
+<script>
+const REFRESH_MS = 3000;
+
+// ── helpers ──────────────────────────────────────────────────────────────
+
+function el(html) {
+  const t = document.createElement("template");
+  t.innerHTML = html.trim();
+  return t.content.firstChild;
+}
+
+function esc(v) {
+  if (v === null || v === undefined) return "";
+  return String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function fmt(v, decimals = null) {
+  if (v === null || v === undefined) return '<span class="c-muted">–</span>';
+  if (typeof v === "boolean") return v ? '<span class="c-ok">true</span>' : '<span class="c-muted">false</span>';
+  if (typeof v === "number" && decimals !== null) {
+    return v.toFixed(decimals);
+  }
+  return esc(String(v));
+}
+
+function fmtSol(v, decimals = 6) {
+  if (v === null || v === undefined) return '<span class="c-muted">–</span>';
+  const n = Number(v);
+  if (isNaN(n)) return '<span class="c-muted">–</span>';
+  return n.toFixed(decimals) + " SOL";
+}
+
+function fmtPnL(sol, pct) {
+  if (sol === null && pct === null) return '<span class="c-muted">–</span>';
+  const cls = (sol ?? pct ?? 0) >= 0 ? "c-ok" : "c-danger";
+  let parts = [];
+  if (sol !== null && sol !== undefined) parts.push(Number(sol).toFixed(5) + " SOL");
+  if (pct !== null && pct !== undefined) parts.push("(" + Number(pct).toFixed(1) + "%)");
+  return `<span class="${cls}">${parts.join(" ")}</span>`;
+}
+
+function fmtPnLSol(v) {
+  if (v === null || v === undefined) return '<span class="c-muted">–</span>';
+  const n = Number(v);
+  if (isNaN(n)) return '<span class="c-muted">–</span>';
+  const cls = n >= 0 ? "c-ok" : "c-danger";
+  const sign = n >= 0 ? "+" : "";
+  return `<span class="${cls}">${sign}${n.toFixed(5)}</span>`;
+}
+
+function fmtPnLPct(v) {
+  if (v === null || v === undefined) return '<span class="c-muted">–</span>';
+  const n = Number(v);
+  if (isNaN(n)) return '<span class="c-muted">–</span>';
+  const cls = n >= 0 ? "c-ok" : "c-danger";
+  const sign = n >= 0 ? "+" : "";
+  return `<span class="${cls}">${sign}${n.toFixed(1)}%</span>`;
+}
+
+function fmtBps(v) {
+  if (v === null || v === undefined) return '<span class="c-muted">–</span>';
+  const n = Number(v);
+  if (isNaN(n)) return '<span class="c-muted">–</span>';
+  const cls = n > 200 ? "c-danger" : n > 50 ? "c-warn" : "c-ok";
+  return `<span class="${cls}">${n.toFixed(0)} bps</span>`;
+}
+
+function fmtDate(v) {
+  if (!v) return '<span class="c-muted">–</span>';
+  const d = new Date(v);
+  if (isNaN(d)) return esc(v);
+  const now = new Date();
+  const diffH = (now - d) / 3600000;
+  const label = diffH < 1
+    ? Math.round(diffH * 60) + "m ago"
+    : diffH < 24
+      ? diffH.toFixed(1) + "h ago"
+      : d.toISOString().slice(0,16).replace("T"," ");
+  return `<span title="${esc(v)}">${label}</span>`;
+}
+
+function statCard(label, valueHtml, extraClass = "") {
+  return `<div class="stat ${extraClass}"><div class="stat-label">${esc(label)}</div><div class="stat-value">${valueHtml}</div></div>`;
+}
+
+function statusBadge(s) {
+  const map = {
+    "OPEN":         "status-open",
+    "PARTIAL":      "status-partial",
+    "ZOMBIE":       "status-zombie",
+    "FINAL_ZOMBIE": "status-final-zombie",
+    "EXIT_BLOCKED": "status-exit-blocked",
+  };
+  const cls = map[s] || "status-unknown";
+  return `<span class="${cls}">${esc(s)}</span>`;
+}
+
+function zclassBadge(zc) {
+  if (!zc) return '<span class="zclass zclass-unknown">–</span>';
+  const upper = zc.toUpperCase();
+  const cls = upper.includes("SOFT")
+    ? "zclass-soft"
+    : upper.includes("HARD")
+      ? "zclass-hard"
+      : upper.includes("FINAL")
+        ? "zclass-final"
+        : "zclass-unknown";
+  return `<span class="zclass ${cls}">${esc(zc)}</span>`;
+}
+
+function postureBadge(p) {
+  const map = {
+    "balanced":    "posture-balanced",
+    "aggressive":  "posture-aggressive",
+    "constrained": "posture-constrained",
+    "recovery_only": "posture-recovery",
+  };
+  const cls = map[p] || "posture-balanced";
+  return `<span class="${cls}" style="font-weight:700;text-transform:uppercase;font-size:0.85rem;">${esc(p)}</span>`;
+}
+
+function pressureBadge(level) {
+  if (!level || level === "none" || level === "low") return `<span class="c-ok">${esc(level || "none")}</span>`;
+  if (level === "medium") return `<span class="c-warn">${esc(level)}</span>`;
+  return `<span class="c-danger">${esc(level)}</span>`;
+}
+
+// ── render sections ───────────────────────────────────────────────────────
+
+function renderTopbar(d) {
+  // ── 1. CAN WE TRADE? — entry_allowed is the single authoritative bool ──
+  const entryAllowed = d.entry_gate?.entry_allowed;
+  const blockedReason = d.entry_gate?.entries_blocked_reason;
+  const dayCap = d.entry_gate?.daily_cap_hit;
+  const openCap = d.entry_gate?.open_cap_hit;
+  let entryHtml;
+  if (entryAllowed === true) {
+    entryHtml = `<span class="pill pill-ok">✓ TRADING</span>`;
+  } else if (dayCap) {
+    entryHtml = `<span class="pill pill-warn">DAILY CAP</span>`;
+  } else if (openCap) {
+    entryHtml = `<span class="pill pill-warn">POS CAP</span>`;
+  } else {
+    const why = blockedReason ? blockedReason.replace(/_/g, " ") : "blocked";
+    entryHtml = `<span class="pill pill-danger" title="${esc(blockedReason || "")}">✗ ${esc(why.toUpperCase())}</span>`;
+  }
+  document.getElementById("topbar-entry").innerHTML = entryHtml;
+
+  // ── 2. CONSTRAINED? — posture pill ───────────────────────────────────
+  const posture = d.entry_gate?.posture || "unknown";
+  const postureMap = {
+    "balanced":      ["pill-ok",     "BALANCED"],
+    "aggressive":    ["pill-info",   "AGGRESSIVE"],
+    "constrained":   ["pill-warn",   "CONSTRAINED"],
+    "recovery_only": ["pill-danger", "RECOVERY ONLY"],
+  };
+  const [pcls, plabel] = postureMap[posture] || ["pill-muted", posture.toUpperCase()];
+  document.getElementById("topbar-posture").innerHTML = `<span class="pill ${pcls}">${plabel}</span>`;
+
+  // ── 3. CAPITAL — deployable SOL ───────────────────────────────────────
+  const dep = d.capital?.deployable_sol;
+  const depStr = dep !== null && dep !== undefined ? Number(dep).toFixed(4) + " SOL dep." : "? SOL";
+  const depCls = dep !== null && Number(dep) < 0.03 ? "c-warn" : "c-muted";
+  document.getElementById("topbar-capital").innerHTML =
+    `<span class="${depCls}" style="font-size:0.78rem;">${esc(depStr)}</span>`;
+
+  // ── 4. API HEALTH — Birdeye budget mode ──────────────────────────────
+  const bm = d.birdeye?.birdeye_budget_mode;
+  const bmReason = d.birdeye?.budget_reason_summary || "";
+  const bmMap = {
+    "healthy":     ["pill-ok",     "API OK"],
+    "constrained": ["pill-warn",   "API CONSTRAINED"],
+    "starved":     ["pill-danger", "API STARVED"],
+  };
+  const [bmCls, bmLabel] = bmMap[bm] || ["pill-muted", "API ?"];
+  document.getElementById("topbar-birdeye").innerHTML =
+    `<span class="pill ${bmCls}" title="${esc(bmReason)}">${bmLabel}</span>`;
+
+  // ── 5. DISCOVERY ─────────────────────────────────────────────────────
+  const failed = d.discovery?.failed;
+  if (failed === true) {
+    document.getElementById("topbar-discovery").innerHTML =
+      `<span class="pill pill-danger">DISC FAILED</span>`;
+  } else if (failed === false) {
+    const acc = d.discovery?.candidates_accepted || 0;
+    document.getElementById("topbar-discovery").innerHTML =
+      `<span class="pill pill-ok">DISC OK · ${acc}</span>`;
+  } else {
+    document.getElementById("topbar-discovery").innerHTML = "";
+  }
+}
+
+function renderCapital(capital) {
+  const wallet    = capital.wallet_available_sol;
+  const cash      = capital.cash_sol;
+  const deployable = capital.deployable_sol;
+  const drift     = capital.accounting_drift_sol;
+  const reconciled = capital.reconciled_cash_sol;
+  const rDelta    = capital.reconciliation_delta_sol;
+  const realized  = capital.total_realized_sol;
+  const birth     = capital.hachi_birth_wallet_sol;
+  const safe      = capital.safe_mode_active;
+
+  // drift alert class
+  const driftAlert = drift !== null && drift !== undefined && Math.abs(Number(drift)) > 0.01;
+
+  const cards = [
+    statCard("wallet_available_sol", fmtSol(wallet), wallet < 0.1 ? "warn" : ""),
+    statCard("cash_sol",             fmtSol(cash)),
+    statCard("deployable_sol",       fmtSol(deployable), Number(deployable) < 0.03 ? "warn" : "ok"),
+    statCard("reconciled_cash_sol",  fmtSol(reconciled)),
+    statCard("total_realized_sol",   fmtPnLSol(realized)),
+    statCard("hachi_birth_wallet_sol", fmtSol(birth)),
+    statCard("accounting_drift_sol", driftAlert
+      ? `<span class="c-danger">${Number(drift).toFixed(6)} SOL ⚠</span>`
+      : fmtSol(drift), driftAlert ? "alert" : ""),
+    statCard("reconciliation_delta_sol", rDelta !== null && rDelta !== undefined
+      ? (Math.abs(Number(rDelta)) > 0.01
+          ? `<span class="c-danger">${Number(rDelta).toFixed(6)} SOL</span>`
+          : `<span class="c-muted">${Number(rDelta).toFixed(6)} SOL</span>`)
+      : '<span class="c-muted">–</span>'),
+    statCard("safe_mode", safe
+      ? `<span class="c-danger">ACTIVE</span>`
+      : `<span class="c-ok">off</span>`, safe ? "alert" : ""),
+  ];
+  document.getElementById("capital-stats").innerHTML = cards.join("");
+
+  // accounting snapshot warning
+  const warn = capital.accounting_drift_warning;
+  const snap = capital.accounting_snapshot;
+  let warnHtml = "";
+  if (snap) {
+    const delta = snap.reconciliation_delta_sol;
+    if (delta !== null && delta !== undefined && Math.abs(Number(delta)) > 0.001) {
+      const cls = Math.abs(Number(delta)) > 0.05 ? "c-danger" : "c-warn";
+      warnHtml = `<div style="font-size:0.75rem;"><span class="${cls}">⚠ Accounting snapshot delta: ${Number(delta).toFixed(6)} SOL</span> &nbsp;
+        <span class="c-muted">(cash_before=${Number(snap.cash_sol_before).toFixed(4)}, reconciled=${Number(snap.reconciled_cash_sol).toFixed(4)}, at ${esc(snap.generated_at || "")})</span></div>`;
+    }
+  }
+  document.getElementById("acct-warning").innerHTML = warnHtml;
+  // section border
+  const sec = document.getElementById("section-capital");
+  sec.classList.toggle("alert-border", warn);
+}
+
+function renderEntryGate(gate, policy) {
+  const block   = document.getElementById("entry-gate-block");
+  const detail  = document.getElementById("entry-gate-detail");
+  const adjList = document.getElementById("policy-adjustments");
+
+  // entry_allowed is the single canonical bool from the backend
+  const allowed  = gate.entry_allowed;
+  const enabled  = gate.entry_enabled;
+  const reason   = gate.entries_blocked_reason;
+  const dayCap   = gate.daily_cap_hit;
+  const openCap  = gate.open_cap_hit;
+  const posture  = gate.posture || "unknown";
+
+  let gateText, gateCls;
+
+  if (allowed === true) {
+    if (posture === "constrained") {
+      gateText = `⚠ ENTRY ALLOWED — filters tightened (constrained posture)`;
+      gateCls  = "constrained";
+    } else {
+      gateText = `✓ ENTRY ALLOWED`;
+      gateCls  = "can-enter";
+    }
+  } else {
+    // allowed === false — determine the most specific reason
+    if (!enabled && reason) {
+      gateText = `🚫 ENTRY BLOCKED — ${reason}`;
+      gateCls  = "cannot-enter";
+    } else if (posture === "recovery_only") {
+      gateText = `🚫 RECOVERY ONLY — no new entries`;
+      gateCls  = "cannot-enter";
+    } else if (dayCap) {
+      gateText = `⚠ DAILY CAP HIT — entries paused for today`;
+      gateCls  = "constrained";
+    } else if (openCap) {
+      gateText = `⚠ OPEN POSITION CAP HIT — max open reached`;
+      gateCls  = "constrained";
+    } else {
+      gateText = `🚫 ENTRY BLOCKED — ${reason || "policy gate"}`;
+      gateCls  = "cannot-enter";
+    }
+  }
+
+  block.className = `entry-gate-block ${gateCls}`;
+  block.textContent = gateText;
+
+  // detail line: show policy reason if non-trivial
+  const detailParts = [];
+  if (!allowed && reason) detailParts.push(`reason: ${reason}`);
+  const reasonSummary = gate.policy_reason_summary;
+  if (reasonSummary && reasonSummary !== "ok") detailParts.push(`policy: ${reasonSummary}`);
+  detail.textContent = detailParts.join(" · ");
+
+  // adjustment tags
+  const adjs = gate.policy_adjustments_applied || [];
+  adjList.innerHTML = adjs.map(a => `<span class="adj-tag">${esc(a)}</span>`).join("");
+}
+
+function renderPressure(policy) {
+  const cards = [
+    statCard("wallet_pressure", pressureBadge(policy.wallet_pressure_level)),
+    statCard("deployable_pressure", pressureBadge(policy.deployable_pressure_level)),
+    statCard("zombie_pressure", pressureBadge(policy.zombie_pressure_level)),
+    statCard("recovery_priority", pressureBadge(policy.recovery_priority_level)),
+    statCard("risk_mode", `<span style="font-weight:700">${esc(policy.runtime_risk_mode || "–")}</span>`),
+    statCard("posture", postureBadge(policy.policy_posture || "–")),
+  ];
+  document.getElementById("pressure-stats").innerHTML = cards.join("");
+}
+
+function renderPortfolio(port) {
+  const stuck = port.exit_stuck_total || 0;
+  const stuckCls = stuck > 3 ? "alert" : stuck > 0 ? "warn" : "";
+  const cards = [
+    statCard("open_positions",   `<span>${port.open_count}</span>`),
+    statCard("partial_positions",`<span>${port.partial_count}</span>`),
+    statCard("zombie_positions", `<span class="${port.zombie_count > 0 ? "c-warn" : "c-muted"}">${port.zombie_count}</span>`),
+    statCard("final_zombie",     `<span class="${port.final_zombie_count > 0 ? "c-danger" : "c-muted"}">${port.final_zombie_count}</span>`),
+    statCard("exit_blocked",     `<span class="${port.exit_blocked_count > 0 ? "c-danger" : "c-muted"}">${port.exit_blocked_count}</span>`),
+    statCard("exit_stuck_total", `<span class="${stuck > 0 ? "c-warn" : "c-ok"}">${stuck}</span>`, stuckCls),
+    statCard("zombie_locked_sol", fmtSol(port.zombie_locked_sol), port.zombie_locked_sol > 0.1 ? "warn" : ""),
+    statCard("recoverable_sol",  fmtSol(port.recoverable_sol)),
+    statCard("dead_sol",         port.dead_sol > 0.01
+      ? `<span class="c-danger">${Number(port.dead_sol).toFixed(6)} SOL</span>`
+      : `<span class="c-muted">${Number(port.dead_sol || 0).toFixed(6)} SOL</span>`, port.dead_sol > 0.05 ? "alert" : ""),
+    statCard("open_unrealized_sol", fmtPnLSol(port.total_open_unrealized_sol)),
+    statCard("total_realized_sol",  fmtPnLSol(port.total_realized_sol)),
+    statCard("opened_today_count",  `<span>${port.opened_today_count ?? "–"}</span>`),
+  ];
+  document.getElementById("portfolio-stats").innerHTML = cards.join("");
+}
+
+function renderPolicy(policy) {
+  const posSize = policy.effective_position_size_sol;
+  const maxOpen = policy.effective_max_open_positions;
+  const maxDaily = policy.effective_max_daily_new_positions;
+  const minScore = policy.effective_min_score;
+  const minLiq = policy.effective_min_liquidity_usd;
+  const minBsr = policy.effective_min_buy_sell_ratio;
+  const discInterval = policy.effective_discovery_interval_seconds;
+  const cadenceReason = policy.discovery_cadence_reason;
+  const dripEnabled = policy.effective_dripper_enabled;
+
+  const cards = [
+    statCard("effective_position_size_sol", fmtSol(posSize)),
+    statCard("effective_max_open_positions", `<span>${maxOpen ?? "–"}</span>`),
+    statCard("effective_max_daily_new_positions", `<span>${maxDaily ?? "–"}</span>`),
+    statCard("effective_min_score", `<span>${minScore !== null && minScore !== undefined ? Number(minScore).toFixed(1) : "–"}</span>`),
+    statCard("effective_min_liquidity_usd", minLiq !== null && minLiq !== undefined ? `<span>$${Number(minLiq).toLocaleString()}</span>` : '<span class="c-muted">–</span>'),
+    statCard("effective_min_buy_sell_ratio", minBsr !== null && minBsr !== undefined ? `<span>${Number(minBsr).toFixed(3)}</span>` : '<span class="c-muted">–</span>'),
+    statCard("discovery_interval_s", discInterval !== null ? `<span class="${discInterval > 60 ? "c-warn" : "c-ok"}">${discInterval}s</span>` : '<span class="c-muted">–</span>'),
+    statCard("discovery_cadence_reason", `<span class="c-muted" style="font-size:0.8rem">${esc(cadenceReason || "–")}</span>`),
+    statCard("dripper_enabled", dripEnabled === true
+      ? `<span class="c-ok">yes</span>`
+      : dripEnabled === false
+        ? `<span class="c-muted">no</span>`
+        : '<span class="c-muted">–</span>'),
+  ];
+  document.getElementById("policy-stats").innerHTML = cards.join("");
+}
+
+function renderPositions(positions) {
+  const tbody = document.getElementById("positions-tbody");
+  if (!positions.length) {
+    tbody.innerHTML = `<tr><td colspan="14" class="c-muted">No positions</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = positions.map(p => {
+    const isZombie = p.status === "ZOMBIE" || p.status === "FINAL_ZOMBIE";
+    const rowStyle = isZombie ? `style="opacity:0.7"` : "";
+    return `<tr ${rowStyle}>
+      <td><strong>${esc(p.symbol)}</strong></td>
+      <td>${statusBadge(p.status)}</td>
+      <td>${fmtSol(p.entry_sol, 5)}</td>
+      <td>${p.last_estimated_exit_value_sol !== null && p.last_estimated_exit_value_sol !== undefined
+            ? `<span>${Number(p.last_estimated_exit_value_sol).toFixed(5)}</span>`
+            : '<span class="c-muted">–</span>'}</td>
+      <td>${fmtPnLSol(p.unrealized_pnl_sol)}</td>
+      <td>${fmtPnLPct(p.unrealized_pnl_pct)}</td>
+      <td><span class="${p.valuation_status === "ok" ? "c-ok" : "c-muted"}">${esc(p.valuation_status || "–")}</span></td>
+      <td>${fmtBps(p.entry_sell_impact_bps)}</td>
+      <td>${fmtBps(p.last_sell_impact_bps)}</td>
+      <td>${p.drip_chunks_done !== null && p.drip_chunks_done !== undefined ? p.drip_chunks_done : '<span class="c-muted">–</span>'}</td>
+      <td>${p.hachi_last_tp_level !== null && p.hachi_last_tp_level !== undefined ? p.hachi_last_tp_level : '<span class="c-muted">–</span>'}</td>
+      <td>${p.exit_retry_count ? `<span class="c-warn">${p.exit_retry_count}</span>` : '<span class="c-muted">0</span>'}</td>
+      <td>${p.quote_miss_streak ? `<span class="c-warn">${p.quote_miss_streak}</span>` : '<span class="c-muted">0</span>'}</td>
+      <td>${fmtDate(p.opened_at)}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderZombies(positions) {
+  const zombies = positions.filter(p => p.status === "ZOMBIE" || p.status === "FINAL_ZOMBIE" || p.status === "EXIT_BLOCKED");
+  const tbody   = document.getElementById("zombies-tbody");
+  const noMsg   = document.getElementById("zombie-none");
+
+  if (!zombies.length) {
+    tbody.innerHTML = "";
+    noMsg.textContent = "✓ No zombie or stuck positions.";
+    return;
+  }
+  noMsg.textContent = "";
+
+  // sort: use zombie_rank from backend (pre-sorted by locked SOL desc),
+  // then put ranked ones first, then remaining zombies by entry_sol desc
+  zombies.sort((a, b) => {
+    const ra = a.zombie_rank ?? 999;
+    const rb = b.zombie_rank ?? 999;
+    if (ra !== rb) return ra - rb;
+    return (b.entry_sol || 0) - (a.entry_sol || 0);
+  });
+
+  tbody.innerHTML = zombies.map(p => {
+    const locked = p.entry_sol || 0;
+    const recov  = p.last_estimated_exit_value_sol;
+    const dead   = recov !== null && recov !== undefined ? locked - Number(recov) : null;
+    const rank   = p.zombie_rank;
+
+    // row highlight class for top-3
+    const rowCls = rank === 1 ? "zombie-top1" : rank === 2 ? "zombie-top2" : rank === 3 ? "zombie-top3" : "";
+
+    // rank badge in symbol cell
+    let rankBadge = "";
+    if (rank !== null && rank !== undefined) {
+      rankBadge = `<span class="zombie-rank-badge zombie-rank-${rank}">${rank}</span>`;
     }
 
-    function fmtPnL(v) {
-      if (v === null || v === undefined || Number.isNaN(Number(v))) return "N/A";
-      const n = Number(v);
-      const cls = n >= 0 ? "pnl-pos" : "pnl-neg";
-      return `<span class="${cls}">${n.toFixed(2)}%</span>`;
-    }
+    return `<tr class="${rowCls}">
+      <td>${rankBadge}<strong>${esc(p.symbol)}</strong></td>
+      <td>${zclassBadge(p.zombie_class)}</td>
+      <td>${statusBadge(p.status)}</td>
+      <td><span class="c-warn">${locked.toFixed(5)} SOL</span></td>
+      <td>${recov !== null && recov !== undefined
+            ? `<span class="c-ok">${Number(recov).toFixed(5)} SOL</span>`
+            : '<span class="c-muted">–</span>'}</td>
+      <td>${dead !== null
+            ? (dead > 0.01
+                ? `<span class="c-danger">${dead.toFixed(5)} SOL</span>`
+                : `<span class="c-muted">${dead.toFixed(5)} SOL</span>`)
+            : '<span class="c-muted">–</span>'}</td>
+      <td><span class="c-muted" style="font-size:0.75rem">${esc(p.zombie_reason || "–")}</span></td>
+      <td>${p.zombie_age_cycles !== null && p.zombie_age_cycles !== undefined ? p.zombie_age_cycles : '<span class="c-muted">–</span>'}</td>
+      <td>${p.recovery_attempts ?? '<span class="c-muted">–</span>'}</td>
+      <td>${fmtDate(p.last_recovery_attempt_at)}</td>
+      <td>${fmtDate(p.zombie_since)}</td>
+    </tr>`;
+  }).join("");
+}
 
-    function fmt(v) {
-      if (v === null || v === undefined) return "N/A";
-      if (typeof v === "boolean") return v ? "true" : "false";
-      return String(v);
-    }
+function renderDiscovery(disc) {
+  const failed = disc.failed;
+  const failedBox = document.getElementById("discovery-failed-box");
+  if (failed === true) {
+    failedBox.innerHTML = `<div class="discovery-failed-box">
+      ⚠ DISCOVERY FAILED — ${esc(disc.error_type || "error")}<br>
+      <span style="font-size:0.75rem;opacity:0.8">${esc(disc.error || "")}</span>
+    </div>`;
+  } else {
+    failedBox.innerHTML = "";
+  }
 
-    function setClock() {
-      document.getElementById("clock").textContent = new Date().toISOString();
-    }
+  const totalCache = (disc.cache_hits || 0) + (disc.cache_misses || 0);
+  const cacheRate  = totalCache > 0 ? ((disc.cache_hits / totalCache) * 100).toFixed(0) + "%" : "–";
 
-    async function tick() {
-      setClock();
-      const banner = document.getElementById("banner");
-      banner.innerHTML = "";
+  const cards = [
+    statCard("seeds_total", `<span>${disc.seeds_total ?? "–"}</span>`),
+    statCard("candidates_accepted", `<span class="${(disc.candidates_accepted || 0) > 0 ? "c-ok" : "c-muted"}">${disc.candidates_accepted ?? 0}</span>`),
+    statCard("candidates_rejected", `<span>${disc.candidates_rejected_total ?? 0}</span>`),
+    statCard("route_checked", `<span>${disc.route_checked_candidates ?? 0}</span>`),
+    statCard("birdeye_build_calls", `<span>${disc.birdeye_candidate_build_calls ?? 0}</span>`),
+    statCard("jupiter_buy_probes", `<span>${disc.jupiter_buy_probe_calls ?? 0}</span>`),
+    statCard("cache_hit_rate", `<span class="${disc.cache_hits > 0 ? "c-ok" : "c-muted"}">${cacheRate}</span>`),
+  ];
+  document.getElementById("discovery-stats").innerHTML = cards.join("");
 
-      try {
-        const [stateRes, eventsRes, summaryRes] = await Promise.all([
-          fetch("/state"),
-          fetch("/events"),
-          fetch("/summary"),
-        ]);
+  // rejection breakdown
+  const rej = disc.rejection_counts || {};
+  const rejKeys = Object.keys(rej);
+  if (rejKeys.length) {
+    const rows = rejKeys.map(k => `<tr><td class="c-muted">${esc(k)}</td><td>${rej[k]}</td></tr>`).join("");
+    document.getElementById("rejection-breakdown").innerHTML =
+      `<div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.25rem">Rejection breakdown:</div>
+       <table style="font-size:0.75rem"><tbody>${rows}</tbody></table>`;
+  } else {
+    document.getElementById("rejection-breakdown").innerHTML = "";
+  }
+}
 
-        if (!stateRes.ok) {
-          banner.appendChild(el(`<div class="err">GET /state failed: ${stateRes.status}</div>`));
-          return;
-        }
-        const state = await stateRes.json();
-        let summaryJson = null;
-        if (summaryRes.ok) {
-          summaryJson = await summaryRes.json();
-        }
+function renderBirdeye(bd) {
+  if (!bd) {
+    document.getElementById("birdeye-stats").innerHTML = `<span class="c-muted" style="font-size:0.78rem">No Birdeye data (run audit-birdeye-once to populate CU stats)</span>`;
+    document.getElementById("birdeye-endpoints").innerHTML = "";
+    document.getElementById("birdeye-warnings").innerHTML = "";
+    return;
+  }
 
-        const positions = state.open_positions || {};
-        const list = Object.values(positions);
-        const partial = list.filter((p) => p.status === "PARTIAL").length;
-        const zombie = list.filter((p) => p.status === "ZOMBIE").length;
-        const cash = state.cash_sol;
-        const res = state.reserved_sol;
-        let deploy = null;
-        if (typeof cash === "number" && typeof res === "number") {
-          deploy = Math.max(0, cash - res);
-        }
+  const bm         = bd.birdeye_budget_mode || "unknown";
+  const bmReason   = bd.budget_reason_summary || "ok";
+  const delta      = bd.delta_usage_api;
+  const total      = bd.usage_api_after;
+  const cuPerSeed  = bd.estimated_cu_api_per_seed;
+  const cuPerToken = bd.estimated_cu_api_per_accepted_token;
+  const doctorOk   = bd.doctor_ok;
 
-        document.getElementById("portfolio").innerHTML = [
-          ["open_positions", list.length],
-          ["partial_positions", partial],
-          ["zombie_positions", zombie],
-          ["cash_sol", typeof cash === "number" ? cash.toFixed(6) : "N/A"],
-          ["deployable_sol", deploy !== null ? deploy.toFixed(6) : "N/A"],
-        ].map(
-          ([k, v]) =>
-            `<div class="stat"><label>${k}</label><span>${fmt(v)}</span></div>`
-        ).join("");
+  // budget mode badge
+  const bmBadgeMap = {
+    healthy:     `<span class="bm-healthy"  style="font-weight:700">HEALTHY</span>`,
+    constrained: `<span class="bm-constrained" style="font-weight:700">CONSTRAINED</span>`,
+    starved:     `<span class="bm-starved"   style="font-weight:700">STARVED</span>`,
+  };
+  const bmBadge = bmBadgeMap[bm] || `<span class="c-muted">${esc(bm)}</span>`;
+  const bmCardCls = bm === "starved" ? "alert" : bm === "constrained" ? "warn" : "";
 
-        if (summaryJson) {
-          const latest = summaryJson.latest || {};
-          const scale = latest.hachi_capacity_scale;
-          const scaleStr =
-            scale != null && Number.isFinite(Number(scale)) ? Number(scale).toFixed(3) : "N/A";
-          document.getElementById("daily-capacity").innerHTML = [
-            ["effective_max_daily_new_positions", latest.effective_max_daily_new_positions],
-            ["hard_max_daily_new_positions", latest.hard_max_daily_new_positions],
-            ["opened_today_count", latest.opened_today_count],
-            ["hachi_capacity_scale (available/birth)", scaleStr],
-          ].map(
-            ([k, v]) =>
-              `<div class="stat"><label>${k}</label><span>${fmt(v)}</span></div>`
-          ).join("");
-        } else {
-          document.getElementById("daily-capacity").innerHTML =
-            `<div class="err">GET /summary failed: ${summaryRes.status}</div>`;
-        }
+  const cards = [
+    statCard("budget_mode", bmBadge, `wide ${bmCardCls}`),
+    statCard("budget_reason", `<span class="c-muted" style="font-size:0.72rem;white-space:normal">${esc(bmReason)}</span>`, "wide"),
+    statCard("CU delta (last audit)", delta !== null && delta !== undefined ? `<span>${delta}</span>` : '<span class="c-muted">–</span>'),
+    statCard("CU total (cumul.)", total !== null && total !== undefined ? `<span class="c-muted">${Number(total).toLocaleString()}</span>` : '<span class="c-muted">–</span>'),
+    statCard("CU / seed", cuPerSeed !== null && cuPerSeed !== undefined ? `<span>${Number(cuPerSeed).toFixed(1)}</span>` : '<span class="c-muted">–</span>'),
+    statCard("CU / accepted token", cuPerToken !== null && cuPerToken !== undefined ? `<span>${Number(cuPerToken).toFixed(0)}</span>` : '<span class="c-muted">–</span>'),
+    ...(doctorOk !== undefined ? [statCard("doctor_ok", doctorOk === true
+      ? `<span class="c-ok">yes</span>`
+      : `<span class="c-danger">NO</span>`, doctorOk === false ? "alert" : "")] : []),
+  ];
+  document.getElementById("birdeye-stats").innerHTML = cards.join("");
 
-        const tbody = document.getElementById("positions");
-        tbody.innerHTML = list
-          .map((p) => {
-            return `<tr>
-              <td>${fmt(p.symbol)}</td>
-              <td>${fmtPnL(p.last_hachi_pnl_pct)}</td>
-              <td>${fmt(p.status)}</td>
-              <td>${fmt(p.hachi_drip_completed)}</td>
-              <td>${fmt(p.drip_chunks_done)}</td>
-              <td>${fmt(p.hachi_last_tp_level)}</td>
-            </tr>`;
-          })
-          .join("");
+  // endpoints table
+  const eps = bd.endpoints || {};
+  const epKeys = Object.keys(eps);
+  if (epKeys.length) {
+    const rows = epKeys.map(ep => {
+      const e = eps[ep];
+      const badRate = e.bad > 0 ? `<span class="ep-bad">${e.bad} bad (${(e.rate * 100).toFixed(0)}%)</span>` : `<span class="ep-ok">0 bad</span>`;
+      return `<tr>
+        <td style="font-size:0.72rem;color:var(--muted)">${esc(ep)}</td>
+        <td>${e.total}</td>
+        <td class="ep-ok">${e.ok}</td>
+        <td>${badRate}</td>
+      </tr>`;
+    }).join("");
+    document.getElementById("birdeye-endpoints").innerHTML =
+      `<table style="font-size:0.75rem">
+        <thead><tr><th>Endpoint</th><th>Total</th><th>OK</th><th>Bad</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
 
-        if (eventsRes.ok) {
-          const ej = await eventsRes.json();
-          const evs = ej.events || [];
-          document.getElementById("events").innerHTML = evs
-            .map((e) => {
-              const meta = JSON.stringify(e.metadata || {}, null, 0);
-              return `<div class="feed-item">
-                <span class="feed-type">${e.event_type}</span>
-                <span class="feed-ts"> ${e.ts || ""}</span>
-                <span class="feed-ts"> [${e.source || ""}]</span>
-                <pre>${meta}</pre>
-              </div>`;
-            })
-            .join("") || "<div class=\"feed-item\">No matching events in window.</div>";
-        } else {
-          document.getElementById("events").innerHTML = `<div class="err">GET /events failed: ${eventsRes.status}</div>`;
-        }
+  // warnings
+  const fixList = bd.disable_or_fix_first || [];
+  const mints400 = bd.top_10_mints_causing_400 || [];
+  let warnHtml = "";
+  if (fixList.length) {
+    warnHtml += `<div style="font-size:0.75rem;color:var(--danger)">⚠ Fix/disable: ${esc(fixList.join(", "))}</div>`;
+  }
+  if (mints400.length) {
+    warnHtml += `<div style="font-size:0.72rem;color:var(--warn)">400-causing mints: ${esc(mints400.join(", "))}</div>`;
+  }
+  document.getElementById("birdeye-warnings").innerHTML = warnHtml;
+}
 
-        if (summaryJson) {
-          const recent = summaryJson.recent || [];
-          const box = document.getElementById("summaries");
-          if (!recent.length) {
-            box.innerHTML = "<pre>" + JSON.stringify(summaryJson.latest || {}, null, 2) + "</pre>";
-          } else {
-            box.innerHTML = recent
-              .slice(-10)
-              .reverse()
-              .map((row, i) => {
-                const summ = row.summary || row;
-                const isLatest = i === 0;
-                return `<div class="cycle-block${isLatest ? " latest" : ""}">
-                  <div class="feed-ts">${row.ts || ""} cycle ${row.cycle_in_run ?? "?"} run ${row.run_id || ""}</div>
-                  <pre>${JSON.stringify(summ, null, 2)}</pre>
-                </div>`;
-              })
-              .join("");
-          }
-        } else {
-          document.getElementById("summaries").innerHTML = `<div class="err">GET /summary failed: ${summaryRes.status}</div>`;
-        }
-      } catch (e) {
-        banner.appendChild(el(`<div class="err">${String(e)}</div>`));
+function renderDataQuality(cov) {
+  const box = document.getElementById("quality-content");
+  if (!cov) {
+    box.innerHTML = `<span class="c-muted" style="font-size:0.78rem">No coverage report available (runtime/token_report_coverage.json missing)</span>`;
+    return;
+  }
+
+  const FIELD_LABELS = {
+    latest_status:                   "Latest Status",
+    rejection_reason:                "Rejection Reason",
+    last_known_score:                "Last Known Score",
+    highest_score_seen:              "Highest Score Seen",
+    last_known_liquidity_usd:        "Last Liquidity USD",
+    last_known_buy_sell_ratio:       "Buy/Sell Ratio",
+    last_known_price_impact_bps:     "Price Impact bps",
+    last_known_route_state:          "Route State",
+    last_estimated_exit_value_sol:   "Exit Value SOL",
+    zombie_class:                    "Zombie Class",
+    inferred_liquidity_score:        "Inferred Liq Score",
+    last_enriched_at:                "Last Enriched At",
+    quote_direction:                 "Quote Direction",
+    route_quality:                   "Route Quality",
+    first_seen_at:                   "First Seen At",
+    last_seen_at:                    "Last Seen At",
+  };
+
+  const fields = cov.fields || {};
+
+  // Group by confidence from backend (high ≥70%, medium ≥20%, low <20%)
+  const groups = { high: [], medium: [], low: [] };
+  for (const [k, v] of Object.entries(fields)) {
+    const conf = v.confidence || (v.pct >= 70 ? "high" : v.pct >= 20 ? "medium" : "low");
+    groups[conf].push([k, v]);
+  }
+  // Within each group, sort by pct desc
+  for (const g of Object.values(groups)) g.sort((a, b) => (b[1].pct || 0) - (a[1].pct || 0));
+
+  function qualityRow(k, v) {
+    const pct = v.pct || 0;
+    const conf = v.confidence || "low";
+    const color = conf === "high" ? "#3fb950" : conf === "medium" ? "#d29922" : "#8b949e";
+    return `<div class="quality-row">
+      <span class="quality-name">${esc(FIELD_LABELS[k] || k)}</span>
+      <div class="quality-bar"><div class="quality-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span class="quality-pct" style="color:${color}">${pct.toFixed(0)}%</span>
+      <span class="quality-n">${(v.present || 0).toLocaleString()}</span>
+    </div>`;
+  }
+
+  let html = "";
+  if (groups.high.length) {
+    html += `<div class="dq-group-header dq-group-high">High confidence (≥70%)</div>`;
+    html += groups.high.map(([k, v]) => qualityRow(k, v)).join("");
+  }
+  if (groups.medium.length) {
+    html += `<div class="dq-group-header dq-group-medium">Medium confidence (20–69%)</div>`;
+    html += groups.medium.map(([k, v]) => qualityRow(k, v)).join("");
+  }
+  if (groups.low.length) {
+    html += `<div class="dq-group-header dq-group-low">Low confidence (&lt;20%) — sparse / inferred</div>`;
+    html += groups.low.map(([k, v]) => qualityRow(k, v)).join("");
+  }
+
+  const ts = cov.generated_at
+    ? `<div style="margin-bottom:0.3rem"><span class="c-muted" style="font-size:0.7rem">generated ${esc(cov.generated_at)} · ${cov.total_tokens} tokens scanned</span></div>`
+    : "";
+  box.innerHTML = ts + html;
+}
+
+// ── main tick ─────────────────────────────────────────────────────────────
+
+async function tick() {
+  document.getElementById("topbar-clock").textContent = new Date().toUTCString().slice(5, 25) + " UTC";
+
+  const errorBanner = document.getElementById("error-banner");
+
+  let truth = null;
+  try {
+    const r = await fetch("/truth");
+    if (!r.ok) throw new Error(`/truth responded ${r.status}`);
+    truth = await r.json();
+  } catch (e) {
+    errorBanner.style.display = "block";
+    errorBanner.textContent = "⚠ Failed to load /truth: " + String(e);
+    return;
+  }
+
+  errorBanner.style.display = "none";
+  document.getElementById("loading").classList.add("hidden");
+  document.getElementById("dash").classList.remove("hidden");
+
+  renderTopbar(truth);
+  renderCapital(truth.capital || {});
+  renderEntryGate(truth.entry_gate || {}, truth.policy || {});
+  renderPressure(truth.policy || {});
+  renderPortfolio(truth.portfolio || {});
+  renderPolicy(truth.policy || {});
+  renderPositions(truth.positions || []);
+  renderZombies(truth.positions || []);
+  renderDiscovery(truth.discovery || {});
+  renderBirdeye(truth.birdeye);
+  renderDataQuality(truth.data_quality);
+
+  // events feed from /events
+  try {
+    const evr = await fetch("/events?log_lines=4000&journal_lines=2000");
+    if (evr.ok) {
+      const ej = await evr.json();
+      const evs = (ej.events || []).slice(-20).reverse();
+      const feed = document.getElementById("events-feed");
+      if (!evs.length) {
+        feed.innerHTML = `<div class="c-muted" style="font-size:0.78rem">No matching events in window.</div>`;
+      } else {
+        feed.innerHTML = evs.map(e => {
+          const meta = JSON.stringify(e.metadata || {}, null, 0);
+          const evtCls = e.event_type?.includes("zombie") || e.event_type?.includes("blocked") ? "c-warn"
+            : e.event_type?.includes("success") || e.event_type?.includes("opened") ? "c-ok"
+            : "c-info";
+          return `<div class="event-item">
+            <span class="event-type ${evtCls}">${esc(e.event_type)}</span>
+            <span class="event-ts"> · ${esc(e.ts || "")} [${esc(e.source || "")}]</span>
+            <pre class="event-meta">${esc(meta)}</pre>
+          </div>`;
+        }).join("");
       }
     }
+  } catch (_) { /* events feed is non-critical */ }
+}
 
-    tick();
-    setInterval(tick, REFRESH_MS);
-  </script>
+tick();
+setInterval(tick, REFRESH_MS);
+</script>
 </body>
 </html>
