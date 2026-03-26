@@ -43,6 +43,78 @@ class BirdeyeClient:
         self._audit_jsonl_path = Path(audit_jsonl_path) if audit_jsonl_path else None
         self._audit_phase = "default"
         self._audit_session = BirdeyeAuditSession()
+        self._cycle_requests_count = 0
+        self._cycle_429_count = 0
+        self._cycle_success_count = 0
+        self._consecutive_429_burst_cycles = 0
+        self._disable_retries_in_cycle = False
+        self._global_cooldown_until = 0.0
+        self._endpoint_backoff_until: dict[str, float] = {}
+        self._endpoint_backoff_exp: dict[str, int] = {}
+
+    def begin_runtime_cycle(self) -> None:
+        if self._cycle_requests_count > 0:
+            rate_429 = float(self._cycle_429_count) / float(max(1, self._cycle_requests_count))
+            if self._cycle_429_count > 0 and rate_429 > 0.10:
+                self._consecutive_429_burst_cycles += 1
+            elif self._cycle_429_count == 0:
+                self._consecutive_429_burst_cycles = 0
+        self._cycle_requests_count = 0
+        self._cycle_429_count = 0
+        self._cycle_success_count = 0
+        self._disable_retries_in_cycle = False
+
+    def budget_snapshot(self) -> dict[str, Any]:
+        req = int(self._cycle_requests_count)
+        err429 = int(self._cycle_429_count)
+        ok = int(self._cycle_success_count)
+        success_rate = (float(ok) / float(req)) if req > 0 else 1.0
+        rate_429 = (float(err429) / float(req)) if req > 0 else 0.0
+        mode = "healthy"
+        if self._consecutive_429_burst_cycles >= 2:
+            mode = "starved"
+        elif rate_429 > 0.10:
+            mode = "constrained"
+        endpoints_disabled: list[str] = []
+        if mode in {"constrained", "starved"}:
+            endpoints_disabled.extend(["/defi/token_security", "/defi/token_creation_info"])
+        if mode == "starved":
+            endpoints_disabled.append("/defi/v3/token/holder")
+        reason = "no_rate_limit_pressure"
+        if mode == "constrained":
+            reason = f"429_rate={rate_429:.3f}>0.10"
+        elif mode == "starved":
+            reason = f"consecutive_429_burst_cycles={self._consecutive_429_burst_cycles}"
+        return {
+            "birdeye_budget_mode": mode,
+            "birdeye_requests_count": req,
+            "birdeye_429_count": err429,
+            "birdeye_success_rate": round(success_rate, 6),
+            "budget_reason_summary": reason,
+            "endpoints_disabled": endpoints_disabled,
+            "disable_retries_in_cycle": bool(self._disable_retries_in_cycle),
+        }
+
+    def should_skip_endpoint(self, path: str) -> bool:
+        snap = self.budget_snapshot()
+        return str(path) in set(snap.get("endpoints_disabled") or [])
+
+    def adjusted_discovery_limits(self, seed_limit: int, overview_limit: int, max_active_candidates: int) -> tuple[int, int, int]:
+        mode = self.budget_snapshot().get("birdeye_budget_mode")
+        if mode == "starved":
+            return max(5, seed_limit // 4), max(3, overview_limit // 4), max(1, max_active_candidates // 2)
+        if mode == "constrained":
+            return max(8, seed_limit // 2), max(4, overview_limit // 2), max(2, max_active_candidates // 2)
+        return seed_limit, overview_limit, max_active_candidates
+
+    def adjusted_discovery_interval_seconds(self, base_interval_seconds: int) -> int:
+        mode = self.budget_snapshot().get("birdeye_budget_mode")
+        base = max(1, int(base_interval_seconds))
+        if mode == "starved":
+            return max(base, int(base * 3))
+        if mode == "constrained":
+            return max(base, int(base * 2))
+        return base
 
     def audit_reset(self) -> None:
         """Clear in-memory audit counters (does not delete jsonl file)."""
@@ -112,15 +184,26 @@ class BirdeyeClient:
         audit: bool = True,
     ) -> dict[str, Any]:
         url = f"{BASE_URL}{path}"
-        max_attempts = 3
+        now = time.monotonic()
+        endpoint_until = float(self._endpoint_backoff_until.get(path, 0.0))
+        if now < self._global_cooldown_until:
+            raise RuntimeError(f"birdeye_global_cooldown:{path}")
+        if now < endpoint_until:
+            raise RuntimeError(f"birdeye_endpoint_backoff:{path}")
+
+        max_attempts = 1 if self._disable_retries_in_cycle else 3
         backoff = 0.4
         last_exc: Exception | None = None
         for attempt in range(1, max_attempts + 1):
             try:
                 self._throttle()
+                self._cycle_requests_count += 1
                 response = self._session.request(method, url, params=params, timeout=20)
                 self._last_request = time.monotonic()
                 status = response.status_code
+                if status == 200:
+                    self._cycle_success_count += 1
+                    self._consecutive_429_burst_cycles = 0
                 body_snippet = ""
                 if status != 200:
                     try:
@@ -140,7 +223,15 @@ class BirdeyeClient:
                 if status == 401:
                     raise RuntimeError(f"birdeye_unauthorized:{path}")
                 if status == 429:
-                    raise RuntimeError(f"birdeye_rate_limited:{path}")
+                    self._cycle_429_count += 1
+                    self._disable_retries_in_cycle = True
+                    self._consecutive_429_burst_cycles += 1
+                    exp = int(self._endpoint_backoff_exp.get(path, 0)) + 1
+                    self._endpoint_backoff_exp[path] = min(exp, 8)
+                    endpoint_cooldown = min(60.0, float(2 ** min(exp, 6)))
+                    self._endpoint_backoff_until[path] = time.monotonic() + endpoint_cooldown
+                    self._global_cooldown_until = max(self._global_cooldown_until, time.monotonic() + 1.5)
+                    raise _BirdeyeNonRetryableError(f"birdeye_rate_limited:{path}")
                 if status == 400:
                     body = ""
                     try:
@@ -223,11 +314,15 @@ class BirdeyeClient:
         return data if isinstance(data, dict) else {}
 
     def token_security(self, address: str) -> dict[str, Any]:
+        if self.should_skip_endpoint("/defi/token_security"):
+            return {}
         payload = self._request("GET", "/defi/token_security", params={"address": address})
         data = self._data(payload)
         return data if isinstance(data, dict) else {}
 
     def token_holders(self, address: str) -> dict[str, Any]:
+        if self.should_skip_endpoint("/defi/v3/token/holder"):
+            return {}
         payload = self._request("GET", "/defi/v3/token/holder", params={"address": address, "limit": 10, "offset": 0})
         data = self._data(payload)
         return data if isinstance(data, dict) else {}
@@ -238,6 +333,8 @@ class BirdeyeClient:
         return data if isinstance(data, dict) else {}
 
     def token_creation_info(self, address: str) -> dict[str, Any]:
+        if self.should_skip_endpoint("/defi/token_creation_info"):
+            return {}
         payload = self._request("GET", "/defi/token_creation_info", params={"address": address})
         data = self._data(payload)
         return data if isinstance(data, dict) else {}

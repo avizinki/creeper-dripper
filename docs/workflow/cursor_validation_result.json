@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T16:16:38.945936+00:00",
+  "generated_at": "2026-03-26T16:47:54.175934+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-024",
+  "task_id": "T-025-BIRDEYE-BUDGET-CONTROL",
   "validations": [
     {
-      "name": "t024_tests",
-      "command": ".venv/bin/python -m pytest tests/test_t024_economics_field_persistence.py -v",
+      "name": "t025_tests",
+      "command": ".venv/bin/python -m pytest tests/test_t025_birdeye_budget_control.py -v",
       "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 3 items\n\ntests/test_t024_economics_field_persistence.py::test_discovery_economics_fields_persisted_in_status_artifact PASSED [ 33%]\ntests/test_t024_economics_field_persistence.py::test_probe_route_fields_persisted_in_status_artifact PASSED [ 66%]\ntests/test_t024_economics_field_persistence.py::test_zombie_fields_persisted_in_journal_metadata PASSED [100%]\n\n============================== 3 passed in 0.06s ===============================\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 4 items\n\ntests/test_t025_birdeye_budget_control.py::test_429_burst_enters_constrained_and_disables_retries PASSED [ 25%]\ntests/test_t025_birdeye_budget_control.py::test_sustained_429_enters_starved_mode PASSED [ 50%]\ntests/test_t025_birdeye_budget_control.py::test_discovery_gates_endpoints_and_reduces_limits PASSED [ 75%]\ntests/test_t025_birdeye_budget_control.py::test_trader_persists_budget_fields_and_degrades_cadence PASSED [100%]\n\n============================== 4 passed in 0.06s ===============================\n",
       "stderr": "",
       "ok": true
     },
@@ -17,7 +17,7 @@
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q",
       "exit_code": 0,
-      "stdout": "........................................................................ [ 28%]\n........................................................................ [ 56%]\n........................................................................ [ 85%]\n.....................................                                    [100%]\n253 passed in 1.73s\n",
+      "stdout": "........................................................................ [ 28%]\n........................................................................ [ 56%]\n........................................................................ [ 84%]\n.........................................                                [100%]\n257 passed in 1.82s\n",
       "stderr": "",
       "ok": true
     }
@@ -25,17 +25,19 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
+      "creeper_dripper/clients/birdeye.py",
       "creeper_dripper/engine/discovery.py",
       "creeper_dripper/engine/trader.py",
       "docs/workflow",
       "docs/workflow/claude_task_result.json",
-      "tests/test_t024_economics_field_persistence.py"
+      "tests/test_t025_birdeye_budget_control.py"
     ],
     "dirty_paths": [
+      "creeper_dripper/clients/birdeye.py",
       "creeper_dripper/engine/discovery.py",
       "creeper_dripper/engine/trader.py",
       "docs/workflow/claude_task_result.json",
-      "tests/test_t024_economics_field_persistence.py"
+      "tests/test_t025_birdeye_budget_control.py"
     ],
     "passed": true,
     "reason": null
@@ -44,11 +46,12 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "8a9cbb5cc78961218dc5d8a964a07aa797d71e32",
+    "sha": "82fffee3d40fd049d036fa0df0c056c780219b21",
     "added_paths": [
+      "creeper_dripper/clients/birdeye.py",
       "creeper_dripper/engine/discovery.py",
       "creeper_dripper/engine/trader.py",
-      "tests/test_t024_economics_field_persistence.py",
+      "tests/test_t025_birdeye_budget_control.py",
       "docs/workflow/claude_task_result.json",
       "docs/workflow"
     ]

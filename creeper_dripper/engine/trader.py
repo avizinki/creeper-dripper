@@ -523,6 +523,8 @@ class CreeperDripper:
         self._cycle_in_run += 1
         self._reset_daily_counters(now)
         decisions: list[TradeDecision] = []
+        if hasattr(self.birdeye, "begin_runtime_cycle"):
+            self.birdeye.begin_runtime_cycle()
         if not self._startup_recovery_done:
             recovery_decisions = run_startup_recovery(self.portfolio, self.executor, now)
             decisions.extend(recovery_decisions)
@@ -539,7 +541,11 @@ class CreeperDripper:
             accounting_entries_blocked_reason=self._entries_blocked_reason,
             safe_mode_active=bool(self.portfolio.safe_mode_active),
         )
-        self._effective_discovery_interval_seconds = int(pre_policy.effective_discovery_interval_seconds or self.settings.discovery_interval_seconds)
+        base_discovery_interval = int(pre_policy.effective_discovery_interval_seconds or self.settings.discovery_interval_seconds)
+        if hasattr(self.birdeye, "adjusted_discovery_interval_seconds"):
+            self._effective_discovery_interval_seconds = int(self.birdeye.adjusted_discovery_interval_seconds(base_discovery_interval))
+        else:
+            self._effective_discovery_interval_seconds = base_discovery_interval
         self.events.emit(
             "discovery_cadence_summary",
             "ok",
@@ -785,7 +791,17 @@ class CreeperDripper:
             "candidates_rejected_total": 0,
             "rejection_counts": {},
             "events": [],
+            "economics_field_records": [],
             "market_data_checked_at": None,
+            "birdeye_budget_mode": "healthy",
+            "birdeye_requests_count": 0,
+            "birdeye_429_count": 0,
+            "birdeye_success_rate": 1.0,
+            "budget_reason_summary": "discovery_failed_or_skipped",
+            "endpoints_disabled": [],
+            "effective_discovery_seed_limit": 0,
+            "effective_discovery_overview_limit": 0,
+            "effective_max_active_candidates": 0,
             "cache_debug_first_keys": [],
             "cache_debug_identity": {"candidate_cache_id": id(cc), "route_cache_id": id(rc)},
             "cache_engine_identity": {"candidate_cache_id": id(cc), "route_cache_id": id(rc)},
@@ -2978,6 +2994,15 @@ class CreeperDripper:
             "rejection_counts": discovery_summary.get("rejection_counts", {}),
             # Compact normalized discovery rows to keep economics fields recoverable in status/cycle artifacts.
             "economics_field_records": discovery_summary.get("economics_field_records", []),
+            "birdeye_budget_mode": discovery_summary.get("birdeye_budget_mode"),
+            "birdeye_requests_count": discovery_summary.get("birdeye_requests_count"),
+            "birdeye_429_count": discovery_summary.get("birdeye_429_count"),
+            "birdeye_success_rate": discovery_summary.get("birdeye_success_rate"),
+            "budget_reason_summary": discovery_summary.get("budget_reason_summary"),
+            "endpoints_disabled": discovery_summary.get("endpoints_disabled", []),
+            "effective_discovery_seed_limit": discovery_summary.get("effective_discovery_seed_limit"),
+            "effective_discovery_overview_limit": discovery_summary.get("effective_discovery_overview_limit"),
+            "effective_max_active_candidates": discovery_summary.get("effective_max_active_candidates"),
             "open_positions": len(open_positions),
             "partial_positions": partial_positions,
             "exit_pending_positions": exit_pending_positions,

@@ -1,25 +1,26 @@
 {
-  "task_id": "T-024",
-  "title": "Economics Field Persistence Audit + Fix",
+  "task_id": "T-025-BIRDEYE-BUDGET-CONTROL",
+  "title": "Birdeye budget-aware runtime control",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Root cause: core economics fields were emitted in discovery events but mostly not persisted into durable runtime artifacts used by audits (status/cycle summary only had counters). Fix: persist compact normalized discovery economics records in discovery summary and carry them into cycle/status artifacts; also normalize candidate serialization fallback for buy_sell_ratio_1h and tighten journal route-state normalization.",
+  "summary": "Add adaptive Birdeye budget control with per-cycle request/429/success metrics, burst-aware budget mode (healthy/constrained/starved), endpoint backoff + global cooldown + same-cycle retry suppression on 429, budget-gated discovery/enrichment, and persisted observability fields in cycle/status artifacts.",
   "files_changed": [
+    "creeper_dripper/clients/birdeye.py",
     "creeper_dripper/engine/discovery.py",
     "creeper_dripper/engine/trader.py",
-    "tests/test_t024_economics_field_persistence.py",
+    "tests/test_t025_birdeye_budget_control.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "Changes are additive persistence/observability only; no strategy, risk, or execution decision paths were modified.",
-    "No new probes/API calls were added; fields are carried from existing seed/candidate/probe/position objects.",
-    "Field names are normalized and stable across persisted artifacts: liquidity_usd, buy_sell_ratio, price_impact_bps_buy/sell, route_exists, no_route, fragile_route, estimated_exit_value_sol, zombie_class."
+    "No new external endpoints/calls were introduced; control only adapts behavior around existing Birdeye calls.",
+    "429 handling now applies endpoint exponential backoff, global cooldown, and disables retries in the same runtime cycle to prevent retry storms.",
+    "Budget telemetry is additive and persisted in discovery summary/cycle summary/status without changing trading strategy logic."
   ],
   "required_validation": [
     {
-      "name": "t024_tests",
-      "command": ".venv/bin/python -m pytest tests/test_t024_economics_field_persistence.py -v"
+      "name": "t025_tests",
+      "command": ".venv/bin/python -m pytest tests/test_t025_birdeye_budget_control.py -v"
     },
     {
       "name": "full_suite",
@@ -30,7 +31,7 @@
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Fix persistence of token economics fields in runtime artifacts",
-  "notes_for_cursor": "Field path map: source objects (seed/candidate/probe/position) -> normalized metadata (_normalized_seed_metadata/_normalized_candidate_metadata/_normalized_token_context) -> emitted events/decisions -> persisted runtime artifacts (status.summary.economics_field_records, cycle_summaries.summary.economics_field_records, journal metadata). This closes prior persistence gap where high-volume economics fields existed only inside transient discovery event payloads."
+  "commit_message": "Add budget-aware Birdeye runtime controls and backoff safety",
+  "notes_for_cursor": "Field path map for budget control: Birdeye request outcomes -> budget_snapshot (requests/429/success/mode/reason/endpoints_disabled) -> discover_candidates summary -> trader cycle_summary -> status.json. Discovery now applies budget-adjusted limits and endpoint gating; run_cycle applies budget-aware effective_discovery_interval_seconds."
 }
 

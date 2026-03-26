@@ -191,8 +191,30 @@ def discover_candidates(
     route_cache: TTLCache[ProbeQuote] | None = None,
 ) -> tuple[list[TokenCandidate], dict]:
     events = EventCollector()
+    budget_snapshot = (
+        birdeye.budget_snapshot()
+        if hasattr(birdeye, "budget_snapshot")
+        else {
+            "birdeye_budget_mode": "healthy",
+            "birdeye_requests_count": 0,
+            "birdeye_429_count": 0,
+            "birdeye_success_rate": 1.0,
+            "budget_reason_summary": "unsupported",
+            "endpoints_disabled": [],
+        }
+    )
     trending: list[dict[str, Any]] = []
     seed_limit = int(getattr(settings, "discovery_seed_limit", settings.discovery_limit) or settings.discovery_limit)
+    overview_limit = int(getattr(settings, "discovery_overview_limit", settings.discovery_max_candidates) or settings.discovery_max_candidates)
+    overview_limit = max(0, overview_limit)
+    max_active_candidates = int(getattr(settings, "max_active_candidates", settings.max_active_candidates) or settings.max_active_candidates)
+    max_active_candidates = max(1, max_active_candidates)
+    if hasattr(birdeye, "adjusted_discovery_limits"):
+        seed_limit, overview_limit, max_active_candidates = birdeye.adjusted_discovery_limits(
+            int(seed_limit),
+            int(overview_limit),
+            int(max_active_candidates),
+        )
     try:
         trending = birdeye.trending_tokens(limit=seed_limit)
     except Exception as exc:
@@ -205,8 +227,6 @@ def discover_candidates(
     seeds = _dedupe_by_address([*trending, *new_listing_seeds])
     market_data_checked_at = None
     events.emit("discovery_seed_loaded", "ok", seeds_total=len(seeds))
-    overview_limit = int(getattr(settings, "discovery_overview_limit", settings.discovery_max_candidates) or settings.discovery_max_candidates)
-    overview_limit = max(0, overview_limit)
     candidates: list[TokenCandidate] = []
     prefiltered_candidates: list[TokenCandidate] = []
     rejection_counts: Counter[str] = Counter()
@@ -365,39 +385,41 @@ def discover_candidates(
                     )
                 continue
             # Phase 2 (expensive): only enrich survivors of cheap prefilter.
-            try:
-                candidate = birdeye.enrich_candidate_heavy(candidate)
-            except Exception as exc:
-                # Treat enrichment failures as build failures (avoid continuing with partial heavy fields).
-                LOGGER.warning("candidate heavy enrichment failed mint=%s symbol=%s err=%s", candidate.address, candidate.symbol, exc)
-                rejection_counts[REJECT_CANDIDATE_BUILD_FAILED] += 1
-                events.emit(
-                    "candidate_rejected",
-                    REJECT_CANDIDATE_BUILD_FAILED,
-                    **{
-                        **_normalized_candidate_metadata(candidate),
-                        "rejection_reason": REJECT_CANDIDATE_BUILD_FAILED,
-                        "source_stage": "heavy_enrich",
-                        "accepted_or_rejected": "rejected",
-                        "error": str(exc),
-                    },
-                )
-                if progress_callback:
-                    ranked = sorted(candidates, key=lambda x: x.discovery_score, reverse=True)
-                    progress_callback(
-                        {
-                            "seeds_total": len(seeds),
-                            "processed_total": built + int(sum(rejection_counts.values())),
-                            "built_total": built,
-                            "accepted_total": len(candidates),
-                            "rejection_counts": dict(rejection_counts),
-                            "last_processed_symbol": candidate.symbol,
-                            "last_processed_mint": candidate.address,
-                            "top_candidates_seen": serialize_candidates(ranked[:5]),
+            skip_creation = hasattr(birdeye, "should_skip_endpoint") and birdeye.should_skip_endpoint("/defi/token_creation_info")
+            if not skip_creation:
+                try:
+                    candidate = birdeye.enrich_candidate_heavy(candidate)
+                except Exception as exc:
+                    # Treat enrichment failures as build failures (avoid continuing with partial heavy fields).
+                    LOGGER.warning("candidate heavy enrichment failed mint=%s symbol=%s err=%s", candidate.address, candidate.symbol, exc)
+                    rejection_counts[REJECT_CANDIDATE_BUILD_FAILED] += 1
+                    events.emit(
+                        "candidate_rejected",
+                        REJECT_CANDIDATE_BUILD_FAILED,
+                        **{
+                            **_normalized_candidate_metadata(candidate),
+                            "rejection_reason": REJECT_CANDIDATE_BUILD_FAILED,
+                            "source_stage": "heavy_enrich",
+                            "accepted_or_rejected": "rejected",
+                            "error": str(exc),
                         },
-                        serialize_candidates(ranked[: settings.discovery_max_candidates]),
                     )
-                continue
+                    if progress_callback:
+                        ranked = sorted(candidates, key=lambda x: x.discovery_score, reverse=True)
+                        progress_callback(
+                            {
+                                "seeds_total": len(seeds),
+                                "processed_total": built + int(sum(rejection_counts.values())),
+                                "built_total": built,
+                                "accepted_total": len(candidates),
+                                "rejection_counts": dict(rejection_counts),
+                                "last_processed_symbol": candidate.symbol,
+                                "last_processed_mint": candidate.address,
+                                "top_candidates_seen": serialize_candidates(ranked[:5]),
+                            },
+                            serialize_candidates(ranked[: settings.discovery_max_candidates]),
+                        )
+                    continue
             prefiltered_candidates.append(candidate)
             if progress_callback:
                 ranked = sorted(prefiltered_candidates, key=lambda x: x.discovery_score, reverse=True)
@@ -434,7 +456,7 @@ def discover_candidates(
                     serialize_candidates(ranked[: settings.discovery_max_candidates]),
                 )
     prefiltered_candidates.sort(key=lambda item: item.discovery_score, reverse=True)
-    top_n = prefiltered_candidates[: settings.max_active_candidates]
+    top_n = prefiltered_candidates[: max_active_candidates]
 
     for candidate in top_n:
         probe_buy_amount = max(1, int(settings.min_order_size_sol * 1_000_000_000))
@@ -603,7 +625,9 @@ def discover_candidates(
         else:
             # Security is needed to correctly apply binary reject flags and score penalties.
             candidate.needs_security_check = True
-            if hasattr(birdeye, "enrich_candidate_security_only"):
+            if hasattr(birdeye, "should_skip_endpoint") and birdeye.should_skip_endpoint("/defi/token_security"):
+                candidate.needs_security_check = False
+            elif hasattr(birdeye, "enrich_candidate_security_only"):
                 candidate = birdeye.enrich_candidate_security_only(candidate)
 
             # Decide whether holder is needed by checking worst-case holder penalty.
@@ -616,7 +640,9 @@ def discover_candidates(
                 # Keep pessimistic top10 so later scoring reflects worst-case.
                 candidate.top10_holder_percent = 100.0
             else:
-                if hasattr(birdeye, "enrich_candidate_holders_only"):
+                if hasattr(birdeye, "should_skip_endpoint") and birdeye.should_skip_endpoint("/defi/v3/token/holder"):
+                    candidate.needs_holder_check = False
+                elif hasattr(birdeye, "enrich_candidate_holders_only"):
                     candidate = birdeye.enrich_candidate_holders_only(candidate)
 
         candidate = score_candidate(candidate, settings)
@@ -745,6 +771,15 @@ def discover_candidates(
         "events": event_rows,
         "economics_field_records": _extract_economics_field_records(event_rows),
         "market_data_checked_at": market_data_checked_at,
+        "birdeye_budget_mode": budget_snapshot.get("birdeye_budget_mode"),
+        "birdeye_requests_count": budget_snapshot.get("birdeye_requests_count"),
+        "birdeye_429_count": budget_snapshot.get("birdeye_429_count"),
+        "birdeye_success_rate": budget_snapshot.get("birdeye_success_rate"),
+        "budget_reason_summary": budget_snapshot.get("budget_reason_summary"),
+        "endpoints_disabled": budget_snapshot.get("endpoints_disabled", []),
+        "effective_discovery_seed_limit": seed_limit,
+        "effective_discovery_overview_limit": overview_limit,
+        "effective_max_active_candidates": max_active_candidates,
         "cache_debug_first_keys": cache_keys_used[:3],
         "cache_debug_identity": {
             "candidate_cache_id": id(candidate_cache),
