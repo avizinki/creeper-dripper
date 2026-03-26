@@ -172,6 +172,11 @@ class PositionState:
     zombie_since: str | None = None
     # Set when a ZOMBIE is promoted to FINAL_ZOMBIE (terminal; no more retries).
     final_zombie_at: str | None = None
+    # Zombie recovery strategy (T-019): runtime classification + recovery attempt tracking.
+    zombie_class: str | None = None  # HARD_ZOMBIE | SOFT_ZOMBIE | FAKE_LIQUID
+    zombie_age_cycles: int = 0
+    last_recovery_attempt_at: str | None = None
+    recovery_attempts: int = 0
 
 
 @dataclass(slots=True)

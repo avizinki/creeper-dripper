@@ -30,6 +30,7 @@ class DerivedRuntimePolicy:
     effective_final_zombie_recovery_probe_interval_cycles: int | None = None
     effective_exit_probe_aggressiveness: float | None = None
     effective_dripper_enabled: bool | None = None
+    recovery_priority_level: str | None = None  # low | normal | high
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -209,6 +210,11 @@ def derive_runtime_policy(
     dripper_enabled = bool(getattr(settings, "hachi_dripper_enabled", False))
 
     summary = ",".join(reasons) if reasons else "ok"
+    recovery_priority = "low"
+    if zombie_pressure_level == "high":
+        recovery_priority = "high"
+    elif zombie_pressure_level == "medium":
+        recovery_priority = "normal"
     return DerivedRuntimePolicy(
         runtime_risk_mode=risk_mode,
         policy_posture=posture,
@@ -230,5 +236,6 @@ def derive_runtime_policy(
         effective_final_zombie_recovery_probe_interval_cycles=int(interval),
         effective_exit_probe_aggressiveness=float(exit_aggr),
         effective_dripper_enabled=bool(dripper_enabled),
+        recovery_priority_level=recovery_priority,
     )
 

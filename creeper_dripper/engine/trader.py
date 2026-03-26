@@ -557,11 +557,36 @@ class CreeperDripper:
             else policy.effective_final_zombie_recovery_probe_interval_cycles,
             effective_exit_probe_aggressiveness=None if policy is None else policy.effective_exit_probe_aggressiveness,
             effective_dripper_enabled=None if policy is None else policy.effective_dripper_enabled,
+            recovery_priority_level=None if policy is None else policy.recovery_priority_level,
         )
         blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
         zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
         final_zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == POSITION_FINAL_ZOMBIE]
         exit_stuck_total = len(blocked_positions) + len(zombie_positions) + len(final_zombie_positions)
+        # T-019: capital visibility for stuck positions.
+        zombie_locked_sol_estimate = 0.0
+        recoverable_sol_estimate = 0.0
+        dead_sol_estimate = 0.0
+        class_counts: dict[str, int] = {}
+        for p in zombie_positions + final_zombie_positions:
+            est = float(getattr(p, "last_estimated_exit_value_sol", None) or 0.0)
+            if est <= 0.0:
+                est = max(0.0, float(getattr(p, "entry_sol", 0.0) or 0.0))
+            zombie_locked_sol_estimate += est
+            zc = str(getattr(p, "zombie_class", "") or "UNKNOWN")
+            class_counts[zc] = class_counts.get(zc, 0) + 1
+            if zc in {"SOFT_ZOMBIE", "FAKE_LIQUID"}:
+                recoverable_sol_estimate += est
+            elif zc in {"HARD_ZOMBIE"} or p.status == POSITION_FINAL_ZOMBIE:
+                dead_sol_estimate += est
+        self.events.emit(
+            "zombie_capital_estimated",
+            "ok",
+            zombie_locked_sol_estimate=round(zombie_locked_sol_estimate, 6),
+            recoverable_sol_estimate=round(recoverable_sol_estimate, 6),
+            dead_sol_estimate=round(dead_sol_estimate, 6),
+            zombie_class_counts=class_counts,
+        )
         pending_proceeds_total = sum(
             float(getattr(p, "pending_proceeds_sol", 0.0) or 0.0)
             for p in self.portfolio.open_positions.values()
@@ -587,6 +612,9 @@ class CreeperDripper:
             "decisions": [asdict(d) for d in decisions],
             "summary": cycle_summary,
             "events": self.events.to_dicts(),
+            "zombie_locked_sol_estimate": round(zombie_locked_sol_estimate, 6),
+            "recoverable_sol_estimate": round(recoverable_sol_estimate, 6),
+            "dead_sol_estimate": round(dead_sol_estimate, 6),
         }
 
     def _discover_with_cadence(self) -> tuple[list[TokenCandidate], dict]:
@@ -799,6 +827,8 @@ class CreeperDripper:
 
         def _attempt_probe() -> bool:
             position.last_route_check_at = now
+            position.last_recovery_attempt_at = now
+            position.recovery_attempts = int(getattr(position, "recovery_attempts", 0) or 0) + 1
             self.events.emit(
                 "exit_micro_probe_attempt",
                 "ok",
@@ -821,6 +851,17 @@ class CreeperDripper:
                 return False
             ok = bool(getattr(probe, "route_ok", False) and getattr(probe, "out_amount_atomic", None))
             if ok:
+                position.zombie_class = "SOFT_ZOMBIE"
+                position.zombie_age_cycles = int(getattr(position, "exit_blocked_cycles", 0) or 0)
+                self.events.emit(
+                    "zombie_classified",
+                    "soft_zombie_route_found",
+                    mint=position.token_mint,
+                    symbol=position.symbol,
+                    position_id=position.position_id or position.token_mint,
+                    zombie_class=position.zombie_class,
+                    zombie_age_cycles=position.zombie_age_cycles,
+                )
                 # Revive: clear zombie markers and attempt normal exit path if possible.
                 if position.status == "ZOMBIE":
                     position.status = "EXIT_BLOCKED"
@@ -842,6 +883,8 @@ class CreeperDripper:
         # FINAL_ZOMBIE recovery-probe policy (rare + cheap), independent of the normal staged
         # retry/micro-probe windows.
         if position.status == POSITION_FINAL_ZOMBIE:
+            position.zombie_class = "HARD_ZOMBIE"
+            position.zombie_age_cycles = int(getattr(position, "exit_blocked_cycles", 0) or 0)
             interval = int(getattr(self.settings, "final_zombie_recovery_probe_interval_cycles", 360) or 360)
             if self._last_runtime_policy is not None and self._last_runtime_policy.effective_final_zombie_recovery_probe_interval_cycles:
                 interval = int(self._last_runtime_policy.effective_final_zombie_recovery_probe_interval_cycles)
@@ -1787,6 +1830,20 @@ class CreeperDripper:
             )
         else:
             requested_qty = min(position.pending_exit_qty_atomic, position.remaining_qty_atomic)
+        # T-019: FAKE_LIQUID partial liquidation — when route exists but executions repeatedly fail,
+        # reduce requested size to a small fraction to increase odds of recovering anything.
+        if str(getattr(position, "zombie_class", "") or "") == "FAKE_LIQUID":
+            reduced = max(1, int(requested_qty * 0.25))
+            if reduced < requested_qty:
+                self.events.emit(
+                    "partial_exit_attempt",
+                    "fake_liquid_reduce_qty",
+                    position_id=position.position_id or position.token_mint,
+                    token_mint=position.token_mint,
+                    requested_before=requested_qty,
+                    requested_after=reduced,
+                )
+                requested_qty = reduced
         # Jupiter is truth — no pre-sell wallet read. Proceed with internally tracked qty.
         if requested_qty <= 0:
             _clear_drip_state(position)
@@ -1954,6 +2011,14 @@ class CreeperDripper:
                 )
             )
             self.events.emit("exit_success", result.diagnostic_code or "success", position_id=position.position_id or position.token_mint, qty=sold_reconciled)
+            if str(getattr(position, "zombie_class", "") or "") == "FAKE_LIQUID":
+                self.events.emit(
+                    "partial_exit_success",
+                    "fake_liquid",
+                    position_id=position.position_id or position.token_mint,
+                    token_mint=position.token_mint,
+                    sold_atomic=sold_reconciled,
+                )
             if out_sol is not None:
                 self.events.emit(
                     "cash_sol_credited",
@@ -2059,6 +2124,28 @@ class CreeperDripper:
                 position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
                 if _is_system_execution_failure(classification):
                     self.portfolio.consecutive_execution_failures += 1
+                    # If sell route appears present (quote is ok) but execution fails repeatedly,
+                    # classify as FAKE_LIQUID to enable partial liquidation.
+                    if bool(getattr(quote, "route_ok", False) and getattr(quote, "out_amount_atomic", None)):
+                        position.zombie_class = "FAKE_LIQUID"
+                        position.zombie_age_cycles = int(getattr(position, "exit_blocked_cycles", 0) or 0)
+                        self.events.emit(
+                            "zombie_classified",
+                            "fake_liquid_execution_failures",
+                            mint=position.token_mint,
+                            symbol=position.symbol,
+                            position_id=position.position_id or position.token_mint,
+                            zombie_class=position.zombie_class,
+                            zombie_age_cycles=position.zombie_age_cycles,
+                            classification=classification,
+                        )
+                        self.events.emit(
+                            "partial_exit_failed",
+                            "fake_liquid",
+                            position_id=position.position_id or position.token_mint,
+                            token_mint=position.token_mint,
+                            classification=classification,
+                        )
             decisions.append(
                 TradeDecision(
                     action="SELL_BLOCKED",
@@ -2601,6 +2688,21 @@ class CreeperDripper:
         zombie_positions_count = sum(1 for p in open_positions if p.status == "ZOMBIE")
         final_zombie_positions_count = sum(1 for p in open_positions if p.status == POSITION_FINAL_ZOMBIE)
         exit_stuck_total = exit_blocked_positions + zombie_positions_count + final_zombie_positions_count
+        zombie_locked_sol_estimate = 0.0
+        recoverable_sol_estimate = 0.0
+        dead_sol_estimate = 0.0
+        for p in open_positions:
+            if p.status not in {"ZOMBIE", POSITION_FINAL_ZOMBIE}:
+                continue
+            est = float(getattr(p, "last_estimated_exit_value_sol", None) or 0.0)
+            if est <= 0.0:
+                est = max(0.0, float(getattr(p, "entry_sol", 0.0) or 0.0))
+            zombie_locked_sol_estimate += est
+            zc = str(getattr(p, "zombie_class", "") or "UNKNOWN")
+            if zc in {"SOFT_ZOMBIE", "FAKE_LIQUID"}:
+                recoverable_sol_estimate += est
+            elif zc in {"HARD_ZOMBIE"} or p.status == POSITION_FINAL_ZOMBIE:
+                dead_sol_estimate += est
         entries_attempted = sum(1 for d in decisions if d.action == "BUY_SKIP" or d.action == "BUY")
         entries_succeeded = sum(1 for d in decisions if d.action == "BUY")
         exits_attempted = sum(1 for d in decisions if d.action == "SELL_ATTEMPT")
@@ -2677,6 +2779,9 @@ class CreeperDripper:
             "zombie_positions": zombie_positions_count,
             "final_zombie_positions": final_zombie_positions_count,
             "exit_stuck_total": exit_stuck_total,
+            "zombie_locked_sol_estimate": round(zombie_locked_sol_estimate, 6),
+            "recoverable_sol_estimate": round(recoverable_sol_estimate, 6),
+            "dead_sol_estimate": round(dead_sol_estimate, 6),
             "entries_attempted": entries_attempted,
             "entries_succeeded": entries_succeeded,
             "entries_blocked_pre_execution": entries_blocked_pre_execution,

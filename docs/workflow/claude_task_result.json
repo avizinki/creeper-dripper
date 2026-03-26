@@ -1,23 +1,30 @@
 {
-  "task_id": "T-018",
-  "title": "Runtime policy verification and observability",
+  "task_id": "T-019",
+  "title": "Zombie capital recovery strategy and adaptive liquidation",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Ensure expanded derived runtime policy is clearly visible in runtime artifacts (status.json and cycle summaries) via a dedicated derived_policy payload, and add focused tests proving policy fields are emitted/populated for constrained low-wallet, zombie pressure, normal/balanced, and entry-blocked states. No behavior redesign; observability-only additions.",
+  "summary": "Add zombie classification (HARD_ZOMBIE/SOFT_ZOMBIE/FAKE_LIQUID) with recovery attempt tracking, expose capital estimates for stuck positions (locked/recoverable/dead SOL) in cycle summary/events, and implement a safe partial liquidation path for FAKE_LIQUID by shrinking requested exit size. Integrate recovery_priority_level into derived policy output. No new external services; no additional RPC; preserves T-013..T-018 behavior.",
   "files_changed": [
+    "creeper_dripper/models.py",
+    "creeper_dripper/engine/runtime_policy.py",
     "creeper_dripper/engine/trader.py",
-    "tests/test_policy_observability_runtime_artifacts.py",
+    "tests/test_zombie_recovery_strategy.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "Adds observability fields only (status.json + cycle summary payload); does not change trade execution logic.",
-    "Makes policy operator-visible without altering T-013/T-014/T-015 safety behavior."
+    "Classification/estimation are additive metadata and do not change settlement truth.",
+    "Partial liquidation only reduces exit size under FAKE_LIQUID conditions; it cannot create new buys or bypass safety guards.",
+    "Probe cadence remains bounded (no spamming) and FINAL_ZOMBIE lifecycle remains intact."
   ],
   "required_validation": [
     {
-      "name": "policy_status_artifacts_tests",
-      "command": ".venv/bin/python -m pytest tests/test_policy_observability_runtime_artifacts.py -v"
+      "name": "zombie_recovery_strategy_tests",
+      "command": ".venv/bin/python -m pytest tests/test_zombie_recovery_strategy.py -v"
+    },
+    {
+      "name": "final_zombie_regression",
+      "command": ".venv/bin/python -m pytest tests/test_final_zombie_recovery_probe.py -v"
     },
     {
       "name": "full_suite",
@@ -28,6 +35,7 @@
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Improve runtime policy observability and verification",
-  "notes_for_cursor": "Scope limited to trader status/cycle payload + focused observability tests and workflow artifacts."
+  "commit_message": "Add zombie capital recovery strategy and adaptive liquidation",
+  "notes_for_cursor": "Scope limited to models/runtime_policy/trader + focused zombie recovery tests and workflow artifacts."
 }
+
