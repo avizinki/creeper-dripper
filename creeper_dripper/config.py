@@ -210,8 +210,10 @@ def load_settings() -> Settings:
 
     _max_daily_new_positions = env_int("MAX_DAILY_NEW_POSITIONS", 6)
 
-    discovery_interval_seconds = _required_env_int("DISCOVERY_INTERVAL_SECONDS")
-    max_active_candidates = _required_env_int("MAX_ACTIVE_CANDIDATES")
+    # Minimal operator config: these are no longer required env vars.
+    # Legacy env values still override the defaults when provided.
+    discovery_interval_seconds = _optional_env_int("DISCOVERY_INTERVAL_SECONDS", 30)
+    max_active_candidates = _optional_env_int("MAX_ACTIVE_CANDIDATES", 7)
     candidate_cache_ttl_seconds = _optional_env_int("CANDIDATE_CACHE_TTL_SECONDS", 120)
     route_check_cache_ttl_seconds = _optional_env_int("ROUTE_CHECK_CACHE_TTL_SECONDS", 90)
     discovery_max_candidates = env_int("DISCOVERY_MAX_CANDIDATES", 8)

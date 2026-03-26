@@ -1,41 +1,30 @@
 {
-  "task_id": "T-016",
-  "title": "Derived runtime policy and minimal operator config",
+  "task_id": "T-016-ENV-CLEANUP",
+  "title": "Simplify env to minimal operator config",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Introduce an additive derived runtime policy layer that computes effective sizing/caps/thresholds and entry gating from runtime state (wallet snapshot, deployable, accounting guard state, zombie pressure) while keeping existing env-backed Settings as compatibility defaults. Add operator intent via RISK_MODE and surface derived policy fields in entry_capacity_mode_summary for dashboard visibility. Core safety invariants (T-013/T-014/T-015) remain intact.",
+  "summary": "Update .env.example to the minimal operator-level configuration (secrets + intent), slim local .env to match (untracked), and add lightweight README documentation describing the minimal operator config and derived runtime policy. Backward compatibility is preserved in code (legacy env vars remain supported as overrides).",
   "files_changed": [
-    "creeper_dripper/engine/runtime_policy.py",
+    ".env.example",
     "creeper_dripper/config.py",
-    "creeper_dripper/engine/trader.py",
-    "tests/test_runtime_policy.py",
+    "README.md",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "Derived policy is additive and conservative: it tightens caps or shrinks size under wallet/zombie pressure but does not loosen existing safety checks.",
-    "Existing Settings env vars remain supported as defaults; runtime policy only influences entry sizing/cap/threshold decisions.",
-    "Accounting safety guard and reconciliation remain unchanged and still gate entries."
+    ".env.example/README changes are documentation only; runtime logic is unchanged.",
+    "Legacy env vars remain supported in code; this change only makes the minimal set the preferred operator surface."
   ],
   "required_validation": [
-    {
-      "name": "runtime_policy_tests",
-      "command": ".venv/bin/python -m pytest tests/test_runtime_policy.py -v"
-    },
-    {
-      "name": "observability_regression",
-      "command": ".venv/bin/python -m pytest tests/test_phase3_observability.py::test_entry_capacity_mode_summary_emitted -v"
-    }
-  ],
-  "optional_validation": [
     {
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q"
     }
   ],
+  "optional_validation": [],
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Introduce derived runtime policy and minimal operator config",
-  "notes_for_cursor": "Scope limited to derived policy module + minimal wiring in trader/config and focused tests. Do not alter accounting guards or FINAL_ZOMBIE lifecycle."
+  "commit_message": "Simplify env to minimal operator config",
+  "notes_for_cursor": "Commit only .env.example, README.md, and workflow artifacts. Do not commit .env."
 }

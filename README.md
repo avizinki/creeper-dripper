@@ -65,6 +65,17 @@ Then edit `.env`:
 - set `JUPITER_API_KEY`
 - set `SOLANA_KEYPAIR_PATH` (for live mode)
 
+## Minimal operator config (preferred)
+
+The project now prefers a **minimal operator `.env`**:
+- **Secrets**: `BIRDEYE_API_KEY`, `JUPITER_API_KEY`
+- **Wallet**: `SOLANA_KEYPAIR_PATH`
+- **Mode**: `DRY_RUN`, `LIVE_TRADING_ENABLED`, `CHAIN`
+- **Intent**: `BASE_POSITION_SIZE_SOL`, optional `RISK_MODE` (`conservative|balanced|aggressive`)
+
+Most tuning is derived at runtime via a derived policy layer (wallet snapshot, deployable, zombie pressure, accounting safety),
+while still supporting legacy env vars as optional overrides for backward compatibility.
+
 ## Wallet file format
 
 `SOLANA_KEYPAIR_PATH` points to a JSON file containing exactly 64 integers in `[0,255]`, for example:
@@ -114,7 +125,7 @@ When a safety rail triggers, bot enters safe mode:
 
 ## Environment variables
 
-See `.env.example` for full list and defaults.
+See `.env.example` for the **minimal operator-level** environment variables (preferred). Legacy env vars are still supported as optional overrides.
 
 Required:
 - `BIRDEYE_API_KEY`
