@@ -1,70 +1,118 @@
 {
-  "task_id": "CRIT-retry-overflow-zombie",
-  "title": "Prevent retry/backoff overflow crash and bound zombie retry behavior",
+  "task_id": "T-003",
+  "title": "Wallet vs State Reconciliation Audit",
   "status": "ready_for_cursor_validation",
   "agent": "CLAUDE",
   "prepared_for": "CURSOR",
-  "summary": "Fixed OverflowError crash in _next_retry_at that triggered when blocked_cycles reached ~280 and exponential backoff overflowed datetime. Two changes: (1) _next_retry_at now clamps exponent to 60, caps delay_seconds to MAX_EXIT_RETRY_DELAY_SECONDS (24h), and has a final OverflowError catch-all fallback. (2) All four exit_retry_count increment sites now use min(MAX_EXIT_RETRY_COUNT, ...) instead of bare +=1, preventing unbounded growth. New test file tests/test_retry_backoff_bounds.py covers both the pure-function bound and the zombie integration scenario.",
+  "summary": "Completed full trace-only audit of cash_sol vs wallet_available_sol divergence. Identified 6 ranked root causes. Primary drift source is missing sell proceeds (output_amount=None on sell) which causes cash_sol to NOT be credited despite real SOL arriving in wallet — a permanent, restart-surviving downward drift. Secondary sources include tx fees not modeled, unconfirmed buy debits not reversed on tx failure, and stale _wallet_available_sol never refreshed mid-session. No code changes were made.",
   "files_changed": [
+    "docs/workflow/T-003-cash-sol-audit.md"
+  ],
+  "files_not_changed": [
     "creeper_dripper/engine/trader.py",
-    "tests/test_retry_backoff_bounds.py"
+    "creeper_dripper/storage/state.py",
+    "creeper_dripper/execution/executor.py",
+    "creeper_dripper/cli/main.py"
   ],
   "why_safe": [
-    "No architecture changes — _next_retry_at signature unchanged, callers unchanged.",
-    "No discovery changes — only exit retry scheduling math touched.",
-    "No accounting changes — entry/portfolio/sol accounting untouched.",
-    "No new API calls — this is pure scheduling arithmetic.",
-    "All four retry_count increment sites use identical min/max guard pattern — no behavioral change when retry_count is small (< 256); behavior only changes for terminal zombie stuck positions.",
-    "MAX_EXIT_RETRY_DELAY_SECONDS = 24h is conservative: long enough to not busy-retry, short enough to remain observable in the journal.",
-    "MAX_EXIT_RETRY_COUNT = 256 gives ~256 retries before capping — far beyond any real-world scenario.",
-    "The OverflowError catch-all in _next_retry_at was the original crash site — the fix adds defense-in-depth before that point rather than relying on the catch-alone.",
-    "Zero CU impact: no Birdeye or Jupiter calls involved."
+    "T-003 is audit-only. Zero production code was touched.",
+    "The artifact produced is a documentation file only.",
+    "No test behavior changes.",
+    "No CU impact."
   ],
-  "completed_tasks": [
+  "root_causes_ranked": [
     {
-      "task_id": "CRIT-retry-overflow-zombie",
-      "title": "Prevent retry/backoff overflow crash and bound zombie retry behavior",
-      "status": "done",
-      "notes": "All changes already applied to working tree. trader.py: added MAX_EXIT_RETRY_DELAY_SECONDS and MAX_EXIT_RETRY_COUNT constants; hardened _next_retry_at with exp clamping, delay capping, and OverflowError fallback; guarded all four exit_retry_count += 1 sites with min(MAX_EXIT_RETRY_COUNT, ...). New file tests/test_retry_backoff_bounds.py: two tests — test_next_retry_at_huge_retry_count_is_bounded (pure function, passes 10**12 as retry_count) and test_attempt_exit_clamps_retry_count (integration, runs MAX_EXIT_RETRY_COUNT+50 iterations on a ZOMBIE position). Both tests are new additions; no existing tests modified."
+      "rank": 1,
+      "cause": "output_amount is None on sell → cash_sol not credited",
+      "direction": "cash_sol drifts LOW (below real wallet)",
+      "magnitude": "Full exit value per occurrence (~0.04–0.15 SOL)",
+      "survives_restart": true,
+      "file": "creeper_dripper/engine/trader.py",
+      "line": 1530,
+      "evidence": "journal entries with proceeds_pending_reconcile: true"
+    },
+    {
+      "rank": 2,
+      "cause": "Transaction fees not deducted from cash_sol on buy",
+      "direction": "cash_sol drifts HIGH (above real wallet)",
+      "magnitude": "~0.00001 SOL per trade (small but cumulative)",
+      "survives_restart": true,
+      "file": "creeper_dripper/engine/trader.py",
+      "line": "1941/2042 (both buy paths)"
+    },
+    {
+      "rank": 3,
+      "cause": "Unconfirmed-buy debit not reversed if tx later fails on-chain",
+      "direction": "cash_sol drifts LOW",
+      "magnitude": "Full size_sol (~0.06 SOL) per occurrence",
+      "survives_restart": true,
+      "file": "creeper_dripper/engine/trader.py",
+      "line": 1941
+    },
+    {
+      "rank": 4,
+      "cause": "_wallet_available_sol never refreshed mid-session (stale capacity snapshot)",
+      "direction": "deployable_sol metric drift; cash_sol used as fallback if RPC failed at startup",
+      "magnitude": "Capacity miscalculation grows over session duration",
+      "survives_restart": false,
+      "file": "creeper_dripper/cli/main.py",
+      "line": 934
+    },
+    {
+      "rank": 5,
+      "cause": "Wrong initial cash_sol if state.json missing (falls back to PORTFOLIO_START_SOL=1.0)",
+      "direction": "cash_sol drifts HIGH if real wallet < PORTFOLIO_START_SOL",
+      "magnitude": "Up to PORTFOLIO_START_SOL value",
+      "survives_restart": true,
+      "file": "creeper_dripper/storage/state.py",
+      "line": "112–125 (new_portfolio)"
+    },
+    {
+      "rank": 6,
+      "cause": "Slippage on buy execution not reconciled (output_amount=None on buy path always)",
+      "direction": "Small, direction varies",
+      "magnitude": "<0.002 SOL per trade",
+      "survives_restart": true,
+      "file": "creeper_dripper/execution/executor.py",
+      "line": 231
     }
   ],
-  "skipped_tasks": [],
+  "structural_gaps_identified": [
+    "No per-cycle wallet balance re-read; _wallet_available_sol is a one-time startup snapshot",
+    "No startup alignment check comparing cash_sol (persisted) vs real wallet SOL",
+    "No compensating mechanism when output_amount is None on a confirmed sell",
+    "No debit reversal path for SETTLEMENT_UNCONFIRMED buys that fail on-chain",
+    "No drift metric logged (wallet_sol - cash_sol) anywhere in observability pipeline",
+    "entry_capacity_mode_summary event reports wallet_available_sol but it is the stale startup snapshot"
+  ],
   "required_validation": [
     {
-      "name": "overflow_bounds_tests",
-      "command": ".venv/bin/python -m pytest -q tests/test_retry_backoff_bounds.py -v"
+      "name": "no_code_changes",
+      "command": "git diff HEAD -- creeper_dripper/ tests/",
+      "expected": "empty output — no production code was modified"
     },
     {
-      "name": "exit_and_recovery_tests",
-      "command": ".venv/bin/python -m pytest -q tests/test_exit_blocked_recovery.py tests/test_position_exits.py tests/test_recovery_and_state.py tests/test_drip_exit.py"
+      "name": "doc_exists",
+      "command": "ls docs/workflow/T-003-cash-sol-audit.md",
+      "expected": "file present"
     },
     {
-      "name": "doctor",
-      "command": ".venv/bin/creeper-dripper doctor"
+      "name": "full_suite_unchanged",
+      "command": ".venv/bin/python -m pytest -q",
+      "expected": "209 passed (same baseline as post CRIT-retry-overflow-zombie commit)"
     }
   ],
   "optional_validation": [
     {
-      "name": "full_suite",
-      "command": ".venv/bin/python -m pytest -q"
+      "name": "audit_doc_readable",
+      "command": "wc -l docs/workflow/T-003-cash-sol-audit.md",
+      "expected": ">150 lines"
     }
   ],
-  "expected_results": [
-    "test_next_retry_at_huge_retry_count_is_bounded: PASSED — no OverflowError, result within [now, now+24h].",
-    "test_attempt_exit_clamps_retry_count: PASSED — exit_retry_count stays <= 256 after MAX_EXIT_RETRY_COUNT+50 iterations.",
-    "Full suite: >= 209 passed (207 prior baseline + 2 new tests), 0 failed.",
-    "Doctor: all checks green.",
-    "No regression in exit_blocked_recovery, position_exits, recovery_and_state, drip_exit test files."
-  ],
-  "commit_message": "fix: clamp retry backoff and bound exit_retry_count to prevent OverflowError (CRIT-retry-overflow-zombie)\n\nblocked_cycles reaching ~280 caused _next_retry_at to compute 2^279 * 30s\nwhich overflowed datetime/timedelta and crashed the engine.\n\nChanges:\n- Add MAX_EXIT_RETRY_DELAY_SECONDS (24h) and MAX_EXIT_RETRY_COUNT (256) constants\n- Clamp exponent to max(0, min(60, rc-1)) before exponentiation in _next_retry_at\n- Cap delay_seconds to MAX_EXIT_RETRY_DELAY_SECONDS after computation\n- Add OverflowError fallback as final safety net in _next_retry_at\n- Guard all four exit_retry_count += 1 sites with min(MAX_EXIT_RETRY_COUNT, ...)\n- Add tests/test_retry_backoff_bounds.py with two targeted tests\n\nZero CU impact. No architecture changes. No trading logic changes.",
-  "notes_for_cursor": [
-    "IMPORTANT: The working tree also has unrelated unstaged changes from a prior session (BATCH-20260326-night): .cursor/rules/claude-task-validation.mdc, docs/backlog/birdeye-and-runtime-followups.md, docs/workflow/cursor_validation_result.json. These MUST be stashed or committed separately before running the gate — the gate will reject dirty paths not in files_changed.",
-    "Suggested pre-gate cleanup: git stash -- .cursor/rules/claude-task-validation.mdc docs/backlog/birdeye-and-runtime-followups.md docs/workflow/cursor_validation_result.json — then run the gate, then git stash pop.",
-    "The two new files (creeper_dripper/engine/trader.py, tests/test_retry_backoff_bounds.py) should be staged and committed together under the commit_message above.",
-    "docs/workflow/agent_protocol.md and docs/workflow/batch_night_summary.md and docs/workflow/claude_tasks_batch_accounting_fix.json and docs/workflow/claude_scheduled_tasks_plan.md are untracked new files from prior sessions — they are safe to leave untracked during this gate run.",
-    "Run required_validation first (new tests + exit regression suite + doctor). Then run optional full_suite to confirm baseline >= 209.",
-    "If full_suite shows exactly 209 passed, 0 failed: that is the new baseline. Update MEMORY or note accordingly.",
-    "Do not modify any trading logic, discovery pipeline, or Birdeye paths during validation."
-  ],
-  "docs_to_update": []
+  "commit_message": "docs: T-003 cash_sol reconciliation audit — root cause trace (no code changes)\n\nFull lifecycle trace of cash_sol vs wallet_available_sol divergence.\nIdentified 6 ranked root causes; primary is missing sell proceeds\n(output_amount=None) causing permanent downward drift in cash_sol.\nNo production code modified; audit artifact only.",
+  "next_task": "T-004",
+  "next_task_description": "Source of Truth Definition — decide the single authoritative definition for cash/wallet balance and define invariant rules",
+  "docs_to_update": [
+    "docs/workflow/T-003-cash-sol-audit.md"
+  ]
 }
