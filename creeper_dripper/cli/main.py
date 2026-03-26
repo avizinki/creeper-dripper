@@ -21,7 +21,7 @@ from creeper_dripper.clients.jupiter import JupiterClient
 from creeper_dripper.config import SOL_MINT, USDC_MINT, load_settings
 from creeper_dripper.engine.discovery import discover_candidates, serialize_candidates
 from creeper_dripper.engine.trader import CreeperDripper
-from creeper_dripper.errors import SAFETY_STALE_MARKET_DATA
+from creeper_dripper.errors import POSITION_FINAL_ZOMBIE, SAFETY_STALE_MARKET_DATA
 from creeper_dripper.execution.executor import TradeExecutor
 from creeper_dripper.execution.wallet import load_keypair_from_base58, load_keypair_from_file
 from creeper_dripper.storage.state import load_portfolio, save_portfolio
@@ -1338,6 +1338,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
             now = datetime.now(timezone.utc).isoformat()
             portfolio.hachi_birth_wallet_sol = float(wallet_sol)
             portfolio.hachi_birth_timestamp = now
+            save_portfolio(settings.state_path, portfolio)
             # Also surface in current settings instance for this doctor output.
             settings.hachi_birth_wallet_sol = float(wallet_sol)
             settings.hachi_birth_timestamp = now
@@ -1365,8 +1366,12 @@ def cmd_status(_args: argparse.Namespace) -> int:
     open_positions = list(portfolio.open_positions.values())
     blocked_positions = [p for p in open_positions if p.status == "EXIT_BLOCKED"]
     zombie_positions = [p for p in open_positions if p.status == "ZOMBIE"]
+    final_zombie_positions = [p for p in open_positions if p.status == POSITION_FINAL_ZOMBIE]
     blocked_or_zombie = [p for p in open_positions if p.status in {"EXIT_BLOCKED", "ZOMBIE"}]
     blocked_or_zombie_symbols = [p.symbol for p in blocked_or_zombie]
+    recoverable_zombie_candidates = sum(
+        1 for p in open_positions if getattr(p, "zombie_reason", None) == "final_zombie_recovered_route"
+    )
     summary = {
         "dry_run": settings.dry_run,
         "live_trading_enabled": settings.live_trading_enabled,
@@ -1375,6 +1380,8 @@ def cmd_status(_args: argparse.Namespace) -> int:
         "exit_pending_positions": sum(1 for p in open_positions if p.status == "EXIT_PENDING"),
         "exit_blocked_positions": sum(1 for p in open_positions if p.status == "EXIT_BLOCKED"),
         "zombie_positions": len(zombie_positions),
+        "final_zombie_positions": len(final_zombie_positions),
+        "recoverable_zombie_candidates": recoverable_zombie_candidates,
         "blocked_or_zombie_symbols": blocked_or_zombie_symbols,
         "blocked_or_zombie_positions": [
             {

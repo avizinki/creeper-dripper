@@ -210,6 +210,7 @@ class CreeperDripper:
         self._last_reconciled_cash_sol: float | None = None
         self._last_reconciliation_applied: bool = False
         self._last_reconciliation_delta_sol: float | None = None
+        self._startup_wallet_drift_detected: bool = False
         if self.settings.run_id:
             self.portfolio.run_id = self.settings.run_id
         LOGGER.info(
@@ -301,6 +302,13 @@ class CreeperDripper:
             return
 
         epsilon = float(getattr(self.settings, "accounting_drift_epsilon_sol", 0.001) or 0.001)
+        # If startup snapshot detected an upward drift, block entries for at least one cycle
+        # even if reconciliation already clamped cash_sol. This avoids immediately probing buys
+        # on the same run-cycle where accounting correctness just changed.
+        if self._startup_wallet_drift_detected:
+            self._entries_blocked_reason = "blocked_accounting_drift_cash_gt_wallet"
+            self._startup_wallet_drift_detected = False
+            return
         if drift is not None and drift > epsilon:
             reconciled = self._maybe_reconcile_cash_sol(now=utc_now_iso(), trigger="cycle_drift_over_epsilon")
             if reconciled:
@@ -317,6 +325,13 @@ class CreeperDripper:
         """Store visibility-only wallet snapshot for dynamic capacity decisions."""
         self._wallet_available_sol = None if available_sol is None else float(available_sol)
         self._wallet_snapshot_at = str(snapshot_at or "") or None
+        try:
+            if self._wallet_available_sol is not None:
+                epsilon = float(getattr(self.settings, "accounting_drift_epsilon_sol", 0.001) or 0.001)
+                if (float(self.portfolio.cash_sol) - float(self._wallet_available_sol)) > epsilon:
+                    self._startup_wallet_drift_detected = True
+        except Exception:
+            self._startup_wallet_drift_detected = False
         # Startup reconciliation: after wallet snapshot becomes available, clamp cash_sol to a
         # truthful upper bound. Never runs without a wallet snapshot.
         self._maybe_reconcile_cash_sol(now=str(snapshot_at or "") or utc_now_iso(), trigger="startup_wallet_snapshot")
@@ -607,7 +622,7 @@ class CreeperDripper:
     def _mark_positions(self, candidates: list[TokenCandidate], decisions: list[TradeDecision], now: str) -> None:
         by_mint = {c.address: c for c in candidates}
         for mint, position in list(self.portfolio.open_positions.items()):
-            if position.status in {"EXIT_BLOCKED", "ZOMBIE"}:
+            if position.status in {"EXIT_BLOCKED", "ZOMBIE", POSITION_FINAL_ZOMBIE}:
                 self._handle_exit_blocked_survival_layer(position, decisions, now, valuation_no_route=False)
                 continue
             candidate = by_mint.get(mint)
@@ -702,7 +717,7 @@ class CreeperDripper:
           - Stage 3 (>= micro probe cycles): mark ZOMBIE and retry micro-probe at low frequency
         """
         status = position.status
-        is_blocked_state = status in {"EXIT_BLOCKED", "ZOMBIE"}
+        is_blocked_state = status in {"EXIT_BLOCKED", "ZOMBIE", POSITION_FINAL_ZOMBIE}
         if not is_blocked_state and not valuation_no_route:
             return
 
@@ -723,7 +738,7 @@ class CreeperDripper:
         )
 
         # Stage 1: existing retry behavior for known retryable blocked exits.
-        if is_blocked_state and blocked_cycles <= int(self.settings.exit_blocked_retry_cycles):
+        if position.status != POSITION_FINAL_ZOMBIE and is_blocked_state and blocked_cycles <= int(self.settings.exit_blocked_retry_cycles):
             self._retry_blocked_exit_if_due(position, decisions, now)
             return
 
@@ -743,7 +758,7 @@ class CreeperDripper:
         micro_stage_max = int(self.settings.exit_blocked_micro_probe_cycles)
         in_micro_window = (blocked_cycles > int(self.settings.exit_blocked_retry_cycles)) and (blocked_cycles <= micro_stage_max)
 
-        def _attempt_micro_probe() -> bool:
+        def _attempt_probe() -> bool:
             position.last_route_check_at = now
             self.events.emit(
                 "exit_micro_probe_attempt",
@@ -785,9 +800,54 @@ class CreeperDripper:
                 return True
             return False
 
+        # FINAL_ZOMBIE recovery-probe policy (rare + cheap), independent of the normal staged
+        # retry/micro-probe windows.
+        if position.status == POSITION_FINAL_ZOMBIE:
+            interval = int(getattr(self.settings, "final_zombie_recovery_probe_interval_cycles", 360) or 360)
+            interval = max(1, int(interval))
+            due = (blocked_cycles % interval) == 0
+            if not due:
+                remaining_cycles = interval - (blocked_cycles % interval)
+                self.events.emit(
+                    "final_zombie_probe_skipped",
+                    "not_due",
+                    mint=position.token_mint,
+                    symbol=position.symbol,
+                    position_id=position.position_id or position.token_mint,
+                    blocked_cycles=blocked_cycles,
+                    probe_interval_cycles=interval,
+                    next_probe_in_cycles=remaining_cycles,
+                )
+                return
+
+            self.events.emit(
+                "final_zombie_recovery_probe",
+                "attempt",
+                mint=position.token_mint,
+                symbol=position.symbol,
+                position_id=position.position_id or position.token_mint,
+                blocked_cycles=blocked_cycles,
+                probe_size_atomic=qty_atomic,
+            )
+            ok = _attempt_probe()
+            if ok:
+                self.events.emit(
+                    "final_zombie_recovered_route",
+                    "route_found",
+                    mint=position.token_mint,
+                    symbol=position.symbol,
+                    position_id=position.position_id or position.token_mint,
+                    blocked_cycles=blocked_cycles,
+                )
+                # Allow controlled exit path to resume under existing ZOMBIE logic.
+                position.status = "ZOMBIE"
+                position.zombie_reason = "final_zombie_recovered_route"
+                position.zombie_since = now
+            return
+
         # Stage 2: micro-probe window.
-        if in_micro_window:
-            _attempt_micro_probe()
+        if position.status != POSITION_FINAL_ZOMBIE and in_micro_window:
+            _attempt_probe()
             return
 
         # Stage 3: zombie detection + low-frequency retries.
@@ -805,8 +865,8 @@ class CreeperDripper:
                 )
 
             # Terminal promotion: if zombie_max_retry_cycles is configured (> 0) and the
-            # position has been retrying that long, promote to FINAL_ZOMBIE and stop all
-            # retries. The position is permanently abandoned until operator intervention.
+            # position has been retrying that long, promote to FINAL_ZOMBIE and stop normal
+            # retry/micro-probe loops. A FINAL_ZOMBIE is re-checked only rarely.
             zombie_max = int(getattr(self.settings, "zombie_max_retry_cycles", 0) or 0)
             if zombie_max > 0 and blocked_cycles >= zombie_max:
                 if position.status != POSITION_FINAL_ZOMBIE:
@@ -830,6 +890,15 @@ class CreeperDripper:
                         blocked_cycles=blocked_cycles,
                         zombie_max_retry_cycles=zombie_max,
                     )
+                    self.events.emit(
+                        "final_zombie_promoted",
+                        "max_retry_cycles_exceeded",
+                        mint=position.token_mint,
+                        symbol=position.symbol,
+                        position_id=position.position_id or position.token_mint,
+                        blocked_cycles=blocked_cycles,
+                        zombie_max_retry_cycles=zombie_max,
+                    )
                     decisions.append(
                         TradeDecision(
                             action="FINAL_ZOMBIE",
@@ -843,12 +912,10 @@ class CreeperDripper:
                             },
                         )
                     )
-                # FINAL_ZOMBIE: no more retries, no more probes. Return immediately.
-                return
 
             interval = int(self.settings.zombie_retry_interval_cycles)
             if interval > 0 and (blocked_cycles % interval) == 0:
-                _attempt_micro_probe()
+                _attempt_probe()
 
     def _evaluate_jsds_liquidity(self, position: PositionState, decisions: list[TradeDecision], now: str) -> bool:
         """Jupiter sell-quote liquidity deterioration (JSDS). Returns True if an exit was started."""

@@ -155,9 +155,12 @@ def test_final_zombie_promoted_after_max_retry_cycles(monkeypatch, tmp_path):
 
 
 def test_final_zombie_stops_all_probes_after_promotion(monkeypatch, tmp_path):
-    """Once FINAL_ZOMBIE, calling _handle_exit_blocked_survival_layer must not invoke
-    any quote_sell probes."""
-    settings = _settings(monkeypatch, tmp_path, extra_env={"ZOMBIE_MAX_RETRY_CYCLES": "10"})
+    """Once FINAL_ZOMBIE, probes must become rare (not every cycle)."""
+    settings = _settings(
+        monkeypatch,
+        tmp_path,
+        extra_env={"ZOMBIE_MAX_RETRY_CYCLES": "10", "FINAL_ZOMBIE_RECOVERY_PROBE_INTERVAL_CYCLES": "50"},
+    )
     portfolio: PortfolioState = new_portfolio(5.0)
     pos = _blocked_position()
     portfolio.open_positions[pos.token_mint] = pos
@@ -184,7 +187,7 @@ def test_final_zombie_stops_all_probes_after_promotion(monkeypatch, tmp_path):
     # More calls should not add probes
     for _ in range(5):
         engine._handle_exit_blocked_survival_layer(pos, [], utc_now_iso(), valuation_no_route=False)
-    assert len(probe_calls) == probes_before, "FINAL_ZOMBIE must not trigger any more probes"
+    assert len(probe_calls) == probes_before, "FINAL_ZOMBIE probes must not run every cycle"
 
 
 def test_final_zombie_disabled_when_max_zero(monkeypatch, tmp_path):

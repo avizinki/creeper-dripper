@@ -91,6 +91,9 @@ class Settings:
     # After this many total blocked cycles a ZOMBIE becomes FINAL_ZOMBIE (terminal; no more retries).
     # 0 disables terminal promotion (zombie retries forever — pre-T-005 behaviour).
     zombie_max_retry_cycles: int = 0
+    # FINAL_ZOMBIE positions are re-checked very rarely to see if liquidity/routes returned.
+    # This is a cheap quote_sell probe only; no execution happens in the probe itself.
+    final_zombie_recovery_probe_interval_cycles: int = 360
     # When cash_sol materially exceeds a wallet snapshot, treat accounting as untrusted and
     # block new entries (exits/recovery unaffected).
     accounting_drift_epsilon_sol: float = 0.001
@@ -185,6 +188,8 @@ class Settings:
             errors.append("HARD_MAX_DAILY_NEW_POSITIONS must be >= MAX_DAILY_NEW_POSITIONS")
         if self.accounting_drift_epsilon_sol <= 0:
             errors.append("ACCOUNTING_DRIFT_EPSILON_SOL must be > 0")
+        if self.final_zombie_recovery_probe_interval_cycles <= 0:
+            errors.append("FINAL_ZOMBIE_RECOVERY_PROBE_INTERVAL_CYCLES must be > 0")
         if errors:
             raise RuntimeError("Configuration validation failed:\n- " + "\n- ".join(errors))
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -279,6 +284,7 @@ def load_settings() -> Settings:
         zombie_retry_interval_cycles=env_int("ZOMBIE_RETRY_INTERVAL_CYCLES", 10),
         zombie_max_retry_cycles=env_int("ZOMBIE_MAX_RETRY_CYCLES", 0),
         accounting_drift_epsilon_sol=env_float("ACCOUNTING_DRIFT_EPSILON_SOL", 0.001),
+        final_zombie_recovery_probe_interval_cycles=env_int("FINAL_ZOMBIE_RECOVERY_PROBE_INTERVAL_CYCLES", 360),
         log_level=env_str("LOG_LEVEL", "INFO"),
         drip_exit_enabled=env_bool("DRIP_EXIT_ENABLED", False),
         drip_chunk_pcts=env_csv_floats("DRIP_CHUNK_PCTS", [0.10, 0.25, 0.50]),
