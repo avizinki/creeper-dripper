@@ -1,0 +1,173 @@
+{
+  "batch_id": "accounting_fix_v1",
+  "priority": "critical",
+  "context": {
+    "issue": "Wallet / cash accounting is WRONG: cash_sol does not match real wallet SOL.",
+    "cursor_role": "Cursor creates task definitions only. Claude executes one task at a time and writes docs/workflow/claude_task_result.json per task. No parallel work."
+  },
+  "strict_rules": [
+    "NO parallel work — tasks run in order T-003 → T-008.",
+    "ONE task at a time — do not start T-00(n+1) until T-00n is committed and validated.",
+    "DO NOT skip tasks.",
+    "DO NOT invent new architecture beyond what each task specifies.",
+    "DO NOT touch unrelated systems (stay in listed scope).",
+    "ALWAYS pass required_validation before moving on.",
+    "Each task handoff MUST use docs/workflow/claude_task_result.json with status=ready_for_cursor_validation when ready for Cursor gate."
+  ],
+  "claude_handoff_template": {
+    "description": "When a task is complete, Claude MUST write docs/workflow/claude_task_result.json with at least:",
+    "fields": [
+      "task_id",
+      "title",
+      "summary",
+      "status",
+      "files_changed",
+      "required_validation",
+      "commit_message",
+      "docs_to_update (if any)"
+    ],
+    "status_when_ready": "ready_for_cursor_validation",
+    "cursor_gate_command": ".venv/bin/python tools/cursor_validation_gate.py --include-optional"
+  },
+  "tasks": [
+    {
+      "order": 1,
+      "task_id": "T-003",
+      "title": "Wallet vs State Reconciliation Audit",
+      "goal": "Prove where cash_sol diverges from real wallet SOL.",
+      "scope": [
+        "creeper_dripper/engine/trader.py",
+        "creeper_dripper/storage/*",
+        "wallet snapshot logic",
+        "cycle summary cash computation"
+      ],
+      "constraints": [
+        "NO code changes in this task — audit and documentation of flow only."
+      ],
+      "output_claude_must_produce": [
+        "Exact flow diagram or narrative: wallet → state → cash_sol (every step).",
+        "List of concrete mismatch points (where divergence can occur).",
+        "Written artifact suitable for docs/ or workflow (path to be set in claude_task_result.json).",
+        "NO production code edits."
+      ],
+      "suggested_validation": [
+        "Optional: static review only; pytest N/A if no code. Gate may use --no-commit or minimal checks per Claude's claude_task_result.json."
+      ]
+    },
+    {
+      "order": 2,
+      "task_id": "T-004",
+      "title": "Source of Truth Definition",
+      "goal": "Decide the ONLY source of truth for cash / wallet balance (RPC wallet vs internal state vs hybrid).",
+      "scope": [
+        "Specification only — no implementation."
+      ],
+      "constraints": [
+        "Choose ONE primary source of truth.",
+        "Justify the choice against trading safety and observability.",
+        "Define invariant rules (docstring-level spec)."
+      ],
+      "output_claude_must_produce": [
+        "Clear spec: single authoritative definition.",
+        "Invariant rules (bullet or numbered).",
+        "Explicit rejection of ambiguous hybrid unless justified as layered (if hybrid, define which field is authoritative when).",
+        "NO implementation code yet."
+      ],
+      "suggested_validation": [
+        "Review-only or doc lint; no code tests required unless docs are validated by a script."
+      ]
+    },
+    {
+      "order": 3,
+      "task_id": "T-005",
+      "title": "Fix cash_sol computation",
+      "goal": "Align system accounting with the source of truth chosen in T-004.",
+      "scope": [
+        "creeper_dripper/engine/trader.py",
+        "position accounting",
+        "entry capacity logic"
+      ],
+      "constraints": [
+        "NO breaking existing tests without updating them.",
+        "Update tests if behavior contract changes."
+      ],
+      "output_claude_must_produce": [
+        "Code changes implementing T-004 spec.",
+        "Updated or new tests as needed.",
+        "Short explanation of what changed and why (in commit message and/or summary)."
+      ],
+      "suggested_validation": [
+        ".venv/bin/python -m pytest -q tests/ (or targeted paths per change)",
+        "Include tests touching trader, portfolio, capacity if applicable."
+      ]
+    },
+    {
+      "order": 4,
+      "task_id": "T-006",
+      "title": "Add reconciliation check (doctor)",
+      "goal": "Detect drift between wallet SOL and computed cash_sol automatically in doctor.",
+      "scope": [
+        "Doctor / CLI preflight",
+        "Reconciliation logic callable from doctor"
+      ],
+      "constraints": [
+        "Add doctor check: wallet_sol vs computed cash_sol.",
+        "Threshold-based alert (configurable or constant per project conventions)."
+      ],
+      "output_claude_must_produce": [
+        "New doctor check with clear pass/fail semantics.",
+        "Log format documented (structured or tagged for grep).",
+        "Test covering the check (unit or integration as appropriate)."
+      ],
+      "suggested_validation": [
+        ".venv/bin/creeper-dripper doctor",
+        "pytest for new test file(s)"
+      ]
+    },
+    {
+      "order": 5,
+      "task_id": "T-007",
+      "title": "Add runtime guard (CRITICAL)",
+      "goal": "PREVENT trading when drift exceeds threshold; still allow exits.",
+      "scope": [
+        "creeper_dripper/engine/trader.py (or designated runtime loop)"
+      ],
+      "constraints": [
+        "If drift > threshold: block NEW entries only.",
+        "Allow exits (sells, risk reductions) to continue per existing rules."
+      ],
+      "output_claude_must_produce": [
+        "Guard in trader (or run) loop with clear condition.",
+        "Observable event or log tag for SELL_BLOCKED / ENTRY_BLOCKED style audit (match project patterns).",
+        "Tests or simulation path proving block-entry / allow-exit."
+      ],
+      "suggested_validation": [
+        "pytest",
+        "doctor still passes when drift in range"
+      ]
+    },
+    {
+      "order": 6,
+      "task_id": "T-008",
+      "title": "Observability improvement",
+      "goal": "Make debugging trivial: log wallet_sol, cash_sol, drift each cycle.",
+      "scope": [
+        "Logging in cycle summary / trader path",
+        "Avoid leaking secrets; wallet addresses per existing policy"
+      ],
+      "constraints": [
+        "Per-cycle visibility without drowning logs (level INFO or DEBUG per convention)."
+      ],
+      "output_claude_must_produce": [
+        "Logs: wallet_sol, cash_sol, drift (and units clear).",
+        "Documentation of fields in one place (comment or short doc).",
+        "Tests if log output is asserted; otherwise manual verification steps in summary."
+      ],
+      "suggested_validation": [
+        "pytest if applicable",
+        "Smoke: one dry run or unit capturing log lines"
+      ]
+    }
+  ],
+  "execution_note": "Claude works T-003 first. After each task: write docs/workflow/claude_task_result.json → Cursor runs tools/cursor_validation_gate.py. Only after pass+commit does Claude proceed to the next task_id. STOP after creating this file; do not execute tasks in Cursor."
+}

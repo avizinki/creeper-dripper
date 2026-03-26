@@ -1,0 +1,39 @@
+{
+  "task_id": "CRIT-retry-overflow-zombie",
+  "priority": "critical",
+  "goal": "Prevent retry/backoff overflow crash and bound zombie retry behavior",
+  "context": {
+    "error": "OverflowError: date value out of range",
+    "path": [
+      "_handle_exit_blocked_survival_layer",
+      "_attempt_micro_probe",
+      "_attempt_exit",
+      "_next_retry_at"
+    ],
+    "symptom": "blocked_cycles reached ~280 and retry scheduling overflowed datetime"
+  },
+  "requirements": [
+    "Clamp delay_seconds in _next_retry_at to safe maximum",
+    "Prevent timedelta overflow",
+    "Bound retry_count growth for zombie/final_zombie",
+    "Ensure no infinite exponential backoff",
+    "Add defensive fallback for large retry_count"
+  ],
+  "constraints": [
+    "No architecture changes",
+    "No discovery changes",
+    "No accounting changes",
+    "Minimal diff only"
+  ],
+  "tests_required": [
+    "large retry_count does not overflow",
+    "zombie retry loop is bounded",
+    "no_route repeated failures do not crash system"
+  ],
+  "expected_output": [
+    "files changed",
+    "patch summary",
+    "test results"
+  ]
+}
+

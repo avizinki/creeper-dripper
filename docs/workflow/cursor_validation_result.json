@@ -1,23 +1,39 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-25T22:54:33.183997+00:00",
+  "generated_at": "2026-03-26T11:15:42.112681+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-002",
+  "task_id": "CRIT-retry-overflow-zombie",
   "validations": [
     {
-      "name": "hachi_brain",
-      "command": ".venv/bin/python -m pytest tests/test_hachi_brain.py -v",
+      "name": "overflow_bounds_tests",
+      "command": ".venv/bin/python -m pytest -q tests/test_retry_backoff_bounds.py -v",
       "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 52 items\n\ntests/test_hachi_brain.py::TestComputePnlPct::test_positive_pnl PASSED   [  1%]\ntests/test_hachi_brain.py::TestComputePnlPct::test_negative_pnl PASSED   [  3%]\ntests/test_hachi_brain.py::TestComputePnlPct::test_zero_pnl PASSED       [  5%]\ntests/test_hachi_brain.py::TestComputePnlPct::test_no_entry_mark_returns_none PASSED [  7%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_profit_harvest PASSED [  9%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_profit_harvest_exactly_at_threshold PASSED [ 11%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_neutral_just_below_harvest PASSED [ 13%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_neutral_at_zero PASSED [ 15%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_neutral_at_floor PASSED [ 17%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_deterioration_just_below_floor PASSED [ 19%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_deterioration PASSED [ 21%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_emergency_at_threshold PASSED [ 23%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_emergency_just_below_threshold PASSED [ 25%]\ntests/test_hachi_brain.py::TestClassifyPnlZone::test_emergency_deep PASSED [ 26%]\ntests/test_hachi_brain.py::TestClassifyMomentum::test_no_baseline_returns_flat PASSED [ 28%]\ntests/test_hachi_brain.py::TestClassifyMomentum::test_improving PASSED   [ 30%]\ntests/test_hachi_brain.py::TestClassifyMomentum::test_flat_tiny_drop PASSED [ 32%]\ntests/test_hachi_brain.py::TestClassifyMomentum::test_weakening PASSED   [ 34%]\ntests/test_hachi_brain.py::TestClassifyMomentum::test_collapsing PASSED  [ 36%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_emergency_always_override PASSED [ 38%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_deterioration_collapsing_override PASSED [ 40%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_deterioration_non_collapse_aggressive PASSED [ 42%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_neutral_collapsing_aggressive PASSED [ 44%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_neutral_weakening_normal PASSED [ 46%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_neutral_flat_conservative PASSED [ 48%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_neutral_improving_conservative PASSED [ 50%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_profit_weakening_aggressive PASSED [ 51%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_profit_collapsing_aggressive PASSED [ 53%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_profit_flat_normal PASSED [ 55%]\ntests/test_hachi_brain.py::TestSelectUrgency::test_profit_improving_conservative PASSED [ 57%]\ntests/test_hachi_brain.py::TestApplyUrgencyToChunk::test_conservative_returns_smallest PASSED [ 59%]\ntests/test_hachi_brain.py::TestApplyUrgencyToChunk::test_aggressive_returns_largest PASSED [ 61%]\ntests/test_hachi_brain.py::TestApplyUrgencyToChunk::test_normal_returns_near_equal_largest PASSED [ 63%]\ntests/test_hachi_brain.py::TestApplyUrgencyToChunk::test_override_full_returns_remaining PASSED [ 65%]\ntests/test_hachi_brain.py::TestApplyUrgencyToChunk::test_empty_candidates_returns_none PASSED [ 67%]\ntests/test_hachi_brain.py::TestApplyUrgencyToChunk::test_override_full_with_empty_candidates_still_returns_remaining PASSED [ 69%]\ntests/test_hachi_brain.py::TestChunkWaitSeconds::test_conservative_increases_wait PASSED [ 71%]\ntests/test_hachi_brain.py::TestChunkWaitSeconds::test_normal_unchanged PASSED [ 73%]\ntests/test_hachi_brain.py::TestChunkWaitSeconds::test_aggressive_decreases_wait PASSED [ 75%]\ntests/test_hachi_brain.py::TestChunkWaitSeconds::test_aggressive_min_10s PASSED [ 76%]\ntests/test_hachi_brain.py::test_profit_harvest_flat_momentum_uses_normal_chunk PASSED [ 78%]\ntests/test_hachi_brain.py::test_neutral_flat_uses_conservative_chunk PASSED [ 80%]\ntests/test_hachi_brain.py::test_deterioration_weakening_uses_aggressive_chunk PASSED [ 82%]\ntests/test_hachi_brain.py::test_emergency_pnl_triggers_full_exit_override PASSED [ 84%]\ntests/test_hachi_brain.py::test_deterioration_collapsing_triggers_full_exit_override PASSED [ 86%]\ntests/test_hachi_brain.py::test_accounting_correct_after_adaptive_chunk PASSED [ 88%]\ntests/test_hachi_brain.py::test_hard_stop_loss_overrides_hachi_dripper PASSED [ 90%]\ntests/test_hachi_brain.py::test_legacy_tp_ladder_unchanged_when_hachi_disabled PASSED [ 92%]\ntests/test_hachi_brain.py::test_profit_collapsing_uses_aggressive_chunk PASSED [ 94%]\ntests/test_hachi_brain.py::test_momentum_state_persisted_after_cycle PASSED [ 96%]\ntests/test_hachi_brain.py::test_timing_gate_blocks_non_emergency PASSED  [ 98%]\ntests/test_hachi_brain.py::test_hachi_state_eval_emitted_every_cycle PASSED [100%]\n\n============================== 52 passed in 0.17s ==============================\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollected 2 items\n\ntests/test_retry_backoff_bounds.py ..                                    [100%]\n\n============================== 2 passed in 0.07s ===============================\n",
       "stderr": "",
       "ok": true
     },
     {
-      "name": "full_suite_regression",
-      "command": ".venv/bin/python -m pytest --tb=short -q tests/",
+      "name": "exit_and_recovery_tests",
+      "command": ".venv/bin/python -m pytest -q tests/test_exit_blocked_recovery.py tests/test_position_exits.py tests/test_recovery_and_state.py tests/test_drip_exit.py",
       "exit_code": 0,
-      "stdout": "........................................................................ [ 34%]\n........................................................................ [ 69%]\n...............................................................          [100%]\n207 passed in 1.84s\n",
+      "stdout": "...................................                                      [100%]\n35 passed in 0.17s\n",
+      "stderr": "",
+      "ok": true
+    },
+    {
+      "name": "doctor",
+      "command": ".venv/bin/creeper-dripper doctor",
+      "exit_code": 0,
+      "stdout": "interpreter=/Users/yoav/git/creeper-dripper/.venv/bin/python3.14\nvenv_active=true\ncli_path=/opt/homebrew/bin/creeper-dripper\ninstall_hint=from project root with venv activated: pip install -e .\n{\n  \"ok\": true,\n  \"checks\": [\n    {\n      \"check\": \"config_load\",\n      \"ok\": true\n    },\n    {\n      \"check\": \"mode_flags\",\n      \"ok\": true,\n      \"dry_run\": false,\n      \"live_trading_enabled\": true\n    },\n    {\n      \"check\": \"wallet_path\",\n      \"ok\": true,\n      \"path\": \"/Users/yoav/git/creepers-bot/wallets/3LEZ/wallet_3LEZ.json\"\n    },\n    {\n      \"check\": \"runtime_dir_writable\",\n      \"ok\": true,\n      \"path\": \"runtime\"\n    },\n    {\n      \"check\": \"birdeye_auth\",\n      \"ok\": true\n    },\n    {\n      \"check\": \"jupiter_probe_reachable_v1_quote\",\n      \"ok\": true,\n      \"endpoint\": \"GET /swap/v1/quote\"\n    },\n    {\n      \"check\": \"jupiter_execution_reachable_v1_swap\",\n      \"ok\": true,\n      \"endpoint\": \"POST /swap/v1/swap\"\n    },\n    {\n      \"check\": \"safe_mode_state\",\n      \"ok\": true,\n      \"safe_mode_active\": false,\n      \"safety_stop_reason\": null,\n      \"ignored_stale_market_data_outside_run\": false\n    }\n  ]\n}\n\n=== WALLET SNAPSHOT (visibility only) ===\nnote: visibility/bootstrap only (NOT settlement truth; NOT execution truth; does NOT modify state)\nwallet=3LEZBhZiBjmaFN4uwZvncoS3MvDq4cPhSCgMjH3vS5HR\nwallet_native_sol_snapshot_rpc=0.349977\nwallet_token_count_birdeye=23\nwallet_total_usd_birdeye=79.11702790314997\nholdings_top:\n  - SOL So11111111111111111111111111111111111111111 ui=0.349977084 usd=30.754094752536535\n  - CHIP 7BkudzCbzbDJfTG3EMwSfVEvdiTTc2ciVjScfn6GVj6Y ui=48315.611407 usd=6.604450901269238\n  - VDOR E7jjkgo2dgwfEaPUi6cbYiZ6iDxhDqLq53sZxXCwEBSy ui=98241.854416 usd=6.3137689621107045\n  - PHRs 5GcE51nwJqLQVfNmBrYnU3nDRoso83AViauBAwufxjrk ui=43068.907324 usd=6.108576416497611\n  - swarms 74SBV4zDXxTRgv1pEMoECskKBkZHc2yGPnc7GYVepump ui=732.4856 usd=5.587307121952193\n  - retire zGh48JtNHVBb5evgoZLXwgPD2Qu4MhkWdJLGDAupump ui=1640.506278 usd=5.4269817491428265\n  - GME 8wXtPeU6557ETkp9WHFY1n1EcU6NxDvbAggHGsMYiHsB ui=8469.708989434 usd=5.210045088131047\n  - PAIN 1Qf8gESP4i6CFNWerUSDdLKJ9U1LpqTYvjJ2MM4pain ui=7.227533 usd=4.694107924394854\n\n=== DYNAMIC CAPACITY (entries only; visibility-derived) ===\nnote: affects entries only (never exits; never settlement truth)\ndynamic_capacity_enabled=true\nhard_max_open_positions=10\neffective_max_open_positions=10\nmax_daily_new_positions=10\nhard_max_daily_new_positions=10\neffective_max_daily_new_positions=10\nopened_today_count=7\nopened_today_date=2026-03-26\nhachi_capacity_scale=0.5873429825358004\nhachi_birth_wallet_sol=0.595864928\nhachi_birth_timestamp=2026-03-25T23:22:06.386052+00:00\ncurrent_wallet_sol_snapshot=0.349977084\ndeployable_sol=0.249977084\n\n=== ENV SNAPSHOT (masked) ===\nDRY_RUN=false\nLIVE_TRADING_ENABLED=true\nHACHI_DRIPPER_ENABLED=true\nHACHI_MAX_PRICE_IMPACT_BPS=900\nDRIP_EXIT_ENABLED=false\nUSE_JUPITER_MANAGED_EXECUTION=true\nRUNTIME_DIR=runtime\nSTATE_PATH=runtime/state.json\nJOURNAL_PATH=runtime/journal.jsonl\nSOLANA_KEYPAIR_PATH=/Users/yoav/git/creepers-bot/wallets/3LEZ/wallet_3LEZ.json\nWALLET_ADDRESS=\nSOLANA_RPC_URL=\nBIRDEYE_API_KEY=3d4a...ee0 (len=32)\nJUPITER_API_KEY=86ba...dac (len=36)\nBS58_PRIVATE_KEY=(len=0)\nCHAIN=solana\nPOLL_INTERVAL_SECONDS=45\nLOG_LEVEL=INFO\nDISCOVERY_LIMIT=1\nDISCOVERY_MAX_CANDIDATES=2\nDISCOVERY_INTERVAL_SECONDS=30\nMAX_ACTIVE_CANDIDATES=7\nCANDIDATE_CACHE_TTL_SECONDS=120\nROUTE_CHECK_CACHE_TTL_SECONDS=90\nMIN_LIQUIDITY_USD=25000.0\nMIN_EXIT_LIQUIDITY_USD=40000.0\nREQUIRE_BIRDEYE_EXIT_LIQUIDITY=false\nMIN_VOLUME_24H_USD=40000.0\nMIN_BUY_SELL_RATIO=1.01\nMIN_DISCOVERY_SCORE=35.0\nMAX_TOKEN_AGE_HOURS=168....8.0 (len=5)\nBLOCK_MUTABLE_MINT=true\nBLOCK_FREEZABLE=true\nREQUIRE_JUP_SELL_ROUTE=true\nPORTFOLIO_START_SOL=1.0\nMAX_OPEN_POSITIONS=10\nHARD_MAX_OPEN_POSITIONS=10\nENTRY_CAPACITY_MODE=balanced\nBASE_POSITION_SIZE_SOL=0.06\nMAX_POSITION_SIZE_SOL=0.1\nCASH_RESERVE_SOL=0.1\nMIN_ORDER_SIZE_SOL=0.03\nMAX_DAILY_NEW_POSITIONS=10\nHARD_MAX_DAILY_NEW_POSITIONS=10\nCOOLDOWN_MINUTES_AFTER_EXIT=20\nDEFAULT_SLIPPAGE_BPS=250\nMAX_ACCEPTABLE_PRICE_IMPACT_BPS=700\nSTOP_LOSS_PCT=20.0\nTRAILING_STOP_PCT=12.0\nTRAILING_ARM_PCT=25.0\nTIME_STOP_MINUTES=240\nTAKE_PROFIT_LEVELS_PCT=25.0,60.0,120.0,250.0\nTAKE_PROFIT_FRACTIONS=0.05,0.1,0.1,0.15\nFORCE_FULL_EXIT_ON_LIQUIDITY_BREAK=true\nLIQUIDITY_BREAK_RATIO=0.55\nEXIT_PROBE_FRACTIONS=0.1,0.2,0.35,0.5,1.0\nDAILY_REALIZED_LOSS_CAP_SOL=0.25\nMAX_CONSECUTIVE_EXECUTION_FAILURES=4\nSTALE_MARKET_DATA_MINUTES=10\nUNKNOWN_EXIT_SATURATION_LIMIT=6\nMAX_EXIT_BLOCKED_POSITIONS=5\nEXIT_BLOCKED_RETRY_CYCLES=3\nEXIT_BLOCKED_MICRO_PROBE_CYCLES=8\nZOMBIE_RETRY_INTERVAL_CYCLES=10\nDRIP_CHUNK_PCTS=0.1,0.25,0.5\nDRIP_NEAR_EQUAL_BAND=0.002\nDRIP_MIN_CHUNK_WAIT_SECONDS=30\nHACHI_PROFIT_HARVEST_MIN_PCT=5.0\nHACHI_NEUTRAL_FLOOR_PCT=-3.0\nHACHI_EMERGENCY_PNL_PCT=-12.0\nHACHI_WEAKENING_DROP_PCT=4.0\nHACHI_COLLAPSE_DROP_PCT=8.0\nDYNAMIC_CAPACITY_ENABLED=true\nHACHI_BIRTH_WALLET_SOL=0.595864928\nHACHI_BIRTH_TIMESTAMP=2026-03-25T23:22:06.386052+00:00\n",
+      "stderr": "",
+      "ok": true
+    },
+    {
+      "name": "full_suite",
+      "command": ".venv/bin/python -m pytest -q",
+      "exit_code": 0,
+      "stdout": "........................................................................ [ 34%]\n........................................................................ [ 68%]\n.................................................................        [100%]\n209 passed in 1.91s\n",
       "stderr": "",
       "ok": true
     }
@@ -25,14 +41,19 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
-      "creeper_dripper/config.py",
-      "docs/workflow"
+      "creeper_dripper/engine/trader.py",
+      "docs/workflow",
+      "tests/test_retry_backoff_bounds.py"
     ],
     "dirty_paths": [
-      "creeper_dripper/config.py",
+      "creeper_dripper/engine/trader.py",
       "docs/workflow/claude_task_result.json",
       "docs/workflow/cursor_validation_result.json",
-      "docs/workflow/claude_scheduled_tasks_plan.md"
+      "tests/test_retry_backoff_bounds.py",
+      "docs/workflow/agent_protocol.md",
+      "docs/workflow/batch_night_summary.md",
+      "docs/workflow/claude_task_retry_overflow_fix.json",
+      "docs/workflow/claude_tasks_batch_accounting_fix.json"
     ],
     "passed": true,
     "reason": null
@@ -41,9 +62,10 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "a4e3ba2549eaf25f811f54fb1157b1e1972b99a0",
+    "sha": "3b22952c5d515b242025a762cd5ed7eb42d0a27c",
     "added_paths": [
-      "creeper_dripper/config.py",
+      "creeper_dripper/engine/trader.py",
+      "tests/test_retry_backoff_bounds.py",
       "docs/workflow"
     ]
   }

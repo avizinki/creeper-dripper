@@ -136,6 +136,11 @@ def _seed_sol_basis_on_open(
 
 
 EXIT_RETRY_BASE_SECONDS = 30
+# Defensive bound for exponential backoff scheduling. This must never overflow datetime/timedelta.
+# Kept intentionally conservative: long enough to avoid busy retries, short enough to remain observable.
+MAX_EXIT_RETRY_DELAY_SECONDS = 60 * 60 * 24  # 24h
+# Cap stored retry_count so it cannot grow without bound on terminally stuck positions.
+MAX_EXIT_RETRY_COUNT = 256
 MIN_ROUNDTRIP_RETURN_RATIO = 0.02
 MAX_ABS_PRICE_IMPACT_BPS = 5_000.0
 
@@ -1490,7 +1495,9 @@ class CreeperDripper:
                 )
                 position.status = POSITION_RECONCILE_PENDING
                 position.reconcile_context = "exit"
-                position.exit_retry_count += 1
+                position.exit_retry_count = min(
+                    MAX_EXIT_RETRY_COUNT, max(0, int(getattr(position, "exit_retry_count", 0) or 0)) + 1
+                )
                 position.last_exit_attempt_at = now
                 position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
                 position.pending_exit_signature = result.signature
@@ -1550,7 +1557,9 @@ class CreeperDripper:
                 position.last_sell_signature = result.signature
                 position.status = POSITION_RECONCILE_PENDING
                 position.reconcile_context = "exit"
-                position.exit_retry_count += 1
+                position.exit_retry_count = min(
+                    MAX_EXIT_RETRY_COUNT, max(0, int(getattr(position, "exit_retry_count", 0) or 0)) + 1
+                )
                 position.last_exit_attempt_at = now
                 position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
                 position.pending_exit_signature = result.signature
@@ -1652,7 +1661,9 @@ class CreeperDripper:
             position.status = POSITION_RECONCILE_PENDING
             position.reconcile_context = "exit"
             position.pending_exit_signature = result.signature
-            position.exit_retry_count += 1
+            position.exit_retry_count = min(
+                MAX_EXIT_RETRY_COUNT, max(0, int(getattr(position, "exit_retry_count", 0) or 0)) + 1
+            )
             position.last_exit_attempt_at = now
             position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
             decisions.append(
@@ -1688,7 +1699,9 @@ class CreeperDripper:
                 position.last_exit_attempt_at = now
                 position.next_exit_retry_at = _next_normal_retry_at(now, self.settings.poll_interval_seconds)
             else:
-                position.exit_retry_count += 1
+                position.exit_retry_count = min(
+                    MAX_EXIT_RETRY_COUNT, max(0, int(getattr(position, "exit_retry_count", 0) or 0)) + 1
+                )
                 position.last_exit_attempt_at = now
                 position.next_exit_retry_at = _next_retry_at(now, position.exit_retry_count)
                 if _is_system_execution_failure(classification):
@@ -2316,8 +2329,23 @@ def _next_retry_at(now: str, retry_count: int) -> str:
         now_dt = datetime.fromisoformat(now.replace("Z", "+00:00")).astimezone(timezone.utc)
     except Exception:
         now_dt = datetime.now(timezone.utc)
-    delay_seconds = EXIT_RETRY_BASE_SECONDS * (2 ** max(0, retry_count - 1))
-    return (now_dt + timedelta(seconds=delay_seconds)).isoformat()
+    try:
+        rc = int(retry_count)
+    except Exception:
+        rc = 1
+    rc = max(1, min(MAX_EXIT_RETRY_COUNT, rc))
+    # Bound exponentiation to avoid gigantic integers, then cap the final delay.
+    exp = min(60, max(0, rc - 1))
+    try:
+        delay_seconds = int(EXIT_RETRY_BASE_SECONDS) * (2**exp)
+    except Exception:
+        delay_seconds = int(EXIT_RETRY_BASE_SECONDS)
+    delay_seconds = max(1, min(int(MAX_EXIT_RETRY_DELAY_SECONDS), int(delay_seconds)))
+    try:
+        return (now_dt + timedelta(seconds=delay_seconds)).isoformat()
+    except OverflowError:
+        # Final safety net: never crash the runtime due to scheduling math.
+        return (now_dt + timedelta(seconds=int(MAX_EXIT_RETRY_DELAY_SECONDS))).isoformat()
 
 
 def _next_normal_retry_at(now: str, interval_seconds: int) -> str:
