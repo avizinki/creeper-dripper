@@ -64,7 +64,13 @@ from creeper_dripper.engine.position_pricing import (
     is_valid_sol_mark,
     resolve_position_valuation,
 )
-from creeper_dripper.engine.runtime_policy import DerivedRuntimePolicy, derive_runtime_policy
+from creeper_dripper.engine.runtime_policy import (
+    DerivedRuntimePolicy,
+    derive_age_band,
+    derive_runtime_policy,
+    liquidity_floor_for_age_band,
+    survivability_required_buckets,
+)
 from creeper_dripper.execution.drip_chunker import select_drip_chunk
 from creeper_dripper.execution.executor import TradeExecutor
 from creeper_dripper.models import PortfolioState, PositionState, ProbeQuote, TakeProfitStep, TokenCandidate, TradeDecision
@@ -213,6 +219,7 @@ class CreeperDripper:
         self._last_reconciliation_delta_sol: float | None = None
         self._startup_wallet_drift_detected: bool = False
         self._last_runtime_policy: DerivedRuntimePolicy | None = None
+        self._effective_discovery_interval_seconds: int | None = None
         if self.settings.run_id:
             self.portfolio.run_id = self.settings.run_id
         LOGGER.info(
@@ -432,6 +439,25 @@ class CreeperDripper:
             for decision in recovery_decisions:
                 self.events.emit("recovery_action", decision.reason, action=decision.action, token_mint=decision.token_mint)
             self._startup_recovery_done = True
+        # Compute a pre-discovery policy to drive discovery cadence from current runtime pressures.
+        self._update_entry_accounting_guard()
+        pre_policy = derive_runtime_policy(
+            settings=self.settings,
+            portfolio=self.portfolio,
+            wallet_available_sol=self._wallet_available_sol,
+            deployable_sol=self._last_deployable_sol,
+            accounting_entries_blocked_reason=self._entries_blocked_reason,
+            safe_mode_active=bool(self.portfolio.safe_mode_active),
+        )
+        self._effective_discovery_interval_seconds = int(pre_policy.effective_discovery_interval_seconds or self.settings.discovery_interval_seconds)
+        self.events.emit(
+            "discovery_cadence_summary",
+            "ok",
+            effective_discovery_interval_seconds=self._effective_discovery_interval_seconds,
+            discovery_cadence_reason=pre_policy.discovery_cadence_reason,
+            policy_posture=pre_policy.policy_posture,
+        )
+
         try:
             candidates, discovery_summary = self._discover_with_cadence()
         except Exception as exc:
@@ -465,7 +491,6 @@ class CreeperDripper:
             self.portfolio.safe_mode_active = False
             self.portfolio.safety_stop_reason = None
 
-        self._update_entry_accounting_guard()
         self._last_runtime_policy = derive_runtime_policy(
             settings=self.settings,
             portfolio=self.portfolio,
@@ -558,6 +583,8 @@ class CreeperDripper:
             effective_exit_probe_aggressiveness=None if policy is None else policy.effective_exit_probe_aggressiveness,
             effective_dripper_enabled=None if policy is None else policy.effective_dripper_enabled,
             recovery_priority_level=None if policy is None else policy.recovery_priority_level,
+            effective_discovery_interval_seconds=None if policy is None else policy.effective_discovery_interval_seconds,
+            discovery_cadence_reason=None if policy is None else policy.discovery_cadence_reason,
         )
         blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
         zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
@@ -621,7 +648,9 @@ class CreeperDripper:
         now_dt = datetime.now(timezone.utc)
         if self._last_discovery_at is not None:
             elapsed = (now_dt - self._last_discovery_at).total_seconds()
-            if elapsed < self.settings.discovery_interval_seconds:
+            interval = int(self._effective_discovery_interval_seconds or self.settings.discovery_interval_seconds)
+            interval = max(1, interval)
+            if elapsed < interval:
                 cached_summary = dict(self._last_discovery_summary)
                 cached_summary["discovery_cached"] = True
                 return list(self._last_discovery_candidates), cached_summary
@@ -2237,6 +2266,24 @@ class CreeperDripper:
                 size_sol = float(self._last_runtime_policy.effective_position_size_sol)
             early_risk = bool((candidate.raw or {}).get("early_risk_bucket"))
 
+            # T-020: age-banded liquidity gating (pre-execution).
+            age_band = derive_age_band(getattr(candidate, "age_hours", None))
+            effective_liq_floor = float(liquidity_floor_for_age_band(age_band))
+            liq_usd = float(candidate.liquidity_usd or 0.0)
+            if liq_usd < effective_liq_floor:
+                self.events.emit(
+                    "entry_liquidity_gate",
+                    "blocked",
+                    mint=candidate.address,
+                    symbol=candidate.symbol,
+                    effective_age_band=age_band,
+                    effective_liquidity_floor=effective_liq_floor,
+                    liquidity_floor_reason="age_banded_floor",
+                    liquidity_usd=liq_usd,
+                )
+                _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_policy_age_band_liquidity")
+                continue
+
             if early_risk:
                 if mode == "strict" and len(self.portfolio.open_positions) > 1:
                     _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_strict_early_risk_open_positions_gt_1")
@@ -2326,6 +2373,58 @@ class CreeperDripper:
                     )
                 )
                 self.events.emit("entry_failed", REJECT_EXECUTION_ROUTE_MISSING, token_mint=candidate.address, symbol=candidate.symbol)
+                continue
+            # T-020: route survivability gating (cheap, controlled).
+            required_buckets = survivability_required_buckets(age_band)
+            survivability_ok = 1
+            frag = False
+            score = 1.0
+            if required_buckets >= 2:
+                small_qty = max(1, int(max(1, buy_probe.out_amount_atomic) * 0.25))
+                try:
+                    sell_probe_small = self.executor.quote_sell(candidate.address, small_qty)
+                except Exception:
+                    sell_probe_small = None
+                ok_small = bool(sell_probe_small and sell_probe_small.route_ok and sell_probe_small.out_amount_atomic)
+                survivability_ok = (1 if ok_small else 0) + 1
+                score = survivability_ok / 2.0
+                if not ok_small:
+                    frag = True
+            # Impact stability: if impact missing or extreme, mark fragile (does not add calls).
+            imp = sell_probe.price_impact_bps
+            if imp is None or (isinstance(imp, (int, float)) and float(imp) > float(self.settings.max_acceptable_price_impact_bps)):
+                frag = True
+
+            self.events.emit(
+                "route_survivability_scored",
+                "ok",
+                mint=candidate.address,
+                symbol=candidate.symbol,
+                effective_age_band=age_band,
+                route_survivability_score=round(float(score), 3),
+                route_fragile=bool(frag),
+                buckets_required=required_buckets,
+            )
+            if frag or score < (1.0 if required_buckets >= 2 else 0.5):
+                decisions.append(
+                    TradeDecision(
+                        action="BUY_SKIP",
+                        token_mint=candidate.address,
+                        symbol=candidate.symbol,
+                        reason="reject_route_survivability",
+                        size_sol=size_sol,
+                        metadata={
+                            "phase": "pre_entry_probe",
+                            "classification": "reject_route_survivability",
+                            "effective_age_band": age_band,
+                            "effective_liquidity_floor": effective_liq_floor,
+                            "liquidity_floor_reason": "age_banded_floor",
+                            "route_survivability_score": score,
+                            "route_fragile": frag,
+                        },
+                    )
+                )
+                _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_route_survivability")
                 continue
             sell_sanity_reason = _probe_sanity_reason(sell_probe)
             roundtrip_reason = _roundtrip_sanity_reason(buy_probe, sell_probe)

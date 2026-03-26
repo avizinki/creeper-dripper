@@ -5,6 +5,40 @@ from dataclasses import asdict, dataclass
 from creeper_dripper.errors import POSITION_FINAL_ZOMBIE
 
 
+def derive_age_band(age_hours: float | None) -> str:
+    if age_hours is None:
+        return "unknown"
+    try:
+        h = float(age_hours)
+    except Exception:
+        return "unknown"
+    if h <= 1.0:
+        return "le_1h"
+    if h <= 6.0:
+        return "le_6h"
+    if h <= 24.0:
+        return "le_24h"
+    return "gt_24h"
+
+
+def liquidity_floor_for_age_band(age_band: str) -> float:
+    # Code-tunable defaults (not env-heavy). These are entry-quality safety rails.
+    if age_band == "le_1h":
+        return 15_000.0
+    if age_band == "le_6h":
+        return 40_000.0
+    if age_band == "le_24h":
+        return 60_000.0
+    if age_band == "gt_24h":
+        return 100_000.0
+    return 80_000.0
+
+
+def survivability_required_buckets(age_band: str) -> int:
+    # Younger tokens must prove survivability across more than one size bucket.
+    return 2 if age_band in {"le_1h"} else 1
+
+
 @dataclass(frozen=True, slots=True)
 class DerivedRuntimePolicy:
     runtime_risk_mode: str
@@ -31,6 +65,8 @@ class DerivedRuntimePolicy:
     effective_exit_probe_aggressiveness: float | None = None
     effective_dripper_enabled: bool | None = None
     recovery_priority_level: str | None = None  # low | normal | high
+    effective_discovery_interval_seconds: int | None = None
+    discovery_cadence_reason: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -215,6 +251,24 @@ def derive_runtime_policy(
         recovery_priority = "high"
     elif zombie_pressure_level == "medium":
         recovery_priority = "normal"
+
+    # Adaptive discovery cadence (no new services; scales the existing cadence).
+    base_discovery_interval = int(getattr(settings, "discovery_interval_seconds", 30) or 30)
+    base_discovery_interval = max(5, int(base_discovery_interval))
+    eff_discovery_interval = base_discovery_interval
+    cadence_reason = "baseline"
+    if posture == "recovery_only":
+        eff_discovery_interval = min(3600, base_discovery_interval * 4)
+        cadence_reason = "recovery_only_slow_down"
+        adjustments.append("discovery_interval_x4")
+    elif posture == "constrained":
+        eff_discovery_interval = min(3600, base_discovery_interval * 2)
+        cadence_reason = "constrained_slow_down"
+        adjustments.append("discovery_interval_x2")
+    elif deployable_pressure_level == "high":
+        eff_discovery_interval = min(3600, base_discovery_interval * 2)
+        cadence_reason = "deployable_pressure_slow_down"
+        adjustments.append("discovery_interval_wallet_x2")
     return DerivedRuntimePolicy(
         runtime_risk_mode=risk_mode,
         policy_posture=posture,
@@ -237,5 +291,7 @@ def derive_runtime_policy(
         effective_exit_probe_aggressiveness=float(exit_aggr),
         effective_dripper_enabled=bool(dripper_enabled),
         recovery_priority_level=recovery_priority,
+        effective_discovery_interval_seconds=int(eff_discovery_interval),
+        discovery_cadence_reason=cadence_reason,
     )
 

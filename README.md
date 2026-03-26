@@ -76,6 +76,29 @@ The project now prefers a **minimal operator `.env`**:
 Most tuning is derived at runtime via a derived policy layer (wallet snapshot, deployable, zombie pressure, accounting safety),
 while still supporting legacy env vars as optional overrides for backward compatibility.
 
+## Derived Runtime Policy
+
+The bot’s live behavior is primarily governed by a **derived runtime policy** computed each cycle from:
+- wallet snapshot + deployable capital
+- accounting safety/drift state
+- zombie / FINAL_ZOMBIE pressure
+
+It automatically adjusts:
+- **effective position size**
+- **effective entry caps (open slots, daily new entries)**
+- **effective entry thresholds** (score/liquidity/buy-sell ratio)
+- **discovery cadence** (slows down when constrained/recovery-only)
+
+### Liquidity-aware entry gating (T-020)
+
+Entries are gated using:
+- **age-banded liquidity floors**: very young tokens can pass lower liquidity only with stronger route survivability;
+  older tokens require materially higher liquidity.
+- **route survivability checks** (cheap + controlled): 1–2 sell-quote size buckets, rejecting fragile routes.
+
+These decisions are surfaced in runtime artifacts (`runtime/status.json`) under `derived_policy` and in
+entry decision metadata for operator debugging.
+
 ## Wallet file format
 
 `SOLANA_KEYPAIR_PATH` points to a JSON file containing exactly 64 integers in `[0,255]`, for example:

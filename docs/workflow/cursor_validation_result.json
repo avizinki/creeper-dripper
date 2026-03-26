@@ -1,23 +1,15 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T14:46:42.740360+00:00",
+  "generated_at": "2026-03-26T15:09:26.965518+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-019",
+  "task_id": "T-020",
   "validations": [
     {
-      "name": "zombie_recovery_strategy_tests",
-      "command": ".venv/bin/python -m pytest tests/test_zombie_recovery_strategy.py -v",
+      "name": "liquidity_entry_gating_tests",
+      "command": ".venv/bin/python -m pytest tests/test_liquidity_aware_entry_gating.py -v",
       "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 2 items\n\ntests/test_zombie_recovery_strategy.py::test_zombie_capital_estimation_emitted PASSED [ 50%]\ntests/test_zombie_recovery_strategy.py::test_fake_liquid_classification_and_partial_exit_attempt PASSED [100%]\n\n============================== 2 passed in 0.06s ===============================\n",
-      "stderr": "",
-      "ok": true
-    },
-    {
-      "name": "final_zombie_regression",
-      "command": ".venv/bin/python -m pytest tests/test_final_zombie_recovery_probe.py -v",
-      "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 2 items\n\ntests/test_final_zombie_recovery_probe.py::test_final_zombie_probe_skipped_until_interval PASSED [ 50%]\ntests/test_final_zombie_recovery_probe.py::test_final_zombie_route_return_marks_recoverable_and_allows_exit_path PASSED [100%]\n\n============================== 2 passed in 0.06s ===============================\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 2 items\n\ntests/test_liquidity_aware_entry_gating.py::test_young_token_requires_two_bucket_survivability PASSED [ 50%]\ntests/test_liquidity_aware_entry_gating.py::test_old_token_requires_higher_liquidity_floor PASSED [100%]\n\n============================== 2 passed in 0.06s ===============================\n",
       "stderr": "",
       "ok": true
     },
@@ -25,7 +17,7 @@
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q",
       "exit_code": 0,
-      "stdout": "........................................................................ [ 29%]\n........................................................................ [ 59%]\n........................................................................ [ 89%]\n..........................                                               [100%]\n242 passed in 1.72s\n",
+      "stdout": "........................................................................ [ 29%]\n........................................................................ [ 59%]\n........................................................................ [ 88%]\n............................                                             [100%]\n244 passed in 1.74s\n",
       "stderr": "",
       "ok": true
     }
@@ -33,19 +25,21 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
+      "README.md",
+      "creeper_dripper/config.py",
       "creeper_dripper/engine/runtime_policy.py",
       "creeper_dripper/engine/trader.py",
-      "creeper_dripper/models.py",
       "docs/workflow",
       "docs/workflow/claude_task_result.json",
-      "tests/test_zombie_recovery_strategy.py"
+      "tests/test_liquidity_aware_entry_gating.py"
     ],
     "dirty_paths": [
+      "README.md",
+      "creeper_dripper/config.py",
       "creeper_dripper/engine/runtime_policy.py",
       "creeper_dripper/engine/trader.py",
-      "creeper_dripper/models.py",
       "docs/workflow/claude_task_result.json",
-      "tests/test_zombie_recovery_strategy.py"
+      "tests/test_liquidity_aware_entry_gating.py"
     ],
     "passed": true,
     "reason": null
@@ -54,12 +48,13 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "39ce700101b349a754ec330d0143c0e5b034f54a",
+    "sha": "5ec8e40c5d99bbff5dcb7d6216bbe79af08923fc",
     "added_paths": [
-      "creeper_dripper/models.py",
       "creeper_dripper/engine/runtime_policy.py",
       "creeper_dripper/engine/trader.py",
-      "tests/test_zombie_recovery_strategy.py",
+      "creeper_dripper/config.py",
+      "README.md",
+      "tests/test_liquidity_aware_entry_gating.py",
       "docs/workflow/claude_task_result.json",
       "docs/workflow"
     ]

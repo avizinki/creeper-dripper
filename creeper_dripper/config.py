@@ -243,10 +243,12 @@ def load_settings() -> Settings:
         prefilter_min_liquidity_usd=env_float("PREFILTER_MIN_LIQUIDITY_USD", 50_000),
         prefilter_max_age_hours=env_float("PREFILTER_MAX_AGE_HOURS", 48),
         prefilter_min_recent_volume_usd=env_float("PREFILTER_MIN_RECENT_VOLUME_USD", 30_000),
+        # Legacy fallback: derived runtime policy may apply stricter age-banded liquidity floors.
         min_liquidity_usd=env_float("MIN_LIQUIDITY_USD", 80_000),
         min_exit_liquidity_usd=env_float("MIN_EXIT_LIQUIDITY_USD", 40_000),
         require_birdeye_exit_liquidity=env_bool("REQUIRE_BIRDEYE_EXIT_LIQUIDITY", False),
         min_volume_24h_usd=env_float("MIN_VOLUME_24H_USD", 125_000),
+        # Legacy fallbacks: derived runtime policy computes effective thresholds per cycle.
         min_buy_sell_ratio=env_float("MIN_BUY_SELL_RATIO", 1.05),
         min_discovery_score=env_float("MIN_DISCOVERY_SCORE", 55),
         max_token_age_hours=env_float("MAX_TOKEN_AGE_HOURS", 72),
@@ -256,6 +258,7 @@ def load_settings() -> Settings:
         block_freezable=env_bool("BLOCK_FREEZABLE", True),
         require_jup_sell_route=env_bool("REQUIRE_JUP_SELL_ROUTE", True),
         portfolio_start_sol=env_float("PORTFOLIO_START_SOL", 5.0),
+        # Legacy fallback: derived runtime policy may tighten effective caps at runtime.
         max_open_positions=env_int("MAX_OPEN_POSITIONS", 4),
         hard_max_open_positions=env_int("HARD_MAX_OPEN_POSITIONS", env_int("MAX_OPEN_POSITIONS", 4)),
         base_position_size_sol=env_float("BASE_POSITION_SIZE_SOL", 0.2),
@@ -266,6 +269,7 @@ def load_settings() -> Settings:
         early_risk_bucket_enabled=env_bool("EARLY_RISK_BUCKET_ENABLED", False),
         early_risk_position_size_sol=env_float("EARLY_RISK_POSITION_SIZE_SOL", env_float("MIN_ORDER_SIZE_SOL", 0.03)),
         early_risk_min_score_floor=env_float("EARLY_RISK_MIN_SCORE_FLOOR", 0.0),
+        # Legacy fallback: derived runtime policy may tighten effective caps at runtime.
         max_daily_new_positions=_max_daily_new_positions,
         hard_max_daily_new_positions=env_int("HARD_MAX_DAILY_NEW_POSITIONS", _max_daily_new_positions),
         cooldown_minutes_after_exit=env_int("COOLDOWN_MINUTES_AFTER_EXIT", 20),
