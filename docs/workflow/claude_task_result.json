@@ -1,37 +1,35 @@
 {
-  "task_id": "T-025-BIRDEYE-BUDGET-CONTROL",
-  "title": "Birdeye budget-aware runtime control",
+  "task_id": "T-027-DIRECTION-AWARE-ENRICHMENT",
+  "title": "Direction-aware token enrichment with route quality",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Add adaptive Birdeye budget control with per-cycle request/429/success metrics, burst-aware budget mode (healthy/constrained/starved), endpoint backoff + global cooldown + same-cycle retry suppression on 429, budget-gated discovery/enrichment, and persisted observability fields in cycle/status artifacts.",
+  "summary": "Upgrade token enrichment worker to choose quote direction per token (sell for traded/zombie/history, buy otherwise), persist quote_direction and route_quality, and use direction-aware liquidity scoring so enriched economics are no longer artificially flat.",
   "files_changed": [
-    "creeper_dripper/clients/birdeye.py",
-    "creeper_dripper/engine/discovery.py",
-    "creeper_dripper/engine/trader.py",
-    "tests/test_t025_birdeye_budget_control.py",
+    "tools/token_enrichment_worker.py",
+    "tests/test_token_enrichment_worker.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "No new external endpoints/calls were introduced; control only adapts behavior around existing Birdeye calls.",
-    "429 handling now applies endpoint exponential backoff, global cooldown, and disables retries in the same runtime cycle to prevent retry storms.",
-    "Budget telemetry is additive and persisted in discovery summary/cycle summary/status without changing trading strategy logic."
+    "Still one Jupiter /quote call per token; no retries, no probing loops, no additional APIs.",
+    "Changes are isolated to tooling + focused tests; trading engine and discovery flow are untouched.",
+    "Validation batch confirms mixed buy/sell directions and non-flat liquidity score outputs."
   ],
   "required_validation": [
     {
-      "name": "t025_tests",
-      "command": ".venv/bin/python -m pytest tests/test_t025_birdeye_budget_control.py -v"
+      "name": "worker_unit_tests",
+      "command": ".venv/bin/python -m pytest tests/test_token_enrichment_worker.py -q"
     },
     {
-      "name": "full_suite",
-      "command": ".venv/bin/python -m pytest -q"
+      "name": "worker_small_batch",
+      "command": "python3 tools/token_enrichment_worker.py --max-tokens 5 --priority high"
     }
   ],
   "optional_validation": [],
   "expected_results": {
-    "tests": "All required tests pass."
+    "tests": "All worker tests pass and small batch produces mixed quote directions with non-flat liquidity scores."
   },
-  "commit_message": "Add budget-aware Birdeye runtime controls and backoff safety",
-  "notes_for_cursor": "Field path map for budget control: Birdeye request outcomes -> budget_snapshot (requests/429/success/mode/reason/endpoints_disabled) -> discover_candidates summary -> trader cycle_summary -> status.json. Discovery now applies budget-adjusted limits and endpoint gating; run_cycle applies budget-aware effective_discovery_interval_seconds."
+  "commit_message": "Add direction-aware token enrichment route scoring",
+  "notes_for_cursor": "Direction selector: sell for traded/zombie/position-history tokens, buy for other tokens. New persisted fields: quote_direction and route_quality. Route quality enum: strong|weak|none. Liquidity score now uses route existence + price impact + direction."
 }
 
