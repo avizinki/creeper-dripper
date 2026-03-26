@@ -1,23 +1,15 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T18:27:48.773610+00:00",
+  "generated_at": "2026-03-26T19:24:12.072565+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-028",
+  "task_id": "TRUTH-CLEANUP",
   "validations": [
     {
-      "name": "t028_tests",
-      "command": ".venv/bin/python -m pytest tests/test_zombie_recovery_strategy.py -v",
+      "name": "truth_cleanup_tests",
+      "command": ".venv/bin/python -m pytest tests/test_dashboard_truth_birdeye_mode.py -q",
       "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 5 items\n\ntests/test_zombie_recovery_strategy.py::test_zombie_capital_estimation_emitted PASSED [ 20%]\ntests/test_zombie_recovery_strategy.py::test_fake_liquid_classification_and_partial_exit_attempt PASSED [ 40%]\ntests/test_zombie_recovery_strategy.py::test_route_present_extreme_impact_becomes_fake_liquid_terminal PASSED [ 60%]\ntests/test_zombie_recovery_strategy.py::test_route_present_sane_quote_stays_soft_recoverable PASSED [ 80%]\ntests/test_zombie_recovery_strategy.py::test_dead_vs_recoverable_capital_and_dashboard_truth_split PASSED [100%]\n\n============================== 5 passed in 0.06s ===============================\n",
-      "stderr": "",
-      "ok": true
-    },
-    {
-      "name": "full_suite",
-      "command": ".venv/bin/python -m pytest -q",
-      "exit_code": 0,
-      "stdout": "........................................................................ [ 27%]\n........................................................................ [ 54%]\n........................................................................ [ 82%]\n...............................................                          [100%]\n263 passed in 1.75s\n",
+      "stdout": "...                                                                      [100%]\n3 passed in 0.09s\n",
       "stderr": "",
       "ok": true
     }
@@ -25,16 +17,17 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
-      "creeper_dripper/engine/trader.py",
+      "README.md",
+      "creeper_dripper/dashboard/app.py",
       "docs/workflow",
-      "docs/workflow/claude_task_result.json",
-      "tests/test_zombie_recovery_strategy.py"
+      "tests/test_dashboard_truth_birdeye_mode.py"
     ],
     "dirty_paths": [
-      "creeper_dripper/engine/trader.py",
+      "README.md",
+      "creeper_dripper/dashboard/app.py",
       "docs/workflow/claude_task_result.json",
       "docs/workflow/cursor_validation_result.json",
-      "tests/test_zombie_recovery_strategy.py"
+      "tests/test_dashboard_truth_birdeye_mode.py"
     ],
     "passed": true,
     "reason": null
@@ -43,11 +36,11 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "c69240491a1e985c290428f9ff894d7edc74b7ab",
+    "sha": "8909f70fa95070ab8f7cff51c7ddd48284bc2470",
     "added_paths": [
-      "creeper_dripper/engine/trader.py",
-      "tests/test_zombie_recovery_strategy.py",
-      "docs/workflow/claude_task_result.json",
+      "creeper_dripper/dashboard/app.py",
+      "tests/test_dashboard_truth_birdeye_mode.py",
+      "README.md",
       "docs/workflow"
     ]
   }

@@ -56,6 +56,8 @@ def _derive_birdeye_budget_mode(
     *,
     discovery_failed: bool | None,
     discovery_error: str | None,
+    discovery_error_type: str | None,
+    cycle_birdeye_budget_mode: str | None,
     birdeye_audit: dict | None,
     log_tail_lines: int = 3000,
 ) -> tuple[str, str]:
@@ -76,9 +78,27 @@ def _derive_birdeye_budget_mode(
 
     # ── 1. Direct discovery failure signal ───────────────────────────────
     disc_rate_limited = False
-    if discovery_failed and discovery_error and "birdeye_rate_limited" in str(discovery_error).lower():
-        disc_rate_limited = True
-        reasons.append("discovery_failed_rate_limited")
+    disc_birdeye_failure = False
+    disc_cooldown = False
+    if discovery_failed:
+        derr = str(discovery_error or "").lower()
+        derr_type = str(discovery_error_type or "").lower()
+        composite = f"{derr} {derr_type}"
+        disc_rate_limited = "birdeye_rate_limited" in composite
+        disc_cooldown = "birdeye_global_cooldown" in composite
+        disc_birdeye_failure = "birdeye" in composite
+        if disc_rate_limited:
+            reasons.append("discovery_failed_rate_limited")
+        if disc_cooldown:
+            reasons.append("discovery_failed_global_cooldown")
+        if disc_birdeye_failure and not (disc_rate_limited or disc_cooldown):
+            reasons.append("discovery_failed_birdeye")
+
+    # If cycle summary already reports a constrained/starved budget mode,
+    # never downgrade to healthy in the truth payload.
+    cycle_mode = str(cycle_birdeye_budget_mode or "").strip().lower()
+    if cycle_mode in {"constrained", "starved"}:
+        reasons.append(f"cycle_budget_mode={cycle_mode}")
 
     # ── 2. Log tail scan ─────────────────────────────────────────────────
     log_rate_hits = 0
@@ -114,12 +134,17 @@ def _derive_birdeye_budget_mode(
                 break
 
     # ── Classify ─────────────────────────────────────────────────────────
-    if disc_rate_limited or log_rate_hits >= _BIRDEYE_RATE_STARVED_THRESHOLD:
+    if disc_rate_limited or disc_cooldown or log_rate_hits >= _BIRDEYE_RATE_STARVED_THRESHOLD:
         mode = "starved"
-    elif log_rate_hits >= _BIRDEYE_RATE_CONSTRAINED_THRESHOLD or audit_bad_rate_flag:
+    elif disc_birdeye_failure or log_rate_hits >= _BIRDEYE_RATE_CONSTRAINED_THRESHOLD or audit_bad_rate_flag:
         mode = "constrained"
     else:
         mode = "healthy"
+
+    if cycle_mode == "starved":
+        mode = "starved"
+    elif cycle_mode == "constrained" and mode == "healthy":
+        mode = "constrained"
 
     reason_summary = "; ".join(reasons) if reasons else "ok"
     return mode, reason_summary
@@ -492,6 +517,8 @@ def _build_truth_payload() -> dict:
     birdeye_budget_mode, birdeye_budget_reason = _derive_birdeye_budget_mode(
         discovery_failed=discovery_failed,
         discovery_error=discovery_error,
+        discovery_error_type=discovery_error_type,
+        cycle_birdeye_budget_mode=latest_summary.get("birdeye_budget_mode") if latest_summary else None,
         birdeye_audit=birdeye,
     )
 

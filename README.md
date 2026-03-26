@@ -1,8 +1,9 @@
 # creeper-dripper
 
 Production-minded Solana momentum trader with:
-- discovery from Birdeye
-- execution through Jupiter Swap v2
+- Jupiter-first execution and valuation truth
+- budget-aware discovery/enrichment (degrades safely when constrained)
+- wallet snapshot + reconciliation for deployable/safety truth
 - local file-based state, journal, and status snapshots
 - safety rails and structured observability
 
@@ -15,16 +16,26 @@ Production-minded Solana momentum trader with:
   - `runtime/journal.jsonl`
   - `runtime/status.json`
 - Providers are fixed:
-  - Birdeye
-  - Jupiter
+  - Jupiter (execution + sell-quote valuation truth)
+  - Birdeye (optional discovery/enrichment signal layer; budget-aware and degradable)
   - Solana RPC (tx lifecycle only: broadcast + signature status; not wallet-balance settlement truth)
 
-## Truth model (Jupiter-only settlement)
+## Truth model (Jupiter-first)
 
-- **Settlement quantities**: Jupiter `/execute` response, with controlled fallbacks (order in/out metadata, then requested qty as last resort)
+- **Execution/settlement quantities**: Jupiter `/execute` response, with controlled fallbacks (order in/out metadata, then requested qty as last resort)
+- **Valuation/sellability**: Jupiter sell-quote path is the primary truth for route/impact-driven exit behavior
 - **Tx confirmation**: Solana RPC `getSignatureStatuses`
-- **Wallet balances**: not used for automatic quantity reconciliation in Jupiter-only mode
-  - “Dirty wallet” situations require operator action (flatten wallet / import+reconcile holdings), not automatic wallet-based correction
+- **Wallet snapshot + reconciliation**: used for deployable capital truth and accounting safety checks
+- **Wallet balances are not execution truth**: “dirty wallet” situations still require operator action (flatten wallet / import+reconcile holdings)
+
+## Dashboard of Truth
+
+`/truth` exposes operator state in one payload:
+- accounting/capital truth (cash, deployable, reconciliation, drift warning)
+- policy posture and entry gate status
+- zombie pressure (recoverable vs dead/stuck exposure)
+- discovery health (mode, failures, route/probe counters)
+- API/budget state (Birdeye budget mode + reason summary)
 
 ## Requirements
 

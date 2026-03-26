@@ -1,35 +1,31 @@
 {
-  "task_id": "T-028",
-  "title": "Hybrid zombie truth model: recoverable vs dead capital",
+  "task_id": "TRUTH-CLEANUP",
+  "title": "Truth cleanup: docs and Birdeye budget mode",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Split zombie truth path so route-present but toxic exits are classified as FAKE_LIQUID terminal/dead while genuinely recoverable intermittent routes remain SOFT_ZOMBIE; suppress normal recovery loops for dead liquidity, add explicit toxic/dead observability events, and align cycle/status truth payload with recoverable vs dead path counts.",
+  "summary": "Align dashboard truth classification so Birdeye cooldown/rate-limit discovery failures cannot appear healthy, and align README truth model language with current Jupiter-first and reconciliation-aware behavior.",
   "files_changed": [
-    "creeper_dripper/engine/trader.py",
-    "tests/test_zombie_recovery_strategy.py",
-    "docs/workflow/claude_task_result.json"
+    "creeper_dripper/dashboard/app.py",
+    "tests/test_dashboard_truth_birdeye_mode.py",
+    "README.md"
   ],
   "why_safe": [
-    "Changes are narrowly scoped to zombie classification/recovery suppression and observability; no entry logic redesign.",
-    "Uses existing runtime signals (sell impact, quote out amount, entry basis, execution failures) with explicit deterministic thresholds.",
-    "Preserves existing FINAL_ZOMBIE lifecycle and only routes FAKE_LIQUID/dead liquidity into terminal behavior to avoid retry waste."
+    "Small, explicit dashboard truth-classification floor for Birdeye failure signals; no trading logic redesign.",
+    "Focused tests cover the cooldown/rate-limit healthy-classification regression.",
+    "README changes are descriptive and operator-focused only."
   ],
   "required_validation": [
     {
-      "name": "t028_tests",
-      "command": ".venv/bin/python -m pytest tests/test_zombie_recovery_strategy.py -v"
-    },
-    {
-      "name": "full_suite",
-      "command": ".venv/bin/python -m pytest -q"
+      "name": "truth_cleanup_tests",
+      "command": ".venv/bin/python -m pytest tests/test_dashboard_truth_birdeye_mode.py -q"
     }
   ],
   "optional_validation": [],
   "expected_results": {
-    "tests": "Zombie truth model tests pass and full suite remains green."
+    "tests": "Birdeye truth classification tests pass and validation gate accepts scoped files."
   },
-  "commit_message": "Split recoverable zombies from fake liquidity dead capital",
-  "notes_for_cursor": "Classification map: route-present + toxic exit economics (>=5000 bps sell impact or <3% recovery ratio) => FAKE_LIQUID + FINAL_ZOMBIE terminal dead path; sane intermittent route recovery => SOFT_ZOMBIE recoverable path. Added events: toxic_exit_detected, zombie_declared_dead, recovery_suppressed_dead_liquidity, and summary field zombie_recovery_path_counts for status/dashboard truth."
+  "commit_message": "Align truth docs and fix Birdeye budget classification",
+  "notes_for_cursor": "Task scope intentionally limited to dashboard truth classification + focused regression tests + README alignment."
 }
 
