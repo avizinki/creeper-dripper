@@ -125,7 +125,25 @@ def _normalized_token_context(
         price_impact_bps_sell = getattr(position, "last_sell_impact_bps", None)
 
     valuation_status = None if position is None else getattr(position, "valuation_status", None)
-    no_route = True if str(valuation_status or "").lower() == "no_route" else False if valuation_status else None
+    route_exists = None
+    no_route = None
+    fragile_route = None
+    if candidate is not None:
+        buy_ok = bool(candidate.jupiter_buy_out_amount)
+        sell_ok = bool(candidate.sell_quote_success and candidate.sell_quote_out_amount)
+        route_exists = bool(buy_ok and sell_ok)
+        no_route = bool((not buy_ok) or (not sell_ok))
+        sq = str(candidate.sell_route_quality or "").lower()
+        if sq:
+            fragile_route = sq in {"fragile", "weak", "bad"}
+    elif valuation_status:
+        v = str(valuation_status).lower()
+        if v == "no_route":
+            route_exists = False
+            no_route = True
+        elif v in {"ok", "route_found", "partial", "estimated"}:
+            route_exists = True
+            no_route = False
 
     est_exit_value = None if position is None else getattr(position, "last_estimated_exit_value_sol", None)
     zombie_class = None if position is None else getattr(position, "zombie_class", None)
@@ -142,13 +160,13 @@ def _normalized_token_context(
         "age_hours": age_hours,
         "price_impact_bps_buy": price_impact_bps_buy,
         "price_impact_bps_sell": price_impact_bps_sell,
-        "route_exists": None,
+        "route_exists": route_exists,
         "no_route": no_route,
-        "fragile_route": None,
+        "fragile_route": fragile_route,
         "estimated_exit_value_sol": est_exit_value,
         "zombie_class": zombie_class,
         "blocked_reason": blocked_reason,
-        "route_found": None,
+        "route_found": True if str(valuation_status or "").lower() == "route_found" else None,
         "partial_liquidation_attempted": None,
         "partial_liquidation_succeeded": None,
         "execution_failed_with_route": None,
@@ -2958,6 +2976,8 @@ class CreeperDripper:
             "candidates_accepted": discovery_summary.get("candidates_accepted", 0),
             "candidates_rejected_total": discovery_summary.get("candidates_rejected_total", 0),
             "rejection_counts": discovery_summary.get("rejection_counts", {}),
+            # Compact normalized discovery rows to keep economics fields recoverable in status/cycle artifacts.
+            "economics_field_records": discovery_summary.get("economics_field_records", []),
             "open_positions": len(open_positions),
             "partial_positions": partial_positions,
             "exit_pending_positions": exit_pending_positions,

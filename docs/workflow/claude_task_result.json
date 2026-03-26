@@ -1,24 +1,25 @@
 {
-  "task_id": "T-023",
-  "title": "Shallow Discovery Capture (wide coverage layer)",
+  "task_id": "T-024",
+  "title": "Economics Field Persistence Audit + Fix",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Add additive shallow-capture normalization in high-volume discovery paths so accepted and rejected candidates preserve core economics/route context (score, liquidity, buy/sell ratio, age, route_exists/no_route, price impacts, probe size buckets, rejection reason) without adding API calls or changing trading behavior.",
+  "summary": "Root cause: core economics fields were emitted in discovery events but mostly not persisted into durable runtime artifacts used by audits (status/cycle summary only had counters). Fix: persist compact normalized discovery economics records in discovery summary and carry them into cycle/status artifacts; also normalize candidate serialization fallback for buy_sell_ratio_1h and tighten journal route-state normalization.",
   "files_changed": [
     "creeper_dripper/engine/discovery.py",
-    "tests/test_t023_shallow_discovery_capture.py",
+    "creeper_dripper/engine/trader.py",
+    "tests/test_t024_economics_field_persistence.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "Changes are limited to discovery observability payloads (seed prefilter, post-probe accepted/rejected, and probe-driven route rejections) and are metadata-only.",
-    "No new probes/API calls were added; this only persists data already present in seed/candidate/probe objects.",
-    "Field names are normalized and additive, preserving backward compatibility for existing scanners."
+    "Changes are additive persistence/observability only; no strategy, risk, or execution decision paths were modified.",
+    "No new probes/API calls were added; fields are carried from existing seed/candidate/probe/position objects.",
+    "Field names are normalized and stable across persisted artifacts: liquidity_usd, buy_sell_ratio, price_impact_bps_buy/sell, route_exists, no_route, fragile_route, estimated_exit_value_sol, zombie_class."
   ],
   "required_validation": [
     {
-      "name": "t023_tests",
-      "command": ".venv/bin/python -m pytest tests/test_t023_shallow_discovery_capture.py -v"
+      "name": "t024_tests",
+      "command": ".venv/bin/python -m pytest tests/test_t024_economics_field_persistence.py -v"
     },
     {
       "name": "full_suite",
@@ -29,7 +30,7 @@
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Add shallow discovery capture for token analytics coverage",
-  "notes_for_cursor": "Shallow normalized capture now emitted at seed-prefilter/overview-limit rejections, prefilter rejections, probe rejections, and accepted candidates. This should improve report recovery for liquidity/ratio/route/price-impact/rejection fields without changing strategy."
+  "commit_message": "Fix persistence of token economics fields in runtime artifacts",
+  "notes_for_cursor": "Field path map: source objects (seed/candidate/probe/position) -> normalized metadata (_normalized_seed_metadata/_normalized_candidate_metadata/_normalized_token_context) -> emitted events/decisions -> persisted runtime artifacts (status.summary.economics_field_records, cycle_summaries.summary.economics_field_records, journal metadata). This closes prior persistence gap where high-volume economics fields existed only inside transient discovery event payloads."
 }
 

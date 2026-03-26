@@ -109,6 +109,43 @@ def _normalized_candidate_metadata(candidate: TokenCandidate, *, liq: float | No
     }
 
 
+def _extract_economics_field_records(event_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Persist compact, normalized discovery economics rows for downstream runtime artifacts.
+    """
+    keys = (
+        "mint",
+        "symbol",
+        "score",
+        "liquidity_usd",
+        "buy_sell_ratio",
+        "age_hours",
+        "price_impact_bps_buy",
+        "price_impact_bps_sell",
+        "route_exists",
+        "no_route",
+        "fragile_route",
+        "estimated_exit_value_sol",
+        "zombie_class",
+        "rejection_reason",
+        "source_stage",
+        "accepted_or_rejected",
+    )
+    out: list[dict[str, Any]] = []
+    for row in event_rows:
+        if row.get("event_type") not in {"candidate_accepted", "candidate_rejected"}:
+            continue
+        md = row.get("metadata") or {}
+        mint = md.get("mint")
+        if not mint:
+            continue
+        normalized = {k: md.get(k) for k in keys}
+        normalized["event_type"] = row.get("event_type")
+        normalized["reason_code"] = row.get("reason_code")
+        out.append(normalized)
+    return out
+
+
 def serialize_candidate(candidate: object) -> dict:
     """Return a stable JSON-safe candidate payload for scan artifacts."""
     if is_dataclass(candidate):
@@ -125,7 +162,7 @@ def serialize_candidate(candidate: object) -> dict:
         "discovery_score": raw.get("discovery_score"),
         "liquidity_usd": raw.get("liquidity_usd"),
         "volume_24h_usd": raw.get("volume_24h_usd"),
-        "buy_sell_ratio": raw.get("buy_sell_ratio"),
+        "buy_sell_ratio": raw.get("buy_sell_ratio") if raw.get("buy_sell_ratio") is not None else raw.get("buy_sell_ratio_1h"),
         "exit_liquidity_available": raw.get("exit_liquidity_available"),
         "exit_liquidity_reason": raw.get("exit_liquidity_reason"),
         "birdeye_exit_liquidity_supported": raw.get("birdeye_exit_liquidity_supported"),
@@ -684,6 +721,7 @@ def discover_candidates(
     candidate_cache.touch_keys(candidate_keys_used)
     route_cache.touch_keys(route_keys_used)
 
+    event_rows = events.to_dicts()
     summary = {
         "seeds_total": len(seeds),
         "discovered_candidates": len(seeds),
@@ -704,7 +742,8 @@ def discover_candidates(
         "candidates_accepted": len(accepted),
         "candidates_rejected_total": int(sum(rejection_counts.values())),
         "rejection_counts": dict(rejection_counts),
-        "events": events.to_dicts(),
+        "events": event_rows,
+        "economics_field_records": _extract_economics_field_records(event_rows),
         "market_data_checked_at": market_data_checked_at,
         "cache_debug_first_keys": cache_keys_used[:3],
         "cache_debug_identity": {
