@@ -796,6 +796,25 @@ class CreeperDripper:
             "candidate_cache_id": id(self._candidate_cache),
             "route_cache_id": id(self._route_cache),
         }
+
+        # JUP-FIRST: if Birdeye seeds returned nothing (both trending + new_listings failed or
+        # returned empty), fall back to the last known good candidates rather than running blind.
+        # Cached candidates already passed Jupiter buy+sell probes — they are JUP-validated.
+        # This prevents a Birdeye outage from wiping the active candidate pool.
+        seeds_total = int(summary.get("seeds_total", 0) or 0)
+        if seeds_total == 0 and self._last_discovery_candidates:
+            LOGGER.info(
+                "event=discovery_seed_empty_fallback reason=zero_seeds using_cached_candidates=%d",
+                len(self._last_discovery_candidates),
+            )
+            fallback_summary = dict(self._last_discovery_summary)
+            fallback_summary["discovery_cached"] = True
+            fallback_summary["discovery_mode"] = "degraded"
+            fallback_summary["discovery_seed_fallback"] = True
+            fallback_summary["cache_engine_identity"] = summary["cache_engine_identity"]
+            # Do NOT update _last_discovery_at so the next cycle will re-attempt live seeds.
+            return list(self._last_discovery_candidates), fallback_summary
+
         self._last_discovery_at = now_dt
         self._last_discovery_candidates = list(candidates)
         self._last_discovery_summary = dict(summary)
@@ -863,12 +882,11 @@ class CreeperDripper:
                 continue
             candidate = by_mint.get(mint)
             if candidate is None:
-                try:
-                    seed = {"address": mint, "symbol": position.symbol, "decimals": position.decimals}
-                    candidate = self.birdeye.build_candidate(seed)
-                except Exception as exc:
-                    LOGGER.warning("mark build failed for %s: %s — using minimal candidate for pricing fallback", mint, exc)
-                    candidate = TokenCandidate(address=mint, symbol=position.symbol, decimals=position.decimals)
+                # JUP-FIRST: do not call Birdeye for open-position marking.
+                # Valuation is purely Jupiter (resolve_position_valuation below).
+                # exit_liquidity_usd is always None on Solana (exit-liquidity endpoint unsupported),
+                # so the Birdeye call here was consuming CU with no actionable output.
+                candidate = TokenCandidate(address=mint, symbol=position.symbol, decimals=position.decimals)
             ensure_entry_sol_mark(position)
             v = resolve_position_valuation(
                 mint=mint,
@@ -3112,6 +3130,11 @@ class CreeperDripper:
             "birdeye_success_rate": discovery_summary.get("birdeye_success_rate"),
             "budget_reason_summary": discovery_summary.get("budget_reason_summary"),
             "endpoints_disabled": discovery_summary.get("endpoints_disabled", []),
+            # JUP-FIRST: data source and discovery mode fields for dashboard truth.
+            # data_source_mode: jup_only | mixed | enrichment_enabled
+            # discovery_mode:   active | degraded | cached_only
+            "data_source_mode": _derive_data_source_mode(discovery_summary),
+            "discovery_mode": _derive_discovery_mode(discovery_summary),
             "effective_discovery_seed_limit": discovery_summary.get("effective_discovery_seed_limit"),
             "effective_discovery_overview_limit": discovery_summary.get("effective_discovery_overview_limit"),
             "effective_max_active_candidates": discovery_summary.get("effective_max_active_candidates"),
@@ -3159,6 +3182,40 @@ class CreeperDripper:
             ),
             "derived_policy": None if self._last_runtime_policy is None else self._last_runtime_policy.to_dict(),
         }
+
+
+def _derive_data_source_mode(discovery_summary: dict) -> str:
+    """
+    JUP-FIRST: derive the current data source mode from discovery_summary.
+    - jup_only:          Birdeye starved OR no seeds fetched; operating on Jupiter + cached data only.
+    - mixed:             Birdeye constrained; partial enrichment, Jupiter is truth.
+    - enrichment_enabled: Birdeye healthy; full pipeline running.
+    """
+    budget_mode = str(discovery_summary.get("birdeye_budget_mode") or "healthy")
+    seeds_total = int(discovery_summary.get("seeds_total") or 0)
+    if budget_mode == "starved" or seeds_total == 0:
+        return "jup_only"
+    if budget_mode == "constrained":
+        return "mixed"
+    return "enrichment_enabled"
+
+
+def _derive_discovery_mode(discovery_summary: dict) -> str:
+    """
+    JUP-FIRST: derive the current discovery operating mode.
+    - active:      Discovery ran with real seeds from Birdeye.
+    - cached_only: Discovery interval not elapsed; using previous cycle's candidates.
+    - degraded:    Seeds returned zero results or seed fetch failed; may be using cached candidates.
+    """
+    if bool(discovery_summary.get("discovery_cached", False)):
+        # If we used the seed-failure fallback, it's degraded (not a normal cadence cache).
+        if bool(discovery_summary.get("discovery_seed_fallback", False)):
+            return "degraded"
+        return "cached_only"
+    seeds_total = int(discovery_summary.get("seeds_total") or 0)
+    if seeds_total == 0:
+        return "degraded"
+    return "active"
 
 
 def _age_minutes(ts: str) -> float:

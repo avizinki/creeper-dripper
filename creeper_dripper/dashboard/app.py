@@ -484,6 +484,9 @@ def _build_truth_payload() -> dict:
     cache_misses = latest_summary.get("cache_misses", 0) if latest_summary else 0
     candidate_cache_hits = latest_summary.get("candidate_cache_hits", 0) if latest_summary else 0
     candidate_cache_misses = latest_summary.get("candidate_cache_misses", 0) if latest_summary else 0
+    # JUP-FIRST mode fields — sourced from cycle summary (set by trader._cycle_summary).
+    data_source_mode = latest_summary.get("data_source_mode", "enrichment_enabled") if latest_summary else "enrichment_enabled"
+    discovery_mode = latest_summary.get("discovery_mode", "active") if latest_summary else "active"
 
     # ── Birdeye budget mode (derived from log + discovery signals) ────────
     birdeye_budget_mode, birdeye_budget_reason = _derive_birdeye_budget_mode(
@@ -500,6 +503,8 @@ def _build_truth_payload() -> dict:
         birdeye_section = {
             "birdeye_budget_mode": birdeye_budget_mode,
             "budget_reason_summary": birdeye_budget_reason,
+            "data_source_mode": data_source_mode,
+            "discovery_mode": discovery_mode,
             "delta_usage_api": credits.get("delta_usage_api"),
             "usage_api_after": credits.get("usage_api_after"),
             "estimated_cu_api_per_seed": birdeye.get("estimates_per_discovery_cycle", {}).get("estimated_cu_api_per_seed"),
@@ -524,6 +529,8 @@ def _build_truth_payload() -> dict:
         birdeye_section = {
             "birdeye_budget_mode": birdeye_budget_mode,
             "budget_reason_summary": birdeye_budget_reason,
+            "data_source_mode": data_source_mode,
+            "discovery_mode": discovery_mode,
         }
 
     # ── data quality / coverage ───────────────────────────────────────────
@@ -674,6 +681,9 @@ def _build_truth_payload() -> dict:
             "cache_misses": cache_misses,
             "candidate_cache_hits": candidate_cache_hits,
             "candidate_cache_misses": candidate_cache_misses,
+            # JUP-FIRST: data and discovery mode visibility.
+            "data_source_mode": data_source_mode,
+            "discovery_mode": discovery_mode,
         },
         "birdeye": birdeye_section,
         "positions": positions_list,
