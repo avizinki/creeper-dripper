@@ -119,6 +119,9 @@ class Settings:
     hachi_collapse_drop_pct: float = 8.0
     # Dynamic capacity scaling (visibility/bootstrap only; never settlement truth).
     dynamic_capacity_enabled: bool = True
+    # Operator intent: a coarse risk posture that adjusts derived policy defaults.
+    # Allowed: conservative | balanced | aggressive
+    risk_mode: str = "conservative"
     hachi_birth_wallet_sol: float | None = None
     hachi_birth_timestamp: str | None = None
     run_id: str | None = None
@@ -190,6 +193,8 @@ class Settings:
             errors.append("ACCOUNTING_DRIFT_EPSILON_SOL must be > 0")
         if self.final_zombie_recovery_probe_interval_cycles <= 0:
             errors.append("FINAL_ZOMBIE_RECOVERY_PROBE_INTERVAL_CYCLES must be > 0")
+        if str(self.risk_mode or "").strip().lower() not in {"conservative", "balanced", "aggressive"}:
+            errors.append("RISK_MODE must be one of: conservative, balanced, aggressive")
         if errors:
             raise RuntimeError("Configuration validation failed:\n- " + "\n- ".join(errors))
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -298,6 +303,7 @@ def load_settings() -> Settings:
         hachi_weakening_drop_pct=env_float("HACHI_WEAKENING_DROP_PCT", 4.0),
         hachi_collapse_drop_pct=env_float("HACHI_COLLAPSE_DROP_PCT", 8.0),
         dynamic_capacity_enabled=env_bool("DYNAMIC_CAPACITY_ENABLED", True),
+        risk_mode=env_str("RISK_MODE", "conservative"),
         hachi_birth_wallet_sol=(env_float("HACHI_BIRTH_WALLET_SOL", 0.0) or None),
         hachi_birth_timestamp=(env_str("HACHI_BIRTH_TIMESTAMP", "").strip() or None),
         run_id=None,

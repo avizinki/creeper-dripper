@@ -64,6 +64,7 @@ from creeper_dripper.engine.position_pricing import (
     is_valid_sol_mark,
     resolve_position_valuation,
 )
+from creeper_dripper.engine.runtime_policy import DerivedRuntimePolicy, derive_runtime_policy
 from creeper_dripper.execution.drip_chunker import select_drip_chunk
 from creeper_dripper.execution.executor import TradeExecutor
 from creeper_dripper.models import PortfolioState, PositionState, ProbeQuote, TakeProfitStep, TokenCandidate, TradeDecision
@@ -211,6 +212,7 @@ class CreeperDripper:
         self._last_reconciliation_applied: bool = False
         self._last_reconciliation_delta_sol: float | None = None
         self._startup_wallet_drift_detected: bool = False
+        self._last_runtime_policy: DerivedRuntimePolicy | None = None
         if self.settings.run_id:
             self.portfolio.run_id = self.settings.run_id
         LOGGER.info(
@@ -464,6 +466,14 @@ class CreeperDripper:
             self.portfolio.safety_stop_reason = None
 
         self._update_entry_accounting_guard()
+        self._last_runtime_policy = derive_runtime_policy(
+            settings=self.settings,
+            portfolio=self.portfolio,
+            wallet_available_sol=self._wallet_available_sol,
+            deployable_sol=self._last_deployable_sol,
+            accounting_entries_blocked_reason=self._entries_blocked_reason,
+            safe_mode_active=bool(self.portfolio.safe_mode_active),
+        )
         if self._entries_blocked_reason:
             self.events.emit(
                 "entries_blocked",
@@ -480,7 +490,12 @@ class CreeperDripper:
                 reconciliation_delta_sol=self._last_reconciliation_delta_sol,
             )
 
-        if not self.portfolio.safe_mode_active and not self._entries_blocked_reason:
+        if (
+            not self.portfolio.safe_mode_active
+            and not self._entries_blocked_reason
+            and self._last_runtime_policy is not None
+            and self._last_runtime_policy.entry_enabled
+        ):
             self._maybe_open_positions(candidates, decisions, now)
         self._mark_positions(candidates, decisions, now)
         self.portfolio.last_cycle_at = now
@@ -492,6 +507,7 @@ class CreeperDripper:
         deployable_sol = self._last_deployable_sol
         accounting_drift_sol = self._last_accounting_drift_sol
         effective_max_daily_new_positions = self._effective_max_daily_new_positions()
+        policy = self._last_runtime_policy
         self.events.emit(
             "entry_capacity_mode_summary",
             "ok",
@@ -518,6 +534,13 @@ class CreeperDripper:
             reconciled_cash_sol=self._last_reconciled_cash_sol,
             reconciliation_applied=self._last_reconciliation_applied,
             reconciliation_delta_sol=self._last_reconciliation_delta_sol,
+            runtime_risk_mode=None if policy is None else policy.runtime_risk_mode,
+            effective_position_size_sol=None if policy is None else policy.effective_position_size_sol,
+            effective_policy_max_open_positions=None if policy is None else policy.effective_max_open_positions,
+            effective_policy_max_daily_new_positions=None if policy is None else policy.effective_max_daily_new_positions,
+            effective_min_score=None if policy is None else policy.effective_min_score,
+            effective_min_liquidity_usd=None if policy is None else policy.effective_min_liquidity_usd,
+            policy_reason_summary=None if policy is None else policy.policy_reason_summary,
         )
         blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
         zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
@@ -2105,6 +2128,8 @@ class CreeperDripper:
                 _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_cooldown_active")
                 continue
             size_sol = min(self.settings.base_position_size_sol, self.settings.max_position_size_sol)
+            if self._last_runtime_policy is not None:
+                size_sol = float(self._last_runtime_policy.effective_position_size_sol)
             early_risk = bool((candidate.raw or {}).get("early_risk_bucket"))
 
             if early_risk:
@@ -2119,6 +2144,13 @@ class CreeperDripper:
 
             if early_risk and self.settings.early_risk_bucket_enabled:
                 size_sol = min(size_sol, float(self.settings.early_risk_position_size_sol))
+            if self._last_runtime_policy is not None:
+                if float(candidate.discovery_score or 0.0) < float(self._last_runtime_policy.effective_min_score):
+                    _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_policy_min_score")
+                    continue
+                if float(candidate.liquidity_usd or 0.0) < float(self._last_runtime_policy.effective_min_liquidity_usd):
+                    _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_policy_min_liquidity")
+                    continue
             if self.portfolio.cash_sol - size_sol < self.settings.cash_reserve_sol:
                 _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_cash_reserve")
                 continue

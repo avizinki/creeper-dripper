@@ -1,43 +1,30 @@
 {
-  "task_id": "T-015",
-  "title": "Permanent FINAL_ZOMBIE lifecycle + rare recovery probes",
+  "task_id": "T-016",
+  "title": "Derived runtime policy and minimal operator config",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Extend FINAL_ZOMBIE lifecycle handling: FINAL_ZOMBIE stops normal retry/micro-probe loops and is re-checked only rarely via a low-frequency quote_sell recovery probe. When a sell route returns, emit final_zombie_recovered_route and transition back to ZOMBIE with zombie_reason=final_zombie_recovered_route so the existing controlled exit path can resume. Add FINAL_ZOMBIE observability events and CLI status fields for final_zombie_positions and recoverable_zombie_candidates. No position deletion; no external systems; accounting guards (T-013/T-014) remain intact.",
+  "summary": "Introduce an additive derived runtime policy layer that computes effective sizing/caps/thresholds and entry gating from runtime state (wallet snapshot, deployable, accounting guard state, zombie pressure) while keeping existing env-backed Settings as compatibility defaults. Add operator intent via RISK_MODE and surface derived policy fields in entry_capacity_mode_summary for dashboard visibility. Core safety invariants (T-013/T-014/T-015) remain intact.",
   "files_changed": [
+    "creeper_dripper/engine/runtime_policy.py",
     "creeper_dripper/config.py",
     "creeper_dripper/engine/trader.py",
-    "creeper_dripper/cli/main.py",
-    "tests/test_final_zombie_recovery_probe.py",
-    "tests/test_t005_t008_bundle.py",
+    "tests/test_runtime_policy.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "FINAL_ZOMBIE remains terminal for normal loops; recovery probes are low-frequency and do not execute trades.",
-    "If liquidity returns, we reuse the existing ZOMBIE/EXIT_BLOCKED exit path instead of adding new execution logic.",
-    "Entry capacity and accounting truth remain conservative; FINAL_ZOMBIE is still excluded from effective capacity."
+    "Derived policy is additive and conservative: it tightens caps or shrinks size under wallet/zombie pressure but does not loosen existing safety checks.",
+    "Existing Settings env vars remain supported as defaults; runtime policy only influences entry sizing/cap/threshold decisions.",
+    "Accounting safety guard and reconciliation remain unchanged and still gate entries."
   ],
   "required_validation": [
     {
-      "name": "final_zombie_recovery_probe_tests",
-      "command": ".venv/bin/python -m pytest tests/test_final_zombie_recovery_probe.py -v"
+      "name": "runtime_policy_tests",
+      "command": ".venv/bin/python -m pytest tests/test_runtime_policy.py -v"
     },
     {
-      "name": "bundle_regression",
-      "command": ".venv/bin/python -m pytest tests/test_t005_t008_bundle.py -v"
-    },
-    {
-      "name": "regression_accounting_guard",
-      "command": ".venv/bin/python -m pytest tests/test_accounting_safety_guard.py::test_wallet_lower_than_cash_clamps_deployable_and_blocks_on_drift -v"
-    },
-    {
-      "name": "regression_doctor_birth_persist",
-      "command": ".venv/bin/python -m pytest tests/test_cli_operator.py::test_doctor_without_wallet_scan_safe -v"
-    },
-    {
-      "name": "regression_status_command",
-      "command": ".venv/bin/python -m pytest tests/test_cli_operator.py::test_status_command_populated_state -v"
+      "name": "observability_regression",
+      "command": ".venv/bin/python -m pytest tests/test_phase3_observability.py::test_entry_capacity_mode_summary_emitted -v"
     }
   ],
   "optional_validation": [
@@ -49,6 +36,6 @@
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Add rare FINAL_ZOMBIE recovery probes and lifecycle observability",
-  "notes_for_cursor": "Scope limited to trader/config/cli + focused FINAL_ZOMBIE tests and this handoff JSON. Do not add external calls. Do not delete positions. Do not alter accounting guards."
+  "commit_message": "Introduce derived runtime policy and minimal operator config",
+  "notes_for_cursor": "Scope limited to derived policy module + minimal wiring in trader/config and focused tests. Do not alter accounting guards or FINAL_ZOMBIE lifecycle."
 }
