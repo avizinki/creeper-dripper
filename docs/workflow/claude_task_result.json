@@ -1,41 +1,31 @@
 {
-  "task_id": "T-013",
-  "title": "Accounting safety guard for entries",
+  "task_id": "T-014",
+  "title": "Accounting reconciliation (cash_sol drift elimination)",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Block new entries when wallet snapshot is missing or when cash_sol materially exceeds wallet snapshot (drift > epsilon). Replace deployable calculation with max(0, min(cash_sol, wallet_available_sol) - cash_reserve_sol). Surface wallet_available_sol, cash_sol, deployable_sol, accounting_drift_sol, and entries_blocked_reason in cycle summary and entry_capacity_mode_summary. No new external calls; exits/recovery unchanged.",
+  "summary": "Add a minimal cash_sol reconciliation path derived from the wallet snapshot and pending_proceeds_sol. Reconciliation clamps cash_sol to max(0, min(wallet_available_sol - pending_proceeds_total, wallet_available_sol)) and emits accounting_reconciled when applied. Runs on startup right after wallet snapshot, and optionally once per cycle when drift exceeds epsilon (entries remain blocked for that cycle when reconciliation is applied). Doctor writes a safe runtime/accounting_snapshot.json artifact and does not write reconciliation into state.json.",
   "files_changed": [
     "creeper_dripper/engine/trader.py",
-    "creeper_dripper/config.py",
-    "tests/test_accounting_safety_guard.py",
-    "tests/test_phase3_observability.py",
+    "creeper_dripper/cli/main.py",
+    "tests/test_accounting_reconciliation.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "Guard affects entries only: exits/recovery logic is unchanged.",
-    "No new RPC/Birdeye/Jupiter calls were added; wallet snapshot is already an injected visibility input.",
-    "Deployable becomes more conservative and zero when snapshot is missing."
+    "Reconciliation is conservative: cash_sol is clamped to a wallet-derived upper bound and never increases above wallet.",
+    "Entry/exit mechanics are unchanged; this only corrects internal accounting drift and adds observability.",
+    "No new external calls are introduced; doctor snapshot uses the wallet balance it already fetches."
   ],
   "required_validation": [
     {
-      "name": "accounting_guard_tests",
-      "command": ".venv/bin/python -m pytest tests/test_accounting_safety_guard.py -v"
-    },
-    {
-      "name": "observability_regression",
-      "command": ".venv/bin/python -m pytest tests/test_phase3_observability.py::test_entry_capacity_mode_summary_emitted -v"
+      "name": "accounting_reconciliation_tests",
+      "command": ".venv/bin/python -m pytest tests/test_accounting_reconciliation.py -v"
     }
   ],
-  "optional_validation": [
-    {
-      "name": "full_suite",
-      "command": ".venv/bin/python -m pytest -q"
-    }
-  ],
+  "optional_validation": [],
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Add entry accounting safety guard and truthful deployable",
-  "notes_for_cursor": "Scope is limited to trader/config plus focused tests and this handoff JSON. Do not add external calls. Do not write doctor output into state.json."
+  "commit_message": "Reconcile cash_sol to wallet truth and add accounting snapshot",
+  "notes_for_cursor": "Scope is limited to trader/doctor + focused reconciliation tests and this handoff JSON. Do not add external calls. Do not write reconciliation into state.json."
 }

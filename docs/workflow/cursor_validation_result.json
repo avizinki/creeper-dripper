@@ -1,31 +1,15 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T13:10:33.092692+00:00",
+  "generated_at": "2026-03-26T13:25:32.436725+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-013",
+  "task_id": "T-014",
   "validations": [
     {
-      "name": "accounting_guard_tests",
-      "command": ".venv/bin/python -m pytest tests/test_accounting_safety_guard.py -v",
+      "name": "accounting_reconciliation_tests",
+      "command": ".venv/bin/python -m pytest tests/test_accounting_reconciliation.py -v",
       "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 3 items\n\ntests/test_accounting_safety_guard.py::test_wallet_snapshot_missing_blocks_entries_and_deployable_zero PASSED [ 33%]\ntests/test_accounting_safety_guard.py::test_wallet_lower_than_cash_clamps_deployable_and_blocks_on_drift PASSED [ 66%]\ntests/test_accounting_safety_guard.py::test_with_large_epsilon_no_block_and_deployable_uses_wallet_floor PASSED [100%]\n\n============================== 3 passed in 0.06s ===============================\n",
-      "stderr": "",
-      "ok": true
-    },
-    {
-      "name": "observability_regression",
-      "command": ".venv/bin/python -m pytest tests/test_phase3_observability.py::test_entry_capacity_mode_summary_emitted -v",
-      "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 1 item\n\ntests/test_phase3_observability.py::test_entry_capacity_mode_summary_emitted PASSED [100%]\n\n============================== 1 passed in 0.05s ===============================\n",
-      "stderr": "",
-      "ok": true
-    },
-    {
-      "name": "full_suite",
-      "command": ".venv/bin/python -m pytest -q",
-      "exit_code": 0,
-      "stdout": "........................................................................ [ 31%]\n........................................................................ [ 63%]\n........................................................................ [ 95%]\n..........                                                               [100%]\n226 passed in 1.95s\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 4 items\n\ntests/test_accounting_reconciliation.py::test_drift_reconciles_cash_to_wallet_upper_bound PASSED [ 25%]\ntests/test_accounting_reconciliation.py::test_no_drift_no_reconciliation_and_entries_not_blocked PASSED [ 50%]\ntests/test_accounting_reconciliation.py::test_pending_proceeds_reduces_cash_from_wallet_total PASSED [ 75%]\ntests/test_accounting_reconciliation.py::test_startup_reconciliation_emits_accounting_reconciled_event PASSED [100%]\n\n============================== 4 passed in 0.06s ===============================\n",
       "stderr": "",
       "ok": true
     }
@@ -33,19 +17,18 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
-      "creeper_dripper/config.py",
+      "creeper_dripper/cli/main.py",
       "creeper_dripper/engine/trader.py",
       "docs/workflow",
       "docs/workflow/claude_task_result.json",
-      "tests/test_accounting_safety_guard.py",
-      "tests/test_phase3_observability.py"
+      "tests/test_accounting_reconciliation.py"
     ],
     "dirty_paths": [
-      "creeper_dripper/config.py",
+      "creeper_dripper/cli/main.py",
       "creeper_dripper/engine/trader.py",
       "docs/workflow/claude_task_result.json",
-      "tests/test_phase3_observability.py",
-      "tests/test_accounting_safety_guard.py"
+      "docs/workflow/cursor_validation_result.json",
+      "tests/test_accounting_reconciliation.py"
     ],
     "passed": true,
     "reason": null
@@ -54,12 +37,11 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "65b4675c15e681469ea823eb2ec6d4ffca1b6ec3",
+    "sha": "89eece8afa902feee550f185fe33116c4b241486",
     "added_paths": [
       "creeper_dripper/engine/trader.py",
-      "creeper_dripper/config.py",
-      "tests/test_accounting_safety_guard.py",
-      "tests/test_phase3_observability.py",
+      "creeper_dripper/cli/main.py",
+      "tests/test_accounting_reconciliation.py",
       "docs/workflow/claude_task_result.json",
       "docs/workflow"
     ]

@@ -207,6 +207,9 @@ class CreeperDripper:
         self._entries_blocked_reason: str | None = None
         self._last_deployable_sol: float | None = None
         self._last_accounting_drift_sol: float | None = None
+        self._last_reconciled_cash_sol: float | None = None
+        self._last_reconciliation_applied: bool = False
+        self._last_reconciliation_delta_sol: float | None = None
         if self.settings.run_id:
             self.portfolio.run_id = self.settings.run_id
         LOGGER.info(
@@ -225,6 +228,63 @@ class CreeperDripper:
             return 0.0
         return max(0.0, min(cash_sol, float(wallet_available_sol)) - reserve)
 
+    def _pending_proceeds_total_sol(self) -> float:
+        total = 0.0
+        for p in self.portfolio.open_positions.values():
+            try:
+                pending = float(getattr(p, "pending_proceeds_sol", 0.0) or 0.0)
+            except Exception:
+                pending = 0.0
+            if pending > 0.0:
+                total += pending
+        return max(0.0, float(total))
+
+    def _reconciled_cash_from_wallet(self, wallet_total_sol: float) -> float:
+        pending_proceeds = self._pending_proceeds_total_sol()
+        reconciled_cash_sol = float(wallet_total_sol) - float(pending_proceeds)
+        return max(0.0, min(float(reconciled_cash_sol), float(wallet_total_sol)))
+
+    def _maybe_reconcile_cash_sol(self, *, now: str, trigger: str) -> bool:
+        """
+        Reconcile internal cash_sol against a visibility-only wallet snapshot.
+
+        Purpose: eliminate dangerous upward drift that can freeze the bot (T-013) or allow unsafe entries.
+        Hard rules:
+        - cash_sol must never exceed wallet_total_sol
+        - cash_sol must never be negative
+        """
+        self._last_reconciliation_applied = False
+        self._last_reconciliation_delta_sol = None
+        self._last_reconciled_cash_sol = None
+
+        wallet_available_sol = self._wallet_available_sol
+        if wallet_available_sol is None:
+            return False
+
+        wallet_total_sol = float(wallet_available_sol)
+        old_cash = float(self.portfolio.cash_sol)
+        new_cash = self._reconciled_cash_from_wallet(wallet_total_sol)
+        self._last_reconciled_cash_sol = float(new_cash)
+        delta = float(new_cash) - float(old_cash)
+
+        epsilon = float(getattr(self.settings, "accounting_drift_epsilon_sol", 0.001) or 0.001)
+        if abs(delta) <= epsilon:
+            return False
+
+        self.portfolio.cash_sol = float(new_cash)
+        self._last_reconciliation_applied = True
+        self._last_reconciliation_delta_sol = float(delta)
+        self.events.emit(
+            "accounting_reconciled",
+            trigger,
+            old_cash_sol=old_cash,
+            new_cash_sol=new_cash,
+            wallet_available_sol=wallet_total_sol,
+            pending_proceeds_sol=self._pending_proceeds_total_sol(),
+            drift_fixed=delta,
+        )
+        return True
+
     def _update_entry_accounting_guard(self) -> None:
         """Compute per-cycle entry guard + observability fields (entries only)."""
         self._entries_blocked_reason = None
@@ -242,12 +302,24 @@ class CreeperDripper:
 
         epsilon = float(getattr(self.settings, "accounting_drift_epsilon_sol", 0.001) or 0.001)
         if drift is not None and drift > epsilon:
-            self._entries_blocked_reason = "blocked_accounting_drift_cash_gt_wallet"
+            reconciled = self._maybe_reconcile_cash_sol(now=utc_now_iso(), trigger="cycle_drift_over_epsilon")
+            if reconciled:
+                self._entries_blocked_reason = "blocked_accounting_reconciled_this_cycle"
+            else:
+                self._entries_blocked_reason = "blocked_accounting_drift_cash_gt_wallet"
+            # Refresh observability after reconciliation attempt.
+            cash_sol = float(self.portfolio.cash_sol)
+            drift = cash_sol - float(wallet_available_sol)
+            self._last_accounting_drift_sol = drift
+            self._last_deployable_sol = self._compute_deployable_sol()
 
     def set_wallet_snapshot(self, *, available_sol: float | None, snapshot_at: str) -> None:
         """Store visibility-only wallet snapshot for dynamic capacity decisions."""
         self._wallet_available_sol = None if available_sol is None else float(available_sol)
         self._wallet_snapshot_at = str(snapshot_at or "") or None
+        # Startup reconciliation: after wallet snapshot becomes available, clamp cash_sol to a
+        # truthful upper bound. Never runs without a wallet snapshot.
+        self._maybe_reconcile_cash_sol(now=str(snapshot_at or "") or utc_now_iso(), trigger="startup_wallet_snapshot")
 
     def _effective_max_open_positions(self) -> int:
         """
@@ -388,6 +460,9 @@ class CreeperDripper:
                 deployable_sol=self._last_deployable_sol,
                 cash_reserve_sol=self.settings.cash_reserve_sol,
                 wallet_snapshot_at=self._wallet_snapshot_at,
+                reconciled_cash_sol=self._last_reconciled_cash_sol,
+                reconciliation_applied=self._last_reconciliation_applied,
+                reconciliation_delta_sol=self._last_reconciliation_delta_sol,
             )
 
         if not self.portfolio.safe_mode_active and not self._entries_blocked_reason:
@@ -425,6 +500,9 @@ class CreeperDripper:
             deployable_sol=deployable_sol,
             accounting_drift_sol=accounting_drift_sol,
             entries_blocked_reason=self._entries_blocked_reason,
+            reconciled_cash_sol=self._last_reconciled_cash_sol,
+            reconciliation_applied=self._last_reconciliation_applied,
+            reconciliation_delta_sol=self._last_reconciliation_delta_sol,
         )
         blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
         zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
@@ -2500,6 +2578,13 @@ class CreeperDripper:
                 None if self._last_accounting_drift_sol is None else round(float(self._last_accounting_drift_sol), 6)
             ),
             "entries_blocked_reason": self._entries_blocked_reason,
+            "reconciled_cash_sol": (
+                None if self._last_reconciled_cash_sol is None else round(float(self._last_reconciled_cash_sol), 6)
+            ),
+            "reconciliation_applied": bool(self._last_reconciliation_applied),
+            "reconciliation_delta_sol": (
+                None if self._last_reconciliation_delta_sol is None else round(float(self._last_reconciliation_delta_sol), 6)
+            ),
         }
 
 

@@ -1295,6 +1295,42 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     # Dynamic capacity (computed from current visibility-only wallet snapshot)
     lamports = executor.native_sol_balance_lamports(wallet) if wallet else None
     wallet_sol = None if lamports is None else float(lamports) / 1_000_000_000.0
+    # Accounting reconciliation snapshot (safe artifact; never writes into state.json).
+    try:
+        pending_proceeds = 0.0
+        cash_before = None
+        if portfolio is not None:
+            cash_before = float(getattr(portfolio, "cash_sol", 0.0) or 0.0)
+            for p in getattr(portfolio, "open_positions", {}).values():
+                try:
+                    pending = float(getattr(p, "pending_proceeds_sol", 0.0) or 0.0)
+                except Exception:
+                    pending = 0.0
+                if pending > 0.0:
+                    pending_proceeds += pending
+        wallet_total_sol = None if wallet_sol is None else float(wallet_sol)
+        reconciled_cash_sol = None
+        reconciliation_delta_sol = None
+        if wallet_total_sol is not None:
+            reconciled_cash_sol = max(0.0, min(float(wallet_total_sol) - float(pending_proceeds), float(wallet_total_sol)))
+            if cash_before is not None:
+                reconciliation_delta_sol = float(reconciled_cash_sol) - float(cash_before)
+        snapshot_payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "wallet_available_sol": wallet_total_sol,
+            "pending_proceeds_sol": round(float(pending_proceeds), 9),
+            "cash_sol_before": None if cash_before is None else round(float(cash_before), 9),
+            "reconciled_cash_sol": None if reconciled_cash_sol is None else round(float(reconciled_cash_sol), 9),
+            "reconciliation_delta_sol": None
+            if reconciliation_delta_sol is None
+            else round(float(reconciliation_delta_sol), 9),
+            "epsilon_sol": float(getattr(settings, "accounting_drift_epsilon_sol", 0.001) or 0.001),
+            "note": "Snapshot only. This file does not modify state.json.",
+        }
+        atomic_write_json(settings.runtime_dir / "accounting_snapshot.json", snapshot_payload)
+        print(json.dumps({"accounting_snapshot_path": str(settings.runtime_dir / "accounting_snapshot.json")}, indent=2))
+    except Exception as exc:
+        LOGGER.warning("doctor_accounting_snapshot_failed: %s", exc)
     # Hachi birth baseline initialization (first interaction wins: doctor or run startup).
     # Never overwrite if already set.
     try:
@@ -1302,7 +1338,6 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
             now = datetime.now(timezone.utc).isoformat()
             portfolio.hachi_birth_wallet_sol = float(wallet_sol)
             portfolio.hachi_birth_timestamp = now
-            save_portfolio(settings.state_path, portfolio)
             # Also surface in current settings instance for this doctor output.
             settings.hachi_birth_wallet_sol = float(wallet_sol)
             settings.hachi_birth_timestamp = now
