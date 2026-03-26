@@ -1,164 +1,41 @@
 {
-  "task_id": "T-005-T-008",
-  "title": "FINAL_ZOMBIE, Exit Counters, Dripper Observability, Accounting Hardening",
+  "task_id": "T-013",
+  "title": "Accounting safety guard for entries",
   "status": "ready_for_cursor_validation",
-  "agent": "CLAUDE",
+  "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Four coordinated additions to the trading engine, all additive and zero-CU. T-005: FINAL_ZOMBIE terminal state — when ZOMBIE_MAX_RETRY_CYCLES > 0, a ZOMBIE position that exceeds that cycle count is promoted to FINAL_ZOMBIE (no more probes, no more retries, no auto-close). FINAL_ZOMBIE positions are excluded from effective occupancy so they do not block new entries. T-006: Truthful exit counters — cycle summary and exit_blocked_summary event now include zombie_positions, final_zombie_positions, and exit_stuck_total. T-007: Dripper not-armed observability — when the Hachi dripper is eligible but not armed, a dripper_not_armed event is emitted distinguishing 'tp_threshold_not_reached' / 'tp_level_already_dripped' / 'tp_level_gate'. T-008: Startup accounting audit — run_startup_recovery logs WARNING for any position with pending_proceeds_sol > 0 and CRITICAL for any FINAL_ZOMBIE position, before any recovery attempts. FINAL_ZOMBIE positions are skipped in the recovery loop (no transaction_status call). All changes: minimal diff, no architecture changes, zero Birdeye/RPC CU impact.",
-
-  "what_changed": {
-    "T-005_FINAL_ZOMBIE_terminal_state": {
-      "file": "creeper_dripper/engine/trader.py",
-      "change": "_handle_exit_blocked_survival_layer Stage 3: after existing ZOMBIE path, checks zombie_max_retry_cycles (from config). If blocked_cycles >= zombie_max > 0, promotes to FINAL_ZOMBIE: sets position.status=POSITION_FINAL_ZOMBIE, position.final_zombie_at=now, emits position_final_zombie event, appends FINAL_ZOMBIE TradeDecision, returns immediately (no further probes this cycle).",
-      "config": "creeper_dripper/config.py — added zombie_max_retry_cycles: int = 0 (default 0 disables FINAL_ZOMBIE promotion, backward compatible).",
-      "model": "creeper_dripper/models.py — added final_zombie_at: str | None = None to PositionState.",
-      "errors": "creeper_dripper/errors.py — added POSITION_FINAL_ZOMBIE = 'FINAL_ZOMBIE'.",
-      "capacity": "_maybe_open_positions: computes final_zombie_count = sum(1 for p in open_positions if p.status==FINAL_ZOMBIE) and subtracts from occupancy before checking MAX_OPEN_POSITIONS. FINAL_ZOMBIE positions do not block new entries."
-    },
-    "T-006_exit_counters": {
-      "file": "creeper_dripper/engine/trader.py",
-      "change_cycle_summary": "_cycle_summary now computes zombie_positions_count and final_zombie_positions_count from open_positions and exit_stuck_total (positions in EXIT_PENDING/RECONCILE_PENDING with exit_retry_count > 0); adds zombie_positions, final_zombie_positions, exit_stuck_total to returned dict.",
-      "change_exit_blocked_summary_event": "run_cycle post-loop exit_blocked_summary event now includes final_zombie_positions, exit_stuck_total, pending_proceeds_sol_total."
-    },
-    "T-007_dripper_observability": {
-      "file": "creeper_dripper/engine/trader.py",
-      "change": "_run_hachi_dripper: when eligible_tp is False (position not armed for drip), now determines not_armed_reason: 'tp_threshold_not_reached' if no TP level was reached at current PnL, 'tp_level_already_dripped' if current TP <= hachi_last_tp_level, else 'tp_level_gate'. Emits dripper_not_armed event with position_id, pnl_pct, not_armed_reason, hachi_last_tp_level. DRIPPER_WAIT TradeDecision metadata now includes not_armed_reason."
-    },
-    "T-008_accounting_hardening": {
-      "file": "creeper_dripper/storage/recovery.py",
-      "change": "Pre-loop startup accounting audit: iterates all open_positions, logs WARNING for any position with pending_proceeds_sol > 0 (cash debited but buy unconfirmed), logs CRITICAL for any position with status==FINAL_ZOMBIE. Recovery loop: FINAL_ZOMBIE positions get an early continue — no transaction_status lookup, no recovery attempt."
-    }
-  },
-
+  "summary": "Block new entries when wallet snapshot is missing or when cash_sol materially exceeds wallet snapshot (drift > epsilon). Replace deployable calculation with max(0, min(cash_sol, wallet_available_sol) - cash_reserve_sol). Surface wallet_available_sol, cash_sol, deployable_sol, accounting_drift_sol, and entries_blocked_reason in cycle summary and entry_capacity_mode_summary. No new external calls; exits/recovery unchanged.",
   "files_changed": [
     "creeper_dripper/engine/trader.py",
-    "creeper_dripper/errors.py",
-    "creeper_dripper/models.py",
     "creeper_dripper/config.py",
-    "creeper_dripper/storage/recovery.py",
-    "tests/test_t005_t008_bundle.py"
-  ],
-  "files_not_changed": [
-    "creeper_dripper/discovery/discovery.py",
-    "creeper_dripper/execution/executor.py",
-    "creeper_dripper/storage/state.py",
-    "creeper_dripper/cli/main.py",
-    "tests/test_cash_sol_accounting.py"
-  ],
-
-  "why_safe": [
-    "FINAL_ZOMBIE promotion is gated by ZOMBIE_MAX_RETRY_CYCLES (default 0 = disabled). Existing deployments without this env var are completely unaffected.",
-    "FINAL_ZOMBIE is a terminal state with no auto-close. Capital is not moved. Operator must intervene manually.",
-    "Capacity exclusion: final_zombie_count subtracted at _maybe_open_positions call site only, not inside _effective_max_open_positions. Shared capacity function unchanged.",
-    "Exit counters are additive to _cycle_summary and event payloads — no existing consumer is broken by new keys.",
-    "dripper_not_armed event is emitted only when the dripper is already not firing — no drip behavior changed.",
-    "Startup accounting audit is read-only (logging only). FINAL_ZOMBIE early-continue prevents unnecessary network calls (transaction_status) not removes any recovery logic that was previously running.",
-    "Zero new Birdeye or Jupiter calls introduced. Zero CU impact.",
-    "models.py: final_zombie_at is a new optional field with default None — backward compatible with all existing persisted state.",
-    "config.py: zombie_max_retry_cycles=0 default is backward compatible with existing .env files that do not set ZOMBIE_MAX_RETRY_CYCLES."
-  ],
-
-  "new_events_emitted": [
-    {
-      "name": "position_final_zombie",
-      "when": "ZOMBIE promoted to FINAL_ZOMBIE when blocked_cycles >= ZOMBIE_MAX_RETRY_CYCLES > 0",
-      "fields": "token_mint, position_id, blocked_cycles, zombie_max_retry_cycles, zombie_since, final_zombie_at"
-    },
-    {
-      "name": "dripper_not_armed",
-      "when": "Hachi dripper position not eligible for drip this cycle",
-      "fields": "token_mint, position_id, pnl_pct, not_armed_reason, hachi_last_tp_level",
-      "not_armed_reason_values": ["tp_threshold_not_reached", "tp_level_already_dripped", "tp_level_gate"]
-    }
-  ],
-
-  "new_fields_on_events": [
-    {
-      "event": "exit_blocked_summary",
-      "added_fields": ["final_zombie_positions", "exit_stuck_total", "pending_proceeds_sol_total"]
-    },
-    {
-      "event": "_cycle_summary return dict",
-      "added_fields": ["zombie_positions", "final_zombie_positions", "exit_stuck_total"]
-    },
-    {
-      "event": "DRIPPER_WAIT TradeDecision metadata",
-      "added_fields": ["not_armed_reason"]
-    }
-  ],
-
-  "new_tests": {
-    "file": "tests/test_t005_t008_bundle.py",
-    "count": 10,
-    "tests": [
-      "test_final_zombie_promoted_after_max_retry_cycles — drives ZOMBIE through ZOMBIE_MAX_RETRY_CYCLES+1 cycles, asserts FINAL_ZOMBIE status + event + TradeDecision",
-      "test_final_zombie_stops_all_probes_after_promotion — after FINAL_ZOMBIE, no quote_sell calls on subsequent cycles",
-      "test_final_zombie_disabled_when_max_zero — ZOMBIE_MAX_RETRY_CYCLES=0 keeps position as ZOMBIE indefinitely",
-      "test_final_zombie_excluded_from_effective_capacity — FINAL_ZOMBIE with MAX_OPEN_POSITIONS=1, new entry still allowed",
-      "test_cycle_summary_includes_zombie_and_stuck_counters — verifies zombie_positions, final_zombie_positions, exit_stuck_total in _cycle_summary",
-      "test_exit_blocked_summary_event_includes_final_zombie — exit_blocked_summary event field assertions",
-      "test_dripper_not_armed_emits_event_with_reason — TP not reached → dripper_not_armed event with reason='tp_threshold_not_reached'",
-      "test_startup_audit_logs_pending_proceeds — caplog WARNING for pending_proceeds_sol > 0",
-      "test_startup_audit_logs_final_zombie — caplog CRITICAL for FINAL_ZOMBIE position",
-      "test_final_zombie_skipped_in_startup_recovery — no transaction_status call for FINAL_ZOMBIE, status unchanged"
-    ]
-  },
-
-  "required_validation": [
-    {
-      "name": "t005_t008_bundle_tests",
-      "command": ".venv/bin/python -m pytest -q tests/test_t005_t008_bundle.py -v",
-      "expected": "10 passed, 0 failed"
-    },
-    {
-      "name": "exit_regression_suite",
-      "command": ".venv/bin/python -m pytest -q tests/test_position_exits.py tests/test_exit_blocked_recovery.py tests/test_recovery_and_state.py tests/test_drip_exit.py tests/test_retry_backoff_bounds.py",
-      "expected": "all passed, 0 failed"
-    },
-    {
-      "name": "cash_sol_accounting_preserved",
-      "command": ".venv/bin/python -m pytest -q tests/test_cash_sol_accounting.py",
-      "expected": "4 passed, 0 failed"
-    },
-    {
-      "name": "full_suite",
-      "command": ".venv/bin/python -m pytest -q",
-      "expected": "223 passed, 0 failed (213 baseline + 10 new)"
-    },
-    {
-      "name": "doctor",
-      "command": ".venv/bin/creeper-dripper doctor",
-      "expected": "ok: true"
-    },
-    {
-      "name": "confirm_no_cu_change",
-      "command": "git diff HEAD -- creeper_dripper/engine/trader.py creeper_dripper/storage/recovery.py | grep -E '^\\+' | grep -E 'birdeye\\.|token_overview|token_security|token_holder|token_creation_info|getSignatureStatuses|native_sol_balance' | grep -v '^\\+\\+\\+' || echo 'CLEAN: no new Birdeye/RPC calls'",
-      "expected": "CLEAN: no new Birdeye/RPC calls"
-    }
-  ],
-
-  "files_to_stage_and_commit": [
-    "creeper_dripper/engine/trader.py",
-    "creeper_dripper/errors.py",
-    "creeper_dripper/models.py",
-    "creeper_dripper/config.py",
-    "creeper_dripper/storage/recovery.py",
-    "tests/test_t005_t008_bundle.py",
+    "tests/test_accounting_safety_guard.py",
+    "tests/test_phase3_observability.py",
     "docs/workflow/claude_task_result.json"
   ],
-
-  "commit_message": "feat: FINAL_ZOMBIE terminal state, exit counters, dripper observability, accounting hardening (T-005–T-008)\n\nT-005: Add FINAL_ZOMBIE terminal state. When ZOMBIE_MAX_RETRY_CYCLES > 0,\na ZOMBIE position exceeding that cycle count is promoted to FINAL_ZOMBIE:\nno more probes, no retries, no auto-close. FINAL_ZOMBIE positions are\nexcluded from occupancy count so they do not block new entries. Default\nZOMBIE_MAX_RETRY_CYCLES=0 preserves existing behavior exactly.\n\nT-006: Add zombie_positions, final_zombie_positions, exit_stuck_total to\n_cycle_summary return dict and exit_blocked_summary event. Truthful\nvisibility into stuck exit state without changing any exit logic.\n\nT-007: Emit dripper_not_armed event with not_armed_reason when Hachi\ndripper is not armed: 'tp_threshold_not_reached', 'tp_level_already_dripped',\nor 'tp_level_gate'. DRIPPER_WAIT TradeDecision metadata includes reason.\n\nT-008: run_startup_recovery now logs WARNING for positions with\npending_proceeds_sol > 0 and CRITICAL for FINAL_ZOMBIE positions before\nany recovery. FINAL_ZOMBIE skipped in recovery loop (no tx lookup).\n\nAdded tests/test_t005_t008_bundle.py: 10 focused tests.\nZero CU impact. No architecture changes.",
-
-  "notes_for_cursor": [
-    "ZOMBIE_MAX_RETRY_CYCLES env var not set = 0 = FINAL_ZOMBIE disabled. Safe to deploy without setting it.",
-    "FINAL_ZOMBIE positions remain in open_positions (visible in state) until operator manually removes them. This is intentional: audit trail.",
-    "final_zombie_at field on PositionState is new (default None). Existing persisted state files load cleanly — dataclass field with default.",
-    "Exit baseline before this bundle: 213 passed (209 + 4 from T-004). Expected after: 223 passed (213 + 10 new).",
-    "cursor_validation_result.json currently contains T-003/T-004 results — overwrite with T-005–T-008 validation output."
+  "why_safe": [
+    "Guard affects entries only: exits/recovery logic is unchanged.",
+    "No new RPC/Birdeye/Jupiter calls were added; wallet snapshot is already an injected visibility input.",
+    "Deployable becomes more conservative and zero when snapshot is missing."
   ],
-
-  "previous_task": "T-004",
-  "previous_task_status": "committed",
-  "next_task": "T-003",
-  "next_task_description": "CU budget guard per cycle — design and implementation (backlog)"
+  "required_validation": [
+    {
+      "name": "accounting_guard_tests",
+      "command": ".venv/bin/python -m pytest tests/test_accounting_safety_guard.py -v"
+    },
+    {
+      "name": "observability_regression",
+      "command": ".venv/bin/python -m pytest tests/test_phase3_observability.py::test_entry_capacity_mode_summary_emitted -v"
+    }
+  ],
+  "optional_validation": [
+    {
+      "name": "full_suite",
+      "command": ".venv/bin/python -m pytest -q"
+    }
+  ],
+  "expected_results": {
+    "tests": "All required tests pass."
+  },
+  "commit_message": "Add entry accounting safety guard and truthful deployable",
+  "notes_for_cursor": "Scope is limited to trader/config plus focused tests and this handoff JSON. Do not add external calls. Do not write doctor output into state.json."
 }

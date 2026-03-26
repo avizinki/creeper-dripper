@@ -91,6 +91,9 @@ class Settings:
     # After this many total blocked cycles a ZOMBIE becomes FINAL_ZOMBIE (terminal; no more retries).
     # 0 disables terminal promotion (zombie retries forever — pre-T-005 behaviour).
     zombie_max_retry_cycles: int = 0
+    # When cash_sol materially exceeds a wallet snapshot, treat accounting as untrusted and
+    # block new entries (exits/recovery unaffected).
+    accounting_drift_epsilon_sol: float = 0.001
     # Hachi-style dripper: replaces TP-ladder as the primary sell controller.
     # When True, every cycle probes Jupiter sell quotes for small chunks and
     # executes immediately when route quality is acceptable — no TP threshold
@@ -180,6 +183,8 @@ class Settings:
             errors.append("HARD_MAX_DAILY_NEW_POSITIONS must be >= 1")
         if self.hard_max_daily_new_positions < self.max_daily_new_positions:
             errors.append("HARD_MAX_DAILY_NEW_POSITIONS must be >= MAX_DAILY_NEW_POSITIONS")
+        if self.accounting_drift_epsilon_sol <= 0:
+            errors.append("ACCOUNTING_DRIFT_EPSILON_SOL must be > 0")
         if errors:
             raise RuntimeError("Configuration validation failed:\n- " + "\n- ".join(errors))
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -273,6 +278,7 @@ def load_settings() -> Settings:
         exit_blocked_micro_probe_cycles=env_int("EXIT_BLOCKED_MICRO_PROBE_CYCLES", 8),
         zombie_retry_interval_cycles=env_int("ZOMBIE_RETRY_INTERVAL_CYCLES", 10),
         zombie_max_retry_cycles=env_int("ZOMBIE_MAX_RETRY_CYCLES", 0),
+        accounting_drift_epsilon_sol=env_float("ACCOUNTING_DRIFT_EPSILON_SOL", 0.001),
         log_level=env_str("LOG_LEVEL", "INFO"),
         drip_exit_enabled=env_bool("DRIP_EXIT_ENABLED", False),
         drip_chunk_pcts=env_csv_floats("DRIP_CHUNK_PCTS", [0.10, 0.25, 0.50]),

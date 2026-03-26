@@ -203,6 +203,10 @@ class CreeperDripper:
         # Wallet snapshot (visibility/bootstrap only; never settlement truth).
         self._wallet_available_sol: float | None = None
         self._wallet_snapshot_at: str | None = None
+        # Per-cycle accounting guard (entries only).
+        self._entries_blocked_reason: str | None = None
+        self._last_deployable_sol: float | None = None
+        self._last_accounting_drift_sol: float | None = None
         if self.settings.run_id:
             self.portfolio.run_id = self.settings.run_id
         LOGGER.info(
@@ -212,6 +216,33 @@ class CreeperDripper:
             settings.candidate_cache_ttl_seconds,
             settings.route_check_cache_ttl_seconds,
         )
+
+    def _compute_deployable_sol(self) -> float:
+        cash_sol = float(self.portfolio.cash_sol)
+        reserve = float(self.settings.cash_reserve_sol)
+        wallet_available_sol = self._wallet_available_sol
+        if wallet_available_sol is None:
+            return 0.0
+        return max(0.0, min(cash_sol, float(wallet_available_sol)) - reserve)
+
+    def _update_entry_accounting_guard(self) -> None:
+        """Compute per-cycle entry guard + observability fields (entries only)."""
+        self._entries_blocked_reason = None
+        cash_sol = float(self.portfolio.cash_sol)
+        wallet_available_sol = self._wallet_available_sol
+        drift: float | None = None
+        if wallet_available_sol is not None:
+            drift = cash_sol - float(wallet_available_sol)
+        self._last_accounting_drift_sol = drift
+        self._last_deployable_sol = self._compute_deployable_sol()
+
+        if wallet_available_sol is None:
+            self._entries_blocked_reason = "blocked_wallet_snapshot_missing"
+            return
+
+        epsilon = float(getattr(self.settings, "accounting_drift_epsilon_sol", 0.001) or 0.001)
+        if drift is not None and drift > epsilon:
+            self._entries_blocked_reason = "blocked_accounting_drift_cash_gt_wallet"
 
     def set_wallet_snapshot(self, *, available_sol: float | None, snapshot_at: str) -> None:
         """Store visibility-only wallet snapshot for dynamic capacity decisions."""
@@ -235,9 +266,11 @@ class CreeperDripper:
         if not getattr(self.settings, "dynamic_capacity_enabled", True):
             return min(baseline, hard_cap)
 
-        available_sol = self._wallet_available_sol
-        if available_sol is None:
-            available_sol = float(self.portfolio.cash_sol)
+        wallet_available_sol = self._wallet_available_sol
+        if wallet_available_sol is None:
+            available_sol = 0.0
+        else:
+            available_sol = min(float(self.portfolio.cash_sol), float(wallet_available_sol))
         reserve = float(self.settings.cash_reserve_sol)
         deployable = max(0.0, available_sol - reserve)
 
@@ -271,9 +304,11 @@ class CreeperDripper:
         if not getattr(self.settings, "dynamic_capacity_enabled", True):
             return min(baseline, hard_cap)
 
-        available_sol = self._wallet_available_sol
-        if available_sol is None:
-            available_sol = float(self.portfolio.cash_sol)
+        wallet_available_sol = self._wallet_available_sol
+        if wallet_available_sol is None:
+            available_sol = 0.0
+        else:
+            available_sol = min(float(self.portfolio.cash_sol), float(wallet_available_sol))
         reserve = float(self.settings.cash_reserve_sol)
         deployable = max(0.0, available_sol - reserve)
 
@@ -341,7 +376,21 @@ class CreeperDripper:
             self.portfolio.safe_mode_active = False
             self.portfolio.safety_stop_reason = None
 
-        if not self.portfolio.safe_mode_active:
+        self._update_entry_accounting_guard()
+        if self._entries_blocked_reason:
+            self.events.emit(
+                "entries_blocked",
+                self._entries_blocked_reason,
+                reason=self._entries_blocked_reason,
+                cash_sol=self.portfolio.cash_sol,
+                wallet_available_sol=self._wallet_available_sol,
+                accounting_drift_sol=self._last_accounting_drift_sol,
+                deployable_sol=self._last_deployable_sol,
+                cash_reserve_sol=self.settings.cash_reserve_sol,
+                wallet_snapshot_at=self._wallet_snapshot_at,
+            )
+
+        if not self.portfolio.safe_mode_active and not self._entries_blocked_reason:
             self._maybe_open_positions(candidates, decisions, now)
         self._mark_positions(candidates, decisions, now)
         self.portfolio.last_cycle_at = now
@@ -350,10 +399,8 @@ class CreeperDripper:
         self.events.emit("cycle_summary", "ok", **cycle_summary)
         effective_max_open_positions = self._effective_max_open_positions()
         wallet_available_sol = self._wallet_available_sol
-        reserve = float(self.settings.cash_reserve_sol)
-        deployable_sol = None
-        if wallet_available_sol is not None:
-            deployable_sol = max(0.0, float(wallet_available_sol) - reserve)
+        deployable_sol = self._last_deployable_sol
+        accounting_drift_sol = self._last_accounting_drift_sol
         effective_max_daily_new_positions = self._effective_max_daily_new_positions()
         self.events.emit(
             "entry_capacity_mode_summary",
@@ -376,6 +423,8 @@ class CreeperDripper:
             wallet_snapshot_at=self._wallet_snapshot_at,
             hachi_birth_wallet_sol=getattr(self.settings, "hachi_birth_wallet_sol", None) or getattr(self.portfolio, "hachi_birth_wallet_sol", None),
             deployable_sol=deployable_sol,
+            accounting_drift_sol=accounting_drift_sol,
+            entries_blocked_reason=self._entries_blocked_reason,
         )
         blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
         zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
@@ -2373,9 +2422,11 @@ class CreeperDripper:
         entries_execute_failed = sum(1 for d in decisions if d.action == "BUY_SKIP" and d.metadata.get("phase") == "execute")
         # execution_failures already excludes mode-gated skips.
         unknown_exits = sum(1 for d in decisions if d.action == "SELL_PENDING")
-        available_sol = self._wallet_available_sol
-        if available_sol is None:
-            available_sol = float(self.portfolio.cash_sol)
+        wallet_available_sol = self._wallet_available_sol
+        if wallet_available_sol is None:
+            available_sol = 0.0
+        else:
+            available_sol = min(float(self.portfolio.cash_sol), float(wallet_available_sol))
         birth_sol = getattr(self.settings, "hachi_birth_wallet_sol", None) or getattr(self.portfolio, "hachi_birth_wallet_sol", None)
         hachi_capacity_scale: float | None = None
         try:
@@ -2442,6 +2493,13 @@ class CreeperDripper:
             "opened_today_count": self.portfolio.opened_today_count,
             "hachi_capacity_scale": hachi_capacity_scale,
             "safe_mode_active": self.portfolio.safe_mode_active,
+            "cash_sol": round(float(self.portfolio.cash_sol), 6),
+            "wallet_available_sol": wallet_available_sol,
+            "deployable_sol": None if self._last_deployable_sol is None else round(float(self._last_deployable_sol), 6),
+            "accounting_drift_sol": (
+                None if self._last_accounting_drift_sol is None else round(float(self._last_accounting_drift_sol), 6)
+            ),
+            "entries_blocked_reason": self._entries_blocked_reason,
         }
 
 

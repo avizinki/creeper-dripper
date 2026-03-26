@@ -1,31 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T12:30:20.572064+00:00",
+  "generated_at": "2026-03-26T13:10:33.092692+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-005-T-008",
+  "task_id": "T-013",
   "validations": [
     {
-      "name": "t005_t008_bundle_tests",
-      "command": ".venv/bin/python -m pytest -q tests/test_t005_t008_bundle.py -v",
+      "name": "accounting_guard_tests",
+      "command": ".venv/bin/python -m pytest tests/test_accounting_safety_guard.py -v",
       "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollected 10 items\n\ntests/test_t005_t008_bundle.py ..........                                [100%]\n\n============================== 10 passed in 0.07s ==============================\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 3 items\n\ntests/test_accounting_safety_guard.py::test_wallet_snapshot_missing_blocks_entries_and_deployable_zero PASSED [ 33%]\ntests/test_accounting_safety_guard.py::test_wallet_lower_than_cash_clamps_deployable_and_blocks_on_drift PASSED [ 66%]\ntests/test_accounting_safety_guard.py::test_with_large_epsilon_no_block_and_deployable_uses_wallet_floor PASSED [100%]\n\n============================== 3 passed in 0.06s ===============================\n",
       "stderr": "",
       "ok": true
     },
     {
-      "name": "exit_regression_suite",
-      "command": ".venv/bin/python -m pytest -q tests/test_position_exits.py tests/test_exit_blocked_recovery.py tests/test_recovery_and_state.py tests/test_drip_exit.py tests/test_retry_backoff_bounds.py",
+      "name": "observability_regression",
+      "command": ".venv/bin/python -m pytest tests/test_phase3_observability.py::test_entry_capacity_mode_summary_emitted -v",
       "exit_code": 0,
-      "stdout": ".....................................                                    [100%]\n37 passed in 0.17s\n",
-      "stderr": "",
-      "ok": true
-    },
-    {
-      "name": "cash_sol_accounting_preserved",
-      "command": ".venv/bin/python -m pytest -q tests/test_cash_sol_accounting.py",
-      "exit_code": 0,
-      "stdout": "....                                                                     [100%]\n4 passed in 0.07s\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 1 item\n\ntests/test_phase3_observability.py::test_entry_capacity_mode_summary_emitted PASSED [100%]\n\n============================== 1 passed in 0.05s ===============================\n",
       "stderr": "",
       "ok": true
     },
@@ -33,24 +25,8 @@
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q",
       "exit_code": 0,
-      "stdout": "........................................................................ [ 32%]\n........................................................................ [ 64%]\n........................................................................ [ 96%]\n.......                                                                  [100%]\n223 passed in 1.96s\n",
+      "stdout": "........................................................................ [ 31%]\n........................................................................ [ 63%]\n........................................................................ [ 95%]\n..........                                                               [100%]\n226 passed in 1.95s\n",
       "stderr": "",
-      "ok": true
-    },
-    {
-      "name": "doctor",
-      "command": ".venv/bin/creeper-dripper doctor",
-      "exit_code": 0,
-      "stdout": "interpreter=/Users/yoav/git/creeper-dripper/.venv/bin/python3.14\nvenv_active=true\ncli_path=/opt/homebrew/bin/creeper-dripper\ninstall_hint=from project root with venv activated: pip install -e .\n{\n  \"ok\": true,\n  \"checks\": [\n    {\n      \"check\": \"config_load\",\n      \"ok\": true\n    },\n    {\n      \"check\": \"mode_flags\",\n      \"ok\": true,\n      \"dry_run\": false,\n      \"live_trading_enabled\": true\n    },\n    {\n      \"check\": \"wallet_path\",\n      \"ok\": true,\n      \"path\": \"/Users/yoav/git/creepers-bot/wallets/3LEZ/wallet_3LEZ.json\"\n    },\n    {\n      \"check\": \"runtime_dir_writable\",\n      \"ok\": true,\n      \"path\": \"runtime\"\n    },\n    {\n      \"check\": \"birdeye_auth\",\n      \"ok\": true\n    },\n    {\n      \"check\": \"jupiter_probe_reachable_v1_quote\",\n      \"ok\": true,\n      \"endpoint\": \"GET /swap/v1/quote\"\n    },\n    {\n      \"check\": \"jupiter_execution_reachable_v1_swap\",\n      \"ok\": true,\n      \"endpoint\": \"POST /swap/v1/swap\"\n    },\n    {\n      \"check\": \"safe_mode_state\",\n      \"ok\": true,\n      \"safe_mode_active\": false,\n      \"safety_stop_reason\": null,\n      \"ignored_stale_market_data_outside_run\": false\n    }\n  ]\n}\n\n=== WALLET SNAPSHOT (visibility only) ===\nnote: visibility/bootstrap only (NOT settlement truth; NOT execution truth; does NOT modify state)\nwallet=3LEZBhZiBjmaFN4uwZvncoS3MvDq4cPhSCgMjH3vS5HR\nwallet_native_sol_snapshot_rpc=0.349977\nwallet_token_count_birdeye=23\nwallet_total_usd_birdeye=79.52503255572063\nholdings_top:\n  - SOL So11111111111111111111111111111111111111111 ui=0.349977084 usd=30.693849831253175\n  - CHIP 7BkudzCbzbDJfTG3EMwSfVEvdiTTc2ciVjScfn6GVj6Y ui=48315.611407 usd=7.0002804941737615\n  - PHRs 5GcE51nwJqLQVfNmBrYnU3nDRoso83AViauBAwufxjrk ui=43068.907324 usd=6.497700255759043\n  - VDOR E7jjkgo2dgwfEaPUi6cbYiZ6iDxhDqLq53sZxXCwEBSy ui=98241.854416 usd=6.3137689621107045\n  - swarms 74SBV4zDXxTRgv1pEMoECskKBkZHc2yGPnc7GYVepump ui=732.4856 usd=5.604116346391704\n  - retire zGh48JtNHVBb5evgoZLXwgPD2Qu4MhkWdJLGDAupump ui=1640.506278 usd=5.384946844102997\n  - GME 8wXtPeU6557ETkp9WHFY1n1EcU6NxDvbAggHGsMYiHsB ui=8469.708989434 usd=5.1991650191552266\n  - PAIN 1Qf8gESP4i6CFNWerUSDdLKJ9U1LpqTYvjJ2MM4pain ui=7.227533 usd=4.68036274326982\n\n=== DYNAMIC CAPACITY (entries only; visibility-derived) ===\nnote: affects entries only (never exits; never settlement truth)\ndynamic_capacity_enabled=true\nhard_max_open_positions=10\neffective_max_open_positions=10\nmax_daily_new_positions=10\nhard_max_daily_new_positions=10\neffective_max_daily_new_positions=10\nopened_today_count=7\nopened_today_date=2026-03-26\nhachi_capacity_scale=0.5873429825358004\nhachi_birth_wallet_sol=0.595864928\nhachi_birth_timestamp=2026-03-25T23:22:06.386052+00:00\ncurrent_wallet_sol_snapshot=0.349977084\ndeployable_sol=0.249977084\n\n=== ENV SNAPSHOT (masked) ===\nDRY_RUN=false\nLIVE_TRADING_ENABLED=true\nHACHI_DRIPPER_ENABLED=true\nHACHI_MAX_PRICE_IMPACT_BPS=900\nDRIP_EXIT_ENABLED=false\nUSE_JUPITER_MANAGED_EXECUTION=true\nRUNTIME_DIR=runtime\nSTATE_PATH=runtime/state.json\nJOURNAL_PATH=runtime/journal.jsonl\nSOLANA_KEYPAIR_PATH=/Users/yoav/git/creepers-bot/wallets/3LEZ/wallet_3LEZ.json\nWALLET_ADDRESS=\nSOLANA_RPC_URL=\nBIRDEYE_API_KEY=3d4a...ee0 (len=32)\nJUPITER_API_KEY=86ba...dac (len=36)\nBS58_PRIVATE_KEY=(len=0)\nCHAIN=solana\nPOLL_INTERVAL_SECONDS=45\nLOG_LEVEL=INFO\nDISCOVERY_LIMIT=1\nDISCOVERY_MAX_CANDIDATES=2\nDISCOVERY_INTERVAL_SECONDS=30\nMAX_ACTIVE_CANDIDATES=7\nCANDIDATE_CACHE_TTL_SECONDS=120\nROUTE_CHECK_CACHE_TTL_SECONDS=90\nMIN_LIQUIDITY_USD=25000.0\nMIN_EXIT_LIQUIDITY_USD=40000.0\nREQUIRE_BIRDEYE_EXIT_LIQUIDITY=false\nMIN_VOLUME_24H_USD=40000.0\nMIN_BUY_SELL_RATIO=1.01\nMIN_DISCOVERY_SCORE=35.0\nMAX_TOKEN_AGE_HOURS=168....8.0 (len=5)\nBLOCK_MUTABLE_MINT=true\nBLOCK_FREEZABLE=true\nREQUIRE_JUP_SELL_ROUTE=true\nPORTFOLIO_START_SOL=1.0\nMAX_OPEN_POSITIONS=10\nHARD_MAX_OPEN_POSITIONS=10\nENTRY_CAPACITY_MODE=balanced\nBASE_POSITION_SIZE_SOL=0.06\nMAX_POSITION_SIZE_SOL=0.1\nCASH_RESERVE_SOL=0.1\nMIN_ORDER_SIZE_SOL=0.03\nMAX_DAILY_NEW_POSITIONS=10\nHARD_MAX_DAILY_NEW_POSITIONS=10\nCOOLDOWN_MINUTES_AFTER_EXIT=20\nDEFAULT_SLIPPAGE_BPS=250\nMAX_ACCEPTABLE_PRICE_IMPACT_BPS=700\nSTOP_LOSS_PCT=20.0\nTRAILING_STOP_PCT=12.0\nTRAILING_ARM_PCT=25.0\nTIME_STOP_MINUTES=240\nTAKE_PROFIT_LEVELS_PCT=25.0,60.0,120.0,250.0\nTAKE_PROFIT_FRACTIONS=0.05,0.1,0.1,0.15\nFORCE_FULL_EXIT_ON_LIQUIDITY_BREAK=true\nLIQUIDITY_BREAK_RATIO=0.55\nEXIT_PROBE_FRACTIONS=0.1,0.2,0.35,0.5,1.0\nDAILY_REALIZED_LOSS_CAP_SOL=0.25\nMAX_CONSECUTIVE_EXECUTION_FAILURES=4\nSTALE_MARKET_DATA_MINUTES=10\nUNKNOWN_EXIT_SATURATION_LIMIT=6\nMAX_EXIT_BLOCKED_POSITIONS=5\nEXIT_BLOCKED_RETRY_CYCLES=3\nEXIT_BLOCKED_MICRO_PROBE_CYCLES=8\nZOMBIE_RETRY_INTERVAL_CYCLES=10\nDRIP_CHUNK_PCTS=0.1,0.25,0.5\nDRIP_NEAR_EQUAL_BAND=0.002\nDRIP_MIN_CHUNK_WAIT_SECONDS=30\nHACHI_PROFIT_HARVEST_MIN_PCT=5.0\nHACHI_NEUTRAL_FLOOR_PCT=-3.0\nHACHI_EMERGENCY_PNL_PCT=-12.0\nHACHI_WEAKENING_DROP_PCT=4.0\nHACHI_COLLAPSE_DROP_PCT=8.0\nDYNAMIC_CAPACITY_ENABLED=true\nHACHI_BIRTH_WALLET_SOL=0.595864928\nHACHI_BIRTH_TIMESTAMP=2026-03-25T23:22:06.386052+00:00\n",
-      "stderr": "",
-      "ok": true
-    },
-    {
-      "name": "confirm_no_cu_change",
-      "command": "git diff HEAD -- creeper_dripper/engine/trader.py creeper_dripper/storage/recovery.py | grep -E '^\\+' | grep -E 'birdeye\\.|token_overview|token_security|token_holder|token_creation_info|getSignatureStatuses|native_sol_balance' | grep -v '^\\+\\+\\+' || echo 'CLEAN: no new Birdeye/RPC calls'",
-      "exit_code": 0,
-      "stdout": "CLEAN: no new Birdeye/RPC calls\n",
-      "stderr": "grep: repetition-operator operand invalid\n",
       "ok": true
     }
   ],
@@ -59,20 +35,17 @@
     "allowed_paths_basis": [
       "creeper_dripper/config.py",
       "creeper_dripper/engine/trader.py",
-      "creeper_dripper/errors.py",
-      "creeper_dripper/models.py",
-      "creeper_dripper/storage/recovery.py",
       "docs/workflow",
-      "tests/test_t005_t008_bundle.py"
+      "docs/workflow/claude_task_result.json",
+      "tests/test_accounting_safety_guard.py",
+      "tests/test_phase3_observability.py"
     ],
     "dirty_paths": [
       "creeper_dripper/config.py",
       "creeper_dripper/engine/trader.py",
-      "creeper_dripper/errors.py",
-      "creeper_dripper/models.py",
-      "creeper_dripper/storage/recovery.py",
       "docs/workflow/claude_task_result.json",
-      "tests/test_t005_t008_bundle.py"
+      "tests/test_phase3_observability.py",
+      "tests/test_accounting_safety_guard.py"
     ],
     "passed": true,
     "reason": null
@@ -81,14 +54,13 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "4a25add0ac448a81ac35b44cc1288cd3c2b237a1",
+    "sha": "65b4675c15e681469ea823eb2ec6d4ffca1b6ec3",
     "added_paths": [
       "creeper_dripper/engine/trader.py",
-      "creeper_dripper/errors.py",
-      "creeper_dripper/models.py",
       "creeper_dripper/config.py",
-      "creeper_dripper/storage/recovery.py",
-      "tests/test_t005_t008_bundle.py",
+      "tests/test_accounting_safety_guard.py",
+      "tests/test_phase3_observability.py",
+      "docs/workflow/claude_task_result.json",
       "docs/workflow"
     ]
   }

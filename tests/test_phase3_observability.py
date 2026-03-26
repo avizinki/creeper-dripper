@@ -20,6 +20,8 @@ def _settings(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BIRDEYE_API_KEY", "x")
     monkeypatch.setenv("JUPITER_API_KEY", "x")
+    monkeypatch.setenv("DISCOVERY_INTERVAL_SECONDS", "90")
+    monkeypatch.setenv("MAX_ACTIVE_CANDIDATES", "1")
     monkeypatch.setenv("RUNTIME_DIR", str(tmp_path))
     monkeypatch.setenv("STATE_PATH", str(tmp_path / "state.json"))
     monkeypatch.setenv("JOURNAL_PATH", str(tmp_path / "journal.jsonl"))
@@ -177,6 +179,10 @@ def test_entry_capacity_mode_summary_emitted(monkeypatch, tmp_path):
         "early_risk_bucket_enabled",
         "cash_sol",
         "cash_reserve_sol",
+        "wallet_available_sol",
+        "deployable_sol",
+        "accounting_drift_sol",
+        "entries_blocked_reason",
     ):
         assert key in md
 
