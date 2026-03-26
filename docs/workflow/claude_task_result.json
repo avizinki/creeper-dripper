@@ -1,25 +1,24 @@
 {
-  "task_id": "T-022",
-  "title": "Data Capture Hardening for discovery + runtime artifacts",
+  "task_id": "T-023",
+  "title": "Shallow Discovery Capture (wide coverage layer)",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Normalize and harden token data capture across discovery events and runtime journal artifacts so analytics/policy can rely on consistent fields (score, liquidity, buy/sell ratio, age, route state, exit value, zombie classification, and blocked/recovery signals). Changes are additive metadata only; no trading behavior changes.",
+  "summary": "Add additive shallow-capture normalization in high-volume discovery paths so accepted and rejected candidates preserve core economics/route context (score, liquidity, buy/sell ratio, age, route_exists/no_route, price impacts, probe size buckets, rejection reason) without adding API calls or changing trading behavior.",
   "files_changed": [
     "creeper_dripper/engine/discovery.py",
-    "creeper_dripper/engine/trader.py",
-    "tests/test_t022_data_capture_hardening.py",
+    "tests/test_t023_shallow_discovery_capture.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "Discovery changes only add/normalize emitted metadata for candidate_accepted/candidate_rejected; acceptance logic is unchanged.",
-    "Trader changes only enrich persisted journal decision metadata at persistence time; execution sizing, routing, and safety checks are unchanged.",
-    "All new fields are explicit (including nulls) and do not remove existing metadata keys."
+    "Changes are limited to discovery observability payloads (seed prefilter, post-probe accepted/rejected, and probe-driven route rejections) and are metadata-only.",
+    "No new probes/API calls were added; this only persists data already present in seed/candidate/probe objects.",
+    "Field names are normalized and additive, preserving backward compatibility for existing scanners."
   ],
   "required_validation": [
     {
-      "name": "t022_tests",
-      "command": ".venv/bin/python -m pytest tests/test_t022_data_capture_hardening.py -v"
+      "name": "t023_tests",
+      "command": ".venv/bin/python -m pytest tests/test_t023_shallow_discovery_capture.py -v"
     },
     {
       "name": "full_suite",
@@ -30,7 +29,7 @@
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Harden runtime data capture for token analytics and policy",
-  "notes_for_cursor": "Normalized fields added primarily under candidate events (discovery) and journal decision metadata (trader persistence). Focused tests assert presence of required normalized keys."
+  "commit_message": "Add shallow discovery capture for token analytics coverage",
+  "notes_for_cursor": "Shallow normalized capture now emitted at seed-prefilter/overview-limit rejections, prefilter rejections, probe rejections, and accepted candidates. This should improve report recovery for liquidity/ratio/route/price-impact/rejection fields without changing strategy."
 }
 

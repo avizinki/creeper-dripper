@@ -30,6 +30,42 @@ LOGGER = logging.getLogger(__name__)
 
 _EARLY_RISK_SOFT_REJECTS = {REJECT_BAD_BUY_SELL_RATIO, REJECT_LOW_SCORE}
 
+def _normalized_seed_metadata(seed: dict[str, Any], *, rejection_reason: str | None, stage: str) -> dict[str, Any]:
+    """
+    Normalized shallow metadata from seed/prefilter stage.
+
+    No external calls; only values already present in seed payload.
+    """
+    mint = str(seed.get("address") or seed.get("token_address") or seed.get("mint") or "").strip() or None
+    symbol = seed.get("symbol")
+    liquidity = _as_float(seed.get("liquidity") or seed.get("liquidityUSD") or seed.get("liquidity_usd"))
+    recent_volume = _as_float(seed.get("volume24hUSD") or seed.get("volume24h") or seed.get("v24hUSD") or seed.get("volume_24h_usd"))
+    buy_sell_ratio = _as_float(seed.get("buySellRatio") or seed.get("buy_sell_ratio") or seed.get("buySellRatio1h"))
+    age_hours = _seed_age_hours(seed)
+    return {
+        "mint": mint,
+        "symbol": symbol,
+        "score": None,
+        "liquidity_usd": liquidity,
+        "buy_sell_ratio": buy_sell_ratio,
+        "age_hours": age_hours,
+        "recent_volume_usd": recent_volume,
+        "source_stage": stage,
+        "accepted_or_rejected": "rejected",
+        "rejection_reason": rejection_reason,
+        # route/probe fields are unknown at seed stage
+        "route_exists_buy": None,
+        "route_exists_sell": None,
+        "route_exists": None,
+        "no_route": None,
+        "price_impact_bps_buy": None,
+        "price_impact_bps_sell": None,
+        "route_fragile": None,
+        "probe_size_bucket_buy": None,
+        "probe_size_bucket_sell": None,
+    }
+
+
 def _normalized_candidate_metadata(candidate: TokenCandidate, *, liq: float | None = None, liq_min: float | None = None) -> dict[str, Any]:
     """
     Normalized, additive discovery metadata for runtime artifacts.
@@ -41,6 +77,7 @@ def _normalized_candidate_metadata(candidate: TokenCandidate, *, liq: float | No
     buy_ok = bool(candidate.jupiter_buy_out_amount)
     sell_ok = bool(candidate.sell_quote_success and candidate.sell_quote_out_amount)
     no_route = (not buy_ok) or (not sell_ok)
+    route_fragile = True if sell_quality in {"fragile", "weak", "bad"} else False if sell_quality in {"good"} else None
     return {
         # identity
         "mint": candidate.address,
@@ -61,8 +98,14 @@ def _normalized_candidate_metadata(candidate: TokenCandidate, *, liq: float | No
         "no_route": bool(no_route),
         "fragile_route": fragile_route,
         "sell_route_quality": sell_quality,
+        "route_fragile": route_fragile,
         # rejection/acceptance context
         "rejection_reason": None,
+        "source_stage": "candidate",
+        "accepted_or_rejected": None,
+        "recent_volume_usd": candidate.volume_24h_usd,
+        "probe_size_bucket_buy": None,
+        "probe_size_bucket_sell": None,
     }
 
 
@@ -161,7 +204,15 @@ def discover_candidates(
             if prefilter_decision:
                 seed_prefiltered_out += 1
                 rejection_counts[prefilter_decision] += 1
-                events.emit("candidate_rejected", prefilter_decision, symbol=seed.get("symbol"), mint=seed.get("address"), stage="seed_prefilter")
+                events.emit(
+                    "candidate_rejected",
+                    prefilter_decision,
+                    **_normalized_seed_metadata(
+                        seed,
+                        rejection_reason=prefilter_decision,
+                        stage="seed_prefilter",
+                    ),
+                )
                 if progress_callback:
                     ranked = sorted(candidates, key=lambda x: x.discovery_score, reverse=True)
                     progress_callback(
@@ -186,9 +237,11 @@ def discover_candidates(
                 events.emit(
                     "candidate_rejected",
                     "reject_overview_limit",
-                    symbol=seed.get("symbol"),
-                    mint=seed.get("address"),
-                    stage="overview_limit",
+                    **_normalized_seed_metadata(
+                        seed,
+                        rejection_reason="reject_overview_limit",
+                        stage="overview_limit",
+                    ),
                 )
                 continue
 
@@ -248,7 +301,16 @@ def discover_candidates(
             if prelim_reasons:
                 for reason in prelim_reasons:
                     rejection_counts[reason] += 1
-                    events.emit("candidate_rejected", reason, mint=candidate.address, symbol=candidate.symbol, score=candidate.discovery_score, stage="prefilter")
+                    events.emit(
+                        "candidate_rejected",
+                        reason,
+                        **{
+                            **_normalized_candidate_metadata(candidate),
+                            "rejection_reason": reason,
+                            "accepted_or_rejected": "rejected",
+                            "source_stage": "prefilter",
+                        },
+                    )
                 if progress_callback:
                     ranked = sorted(candidates, key=lambda x: x.discovery_score, reverse=True)
                     progress_callback(
@@ -275,10 +337,13 @@ def discover_candidates(
                 events.emit(
                     "candidate_rejected",
                     REJECT_CANDIDATE_BUILD_FAILED,
-                    mint=candidate.address,
-                    symbol=candidate.symbol,
-                    stage="heavy_enrich",
-                    error=str(exc),
+                    **{
+                        **_normalized_candidate_metadata(candidate),
+                        "rejection_reason": REJECT_CANDIDATE_BUILD_FAILED,
+                        "source_stage": "heavy_enrich",
+                        "accepted_or_rejected": "rejected",
+                        "error": str(exc),
+                    },
                 )
                 if progress_callback:
                     ranked = sorted(candidates, key=lambda x: x.discovery_score, reverse=True)
@@ -390,6 +455,9 @@ def discover_candidates(
             rejection_counts[REJECT_NO_BUY_ROUTE] += 1
             md = _normalized_candidate_metadata(candidate)
             md["rejection_reason"] = REJECT_NO_BUY_ROUTE
+            md["source_stage"] = "probe_buy"
+            md["accepted_or_rejected"] = "rejected"
+            md["probe_size_bucket_buy"] = buy_size_bucket
             events.emit(
                 "candidate_rejected",
                 REJECT_NO_BUY_ROUTE,
@@ -423,6 +491,10 @@ def discover_candidates(
                 rejection_counts[reason] += 1
                 md = _normalized_candidate_metadata(candidate)
                 md["rejection_reason"] = reason
+                md["source_stage"] = "probe_sell"
+                md["accepted_or_rejected"] = "rejected"
+                md["probe_size_bucket_buy"] = buy_size_bucket
+                md["probe_size_bucket_sell"] = sell_size_bucket
                 events.emit(
                     "candidate_rejected",
                     reason,
@@ -529,9 +601,13 @@ def discover_candidates(
                     **{
                         **_normalized_candidate_metadata(candidate, liq=liq, liq_min=liq_min),
                         "rejection_reason": None,
+                        "accepted_or_rejected": "accepted",
+                        "source_stage": "post_probe",
                         "soft_rejects": "soft_low_liquidity",
                         "liquidity_soft": True,
                         "liquidity_score_delta": (candidate.raw or {}).get("liquidity_score_delta"),
+                        "probe_size_bucket_buy": buy_size_bucket,
+                        "probe_size_bucket_sell": sell_size_bucket,
                     },
                 )
                 continue
@@ -542,8 +618,12 @@ def discover_candidates(
                 **{
                     **_normalized_candidate_metadata(candidate, liq=liq, liq_min=liq_min),
                     "rejection_reason": None,
+                    "accepted_or_rejected": "accepted",
+                    "source_stage": "post_probe",
                     "liquidity_soft": liquidity_soft,
                     "liquidity_score_delta": (candidate.raw or {}).get("liquidity_score_delta"),
+                    "probe_size_bucket_buy": buy_size_bucket,
+                    "probe_size_bucket_sell": sell_size_bucket,
                 },
             )
             continue
@@ -562,9 +642,13 @@ def discover_candidates(
                     **{
                         **_normalized_candidate_metadata(candidate, liq=liq, liq_min=liq_min),
                         "rejection_reason": None,
+                        "accepted_or_rejected": "accepted",
+                        "source_stage": "post_probe",
                         "soft_rejects": ",".join(soft),
                         "liquidity_soft": liquidity_soft,
                         "liquidity_score_delta": (candidate.raw or {}).get("liquidity_score_delta"),
+                        "probe_size_bucket_buy": buy_size_bucket,
+                        "probe_size_bucket_sell": sell_size_bucket,
                     },
                 )
                 continue
@@ -572,6 +656,10 @@ def discover_candidates(
             rejection_counts[reason] += 1
             metadata = _normalized_candidate_metadata(candidate, liq=liq, liq_min=liq_min)
             metadata["rejection_reason"] = reason
+            metadata["accepted_or_rejected"] = "rejected"
+            metadata["source_stage"] = "post_probe"
+            metadata["probe_size_bucket_buy"] = buy_size_bucket
+            metadata["probe_size_bucket_sell"] = sell_size_bucket
             if reason == REJECT_TOKEN_TOO_OLD:
                 metadata.update(
                     {
