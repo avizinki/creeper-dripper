@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T14:24:19.137017+00:00",
+  "generated_at": "2026-03-26T14:39:25.218456+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
-  "task_id": "T-017",
+  "task_id": "T-018",
   "validations": [
     {
-      "name": "runtime_policy_tests",
-      "command": ".venv/bin/python -m pytest tests/test_runtime_policy.py -v",
+      "name": "policy_status_artifacts_tests",
+      "command": ".venv/bin/python -m pytest tests/test_policy_observability_runtime_artifacts.py -v",
       "exit_code": 0,
-      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 5 items\n\ntests/test_runtime_policy.py::test_low_wallet_shrinks_effective_position_size PASSED [ 20%]\ntests/test_runtime_policy.py::test_zombie_pressure_tightens_policy_caps PASSED [ 40%]\ntests/test_runtime_policy.py::test_base_position_size_sol_is_primary_operator_input PASSED [ 60%]\ntests/test_runtime_policy.py::test_observability_exposes_runtime_risk_mode PASSED [ 80%]\ntests/test_runtime_policy.py::test_aggressive_mode_still_respects_accounting_guard PASSED [100%]\n\n============================== 5 passed in 0.06s ===============================\n",
+      "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.11.15, pytest-9.0.2, pluggy-1.6.0 -- /Users/yoav/git/creeper-dripper/.venv/bin/python\ncachedir: .pytest_cache\nrootdir: /Users/yoav/git/creeper-dripper\nconfigfile: pyproject.toml\nplugins: mock-3.15.1, anyio-4.13.0\ncollecting ... collected 3 items\n\ntests/test_policy_observability_runtime_artifacts.py::test_policy_visible_in_status_low_wallet_constrained PASSED [ 33%]\ntests/test_policy_observability_runtime_artifacts.py::test_policy_visible_in_status_high_zombie_pressure PASSED [ 66%]\ntests/test_policy_observability_runtime_artifacts.py::test_policy_visible_in_status_entry_blocked PASSED [100%]\n\n============================== 3 passed in 0.06s ===============================\n",
       "stderr": "",
       "ok": true
     },
@@ -17,7 +17,7 @@
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q",
       "exit_code": 0,
-      "stdout": "........................................................................ [ 30%]\n........................................................................ [ 60%]\n........................................................................ [ 91%]\n.....................                                                    [100%]\n237 passed in 1.69s\n",
+      "stdout": "........................................................................ [ 30%]\n........................................................................ [ 60%]\n........................................................................ [ 90%]\n........................                                                 [100%]\n240 passed in 1.72s\n",
       "stderr": "",
       "ok": true
     }
@@ -25,17 +25,15 @@
   "all_validations_passed": true,
   "gate": {
     "allowed_paths_basis": [
-      "creeper_dripper/engine/runtime_policy.py",
       "creeper_dripper/engine/trader.py",
       "docs/workflow",
       "docs/workflow/claude_task_result.json",
-      "tests/test_runtime_policy.py"
+      "tests/test_policy_observability_runtime_artifacts.py"
     ],
     "dirty_paths": [
-      "creeper_dripper/engine/runtime_policy.py",
       "creeper_dripper/engine/trader.py",
       "docs/workflow/claude_task_result.json",
-      "tests/test_runtime_policy.py"
+      "tests/test_policy_observability_runtime_artifacts.py"
     ],
     "passed": true,
     "reason": null
@@ -44,11 +42,10 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "7171d7dc67c718e2f96e71aa6521c7f28b7b5e5e",
+    "sha": "8885f678b20c9172f3579e9e33f10a2a4ca0cfaa",
     "added_paths": [
-      "creeper_dripper/engine/runtime_policy.py",
       "creeper_dripper/engine/trader.py",
-      "tests/test_runtime_policy.py",
+      "tests/test_policy_observability_runtime_artifacts.py",
       "docs/workflow/claude_task_result.json",
       "docs/workflow"
     ]

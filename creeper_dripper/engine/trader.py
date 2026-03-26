@@ -2514,6 +2514,7 @@ class CreeperDripper:
                 self.events.emit("persistence_issue", JOURNAL_APPEND_FAILED, path=str(self.settings.journal_path), error=str(exc))
                 raise
         status_path = self.settings.runtime_dir / "status.json"
+        policy_payload = None if self._last_runtime_policy is None else self._last_runtime_policy.to_dict()
         status_payload = {
             "run_id": self.settings.run_id,
             "run_dir": str(self.settings.run_dir) if self.settings.run_dir else None,
@@ -2522,6 +2523,8 @@ class CreeperDripper:
             "safe_mode_active": self.portfolio.safe_mode_active,
             "safety_stop_reason": self.portfolio.safety_stop_reason,
             "summary": cycle_summary,
+            # Dedicated, operator-friendly derived policy payload for dashboard/status consumers.
+            "derived_policy": policy_payload,
         }
         try:
             top_rejections = sorted(
@@ -2705,6 +2708,7 @@ class CreeperDripper:
             "reconciliation_delta_sol": (
                 None if self._last_reconciliation_delta_sol is None else round(float(self._last_reconciliation_delta_sol), 6)
             ),
+            "derived_policy": None if self._last_runtime_policy is None else self._last_runtime_policy.to_dict(),
         }
 
 

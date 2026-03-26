@@ -1,25 +1,23 @@
 {
-  "task_id": "T-017",
-  "title": "Expand derived runtime policy and adaptive control surface",
+  "task_id": "T-018",
+  "title": "Runtime policy verification and observability",
   "status": "ready_for_cursor_validation",
   "agent": "CURSOR",
   "prepared_for": "CURSOR",
-  "summary": "Expand the derived runtime policy layer to compute additional entry thresholds and pressure levels, expose a richer policy explanation, and apply policy outputs as the primary control plane for entry sizing/caps and FINAL_ZOMBIE recovery probe cadence. Safety guards (T-013/T-014) and FINAL_ZOMBIE lifecycle (T-015/T-016) remain intact; legacy env vars remain optional overrides.",
+  "summary": "Ensure expanded derived runtime policy is clearly visible in runtime artifacts (status.json and cycle summaries) via a dedicated derived_policy payload, and add focused tests proving policy fields are emitted/populated for constrained low-wallet, zombie pressure, normal/balanced, and entry-blocked states. No behavior redesign; observability-only additions.",
   "files_changed": [
-    "creeper_dripper/engine/runtime_policy.py",
     "creeper_dripper/engine/trader.py",
-    "tests/test_runtime_policy.py",
+    "tests/test_policy_observability_runtime_artifacts.py",
     "docs/workflow/claude_task_result.json"
   ],
   "why_safe": [
-    "Policy changes are conservative: they tighten thresholds and reduce size/caps under pressure; they do not bypass existing safety rails.",
-    "Accounting safety guard/reconciliation still gate entries first; policy cannot override those blocks.",
-    "FINAL_ZOMBIE recovery probes remain rare and cheap; the policy only adjusts cadence."
+    "Adds observability fields only (status.json + cycle summary payload); does not change trade execution logic.",
+    "Makes policy operator-visible without altering T-013/T-014/T-015 safety behavior."
   ],
   "required_validation": [
     {
-      "name": "runtime_policy_tests",
-      "command": ".venv/bin/python -m pytest tests/test_runtime_policy.py -v"
+      "name": "policy_status_artifacts_tests",
+      "command": ".venv/bin/python -m pytest tests/test_policy_observability_runtime_artifacts.py -v"
     },
     {
       "name": "full_suite",
@@ -30,6 +28,6 @@
   "expected_results": {
     "tests": "All required tests pass."
   },
-  "commit_message": "Expand derived runtime policy and adaptive control surface",
-  "notes_for_cursor": "Scope limited to runtime_policy, trader wiring, focused tests, and workflow artifacts."
+  "commit_message": "Improve runtime policy observability and verification",
+  "notes_for_cursor": "Scope limited to trader status/cycle payload + focused observability tests and workflow artifacts."
 }
