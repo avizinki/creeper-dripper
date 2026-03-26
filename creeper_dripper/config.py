@@ -88,6 +88,9 @@ class Settings:
     drip_chunk_pcts: list[float]
     drip_near_equal_band: float
     drip_min_chunk_wait_seconds: int
+    # After this many total blocked cycles a ZOMBIE becomes FINAL_ZOMBIE (terminal; no more retries).
+    # 0 disables terminal promotion (zombie retries forever — pre-T-005 behaviour).
+    zombie_max_retry_cycles: int = 0
     # Hachi-style dripper: replaces TP-ladder as the primary sell controller.
     # When True, every cycle probes Jupiter sell quotes for small chunks and
     # executes immediately when route quality is acceptable — no TP threshold
@@ -269,6 +272,7 @@ def load_settings() -> Settings:
         exit_blocked_retry_cycles=env_int("EXIT_BLOCKED_RETRY_CYCLES", 3),
         exit_blocked_micro_probe_cycles=env_int("EXIT_BLOCKED_MICRO_PROBE_CYCLES", 8),
         zombie_retry_interval_cycles=env_int("ZOMBIE_RETRY_INTERVAL_CYCLES", 10),
+        zombie_max_retry_cycles=env_int("ZOMBIE_MAX_RETRY_CYCLES", 0),
         log_level=env_str("LOG_LEVEL", "INFO"),
         drip_exit_enabled=env_bool("DRIP_EXIT_ENABLED", False),
         drip_chunk_pcts=env_csv_floats("DRIP_CHUNK_PCTS", [0.10, 0.25, 0.50]),

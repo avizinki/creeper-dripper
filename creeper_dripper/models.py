@@ -170,6 +170,8 @@ class PositionState:
     last_route_check_at: str | None = None
     zombie_reason: str | None = None
     zombie_since: str | None = None
+    # Set when a ZOMBIE is promoted to FINAL_ZOMBIE (terminal; no more retries).
+    final_zombie_at: str | None = None
 
 
 @dataclass(slots=True)

@@ -59,3 +59,7 @@ SAFETY_UNKNOWN_EXIT_SATURATION = "safety_unknown_exit_saturation"
 SAFETY_MAX_EXIT_BLOCKED = "safety_max_exit_blocked_positions"
 
 BIRDEYE_EXIT_LIQUIDITY_UNSUPPORTED_CHAIN = "birdeye_exit_liquidity_unsupported_chain"
+
+# Terminal zombie: position has exhausted all retry attempts and cannot be sold.
+# Operator must intervene manually. Position no longer consumes effective capacity.
+POSITION_FINAL_ZOMBIE = "FINAL_ZOMBIE"

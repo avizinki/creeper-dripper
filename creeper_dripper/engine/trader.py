@@ -27,6 +27,7 @@ from creeper_dripper.errors import (
     EXEC_V2_SIGN_FAILED,
     EXIT_UNKNOWN_PENDING_RECONCILE,
     JOURNAL_APPEND_FAILED,
+    POSITION_FINAL_ZOMBIE,
     POSITION_RECONCILE_PENDING,
     SETTLEMENT_UNCONFIRMED,
     REJECT_ECONOMIC_SANITY_FAILED,
@@ -378,13 +379,24 @@ class CreeperDripper:
         )
         blocked_positions = [p for p in self.portfolio.open_positions.values() if p.status == "EXIT_BLOCKED"]
         zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == "ZOMBIE"]
+        final_zombie_positions = [p for p in self.portfolio.open_positions.values() if p.status == POSITION_FINAL_ZOMBIE]
+        exit_stuck_total = len(blocked_positions) + len(zombie_positions) + len(final_zombie_positions)
+        pending_proceeds_total = sum(
+            float(getattr(p, "pending_proceeds_sol", 0.0) or 0.0)
+            for p in self.portfolio.open_positions.values()
+            if float(getattr(p, "pending_proceeds_sol", 0.0) or 0.0) > 0.0
+        )
         self.events.emit(
             "exit_blocked_summary",
             "ok",
             exit_blocked_positions=len(blocked_positions),
             zombie_positions=len(zombie_positions),
+            final_zombie_positions=len(final_zombie_positions),
+            exit_stuck_total=exit_stuck_total,
             blocked_symbols=[p.symbol for p in blocked_positions],
             zombie_symbols=[p.symbol for p in zombie_positions],
+            final_zombie_symbols=[p.symbol for p in final_zombie_positions],
+            pending_proceeds_sol_total=round(pending_proceeds_total, 9),
         )
         return {
             "timestamp": now,
@@ -653,7 +665,7 @@ class CreeperDripper:
 
         # Stage 3: zombie detection + low-frequency retries.
         if is_blocked_state and blocked_cycles >= micro_stage_max:
-            if position.status != "ZOMBIE":
+            if position.status not in {"ZOMBIE", POSITION_FINAL_ZOMBIE}:
                 position.status = "ZOMBIE"
                 position.zombie_reason = "no_route_persistent"
                 position.zombie_since = now
@@ -664,6 +676,49 @@ class CreeperDripper:
                     symbol=position.symbol,
                     blocked_cycles=blocked_cycles,
                 )
+
+            # Terminal promotion: if zombie_max_retry_cycles is configured (> 0) and the
+            # position has been retrying that long, promote to FINAL_ZOMBIE and stop all
+            # retries. The position is permanently abandoned until operator intervention.
+            zombie_max = int(getattr(self.settings, "zombie_max_retry_cycles", 0) or 0)
+            if zombie_max > 0 and blocked_cycles >= zombie_max:
+                if position.status != POSITION_FINAL_ZOMBIE:
+                    position.status = POSITION_FINAL_ZOMBIE
+                    position.final_zombie_at = now
+                    LOGGER.critical(
+                        "event=position_final_zombie mint=%s symbol=%s position_id=%s "
+                        "blocked_cycles=%s zombie_max_retry_cycles=%s — terminal, no more retries",
+                        position.token_mint,
+                        position.symbol,
+                        position.position_id or position.token_mint,
+                        blocked_cycles,
+                        zombie_max,
+                    )
+                    self.events.emit(
+                        "position_final_zombie",
+                        "max_retry_cycles_exceeded",
+                        mint=position.token_mint,
+                        symbol=position.symbol,
+                        position_id=position.position_id or position.token_mint,
+                        blocked_cycles=blocked_cycles,
+                        zombie_max_retry_cycles=zombie_max,
+                    )
+                    decisions.append(
+                        TradeDecision(
+                            action="FINAL_ZOMBIE",
+                            token_mint=position.token_mint,
+                            symbol=position.symbol,
+                            reason="max_retry_cycles_exceeded",
+                            metadata={
+                                "blocked_cycles": blocked_cycles,
+                                "zombie_max_retry_cycles": zombie_max,
+                                "zombie_since": position.zombie_since,
+                            },
+                        )
+                    )
+                # FINAL_ZOMBIE: no more retries, no more probes. Return immediately.
+                return
+
             interval = int(self.settings.zombie_retry_interval_cycles)
             if interval > 0 and (blocked_cycles % interval) == 0:
                 _attempt_micro_probe()
@@ -1088,13 +1143,47 @@ class CreeperDripper:
                 and (last_tp is None or int(current_tp_level) > int(last_tp))
             )
             if not eligible_tp:
+                # Distinguish between "no TP threshold reached yet" and "same TP level already dripped".
+                if current_tp_level is None or current_tp_level < 0:
+                    not_armed_reason = "tp_threshold_not_reached"
+                elif last_tp is not None and int(current_tp_level) <= int(last_tp):
+                    not_armed_reason = "tp_level_already_dripped"
+                else:
+                    not_armed_reason = "tp_level_gate"
+                LOGGER.info(
+                    "event=dripper_not_armed mint=%s position_id=%s reason=%s "
+                    "current_tp_level=%s last_tp_level=%s pnl_pct=%s urgency=%s",
+                    position.token_mint,
+                    pos_id,
+                    not_armed_reason,
+                    current_tp_level,
+                    last_tp,
+                    round(pnl_pct, 2) if pnl_pct is not None else "n/a",
+                    urgency,
+                )
+                self.events.emit(
+                    "dripper_not_armed",
+                    not_armed_reason,
+                    mint=position.token_mint,
+                    symbol=position.symbol,
+                    position_id=pos_id,
+                    current_tp_level=current_tp_level,
+                    last_tp_level=last_tp,
+                    pnl_pct=round(pnl_pct, 2) if pnl_pct is not None else None,
+                    urgency=urgency,
+                )
                 decisions.append(
                     TradeDecision(
                         action="DRIPPER_WAIT",
                         token_mint=position.token_mint,
                         symbol=position.symbol,
-                        reason="tp_level_gate",
-                        metadata={"current_tp_level": current_tp_level, "last_tp_level": last_tp},
+                        reason=not_armed_reason,
+                        metadata={
+                            "current_tp_level": current_tp_level,
+                            "last_tp_level": last_tp,
+                            "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
+                            "not_armed_reason": not_armed_reason,
+                        },
                     )
                 )
                 position.previous_mark_sol_per_token = float(position.last_mark_sol_per_token)
@@ -1793,7 +1882,13 @@ class CreeperDripper:
                 effective_max_daily_new_positions=effective_max_daily_new_positions,
             )
 
-        if len(self.portfolio.open_positions) >= effective_max_open_positions:
+        # FINAL_ZOMBIE positions occupy an open_positions slot but can never exit on their own.
+        # They must not consume effective entry capacity; subtract them from the occupancy count.
+        final_zombie_count = sum(
+            1 for p in self.portfolio.open_positions.values() if p.status == POSITION_FINAL_ZOMBIE
+        )
+        effective_open_count = len(self.portfolio.open_positions) - final_zombie_count
+        if effective_open_count >= effective_max_open_positions:
             return
         if self.portfolio.opened_today_count >= effective_max_daily_new_positions:
             return
@@ -1804,7 +1899,10 @@ class CreeperDripper:
         ordered = [*([c for c in candidates if not _is_early(c)]), *([c for c in candidates if _is_early(c)])]
 
         for candidate in ordered:
-            if len(self.portfolio.open_positions) >= effective_max_open_positions:
+            final_zombie_count = sum(
+                1 for p in self.portfolio.open_positions.values() if p.status == POSITION_FINAL_ZOMBIE
+            )
+            if len(self.portfolio.open_positions) - final_zombie_count >= effective_max_open_positions:
                 break
             if candidate.address in self.portfolio.open_positions:
                 _emit_capacity_decision(candidate=candidate, allowed=False, reason="blocked_already_open")
@@ -2250,6 +2348,9 @@ class CreeperDripper:
             or (p.status == POSITION_RECONCILE_PENDING and p.reconcile_context == "exit")
         )
         exit_blocked_positions = sum(1 for p in open_positions if p.status == "EXIT_BLOCKED")
+        zombie_positions_count = sum(1 for p in open_positions if p.status == "ZOMBIE")
+        final_zombie_positions_count = sum(1 for p in open_positions if p.status == POSITION_FINAL_ZOMBIE)
+        exit_stuck_total = exit_blocked_positions + zombie_positions_count + final_zombie_positions_count
         entries_attempted = sum(1 for d in decisions if d.action == "BUY_SKIP" or d.action == "BUY")
         entries_succeeded = sum(1 for d in decisions if d.action == "BUY")
         exits_attempted = sum(1 for d in decisions if d.action == "SELL_ATTEMPT")
@@ -2321,6 +2422,9 @@ class CreeperDripper:
             "partial_positions": partial_positions,
             "exit_pending_positions": exit_pending_positions,
             "exit_blocked_positions": exit_blocked_positions,
+            "zombie_positions": zombie_positions_count,
+            "final_zombie_positions": final_zombie_positions_count,
+            "exit_stuck_total": exit_stuck_total,
             "entries_attempted": entries_attempted,
             "entries_succeeded": entries_succeeded,
             "entries_blocked_pre_execution": entries_blocked_pre_execution,

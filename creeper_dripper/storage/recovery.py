@@ -6,6 +6,7 @@ from creeper_dripper.errors import (
     EXIT_RECONCILED_CLOSED,
     EXIT_TX_CONFIRMED_NEEDS_SETTLEMENT,
     EXIT_UNKNOWN_PENDING_RECONCILE,
+    POSITION_FINAL_ZOMBIE,
     POSITION_RECONCILE_PENDING,
 )
 from creeper_dripper.execution.reconcile import reconcile_pending_exit
@@ -23,7 +24,36 @@ def run_startup_recovery(portfolio: PortfolioState, executor, now: str) -> list[
     execution results.
     """
     decisions: list[TradeDecision] = []
+
+    # T-008: Accounting audit at startup — log any positions with pending debit markers or
+    # terminal zombie status so operators have visibility before normal cycle resumes.
+    for mint, position in portfolio.open_positions.items():
+        pending = float(getattr(position, "pending_proceeds_sol", 0.0) or 0.0)
+        if pending > 0.0:
+            LOGGER.warning(
+                "startup_accounting_audit mint=%s position_id=%s status=%s "
+                "pending_proceeds_sol=%.9f — cash_sol was debited but buy settlement unconfirmed; "
+                "reversal requires manual operator review",
+                mint,
+                position.position_id or mint,
+                position.status,
+                pending,
+            )
+        if position.status == POSITION_FINAL_ZOMBIE:
+            LOGGER.critical(
+                "startup_accounting_audit_final_zombie mint=%s position_id=%s "
+                "final_zombie_at=%s zombie_since=%s — terminal position, operator intervention required",
+                mint,
+                position.position_id or mint,
+                getattr(position, "final_zombie_at", None),
+                getattr(position, "zombie_since", None),
+            )
+
     for mint, position in list(portfolio.open_positions.items()):
+        if position.status == POSITION_FINAL_ZOMBIE:
+            # FINAL_ZOMBIE: terminal state — no recovery attempt, no retry.
+            # Operator must manually close or write off this position.
+            continue
         if position.status not in {"EXIT_PENDING", POSITION_RECONCILE_PENDING}:
             continue
         if position.status == POSITION_RECONCILE_PENDING and position.reconcile_context != "exit":
