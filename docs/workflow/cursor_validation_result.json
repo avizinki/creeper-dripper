@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-03-26T16:47:54.175934+00:00",
+  "generated_at": "2026-03-26T16:49:01.474553+00:00",
   "task_file": "docs/workflow/claude_task_result.json",
   "repo_root": "/Users/yoav/git/creeper-dripper",
   "task_id": "T-025-BIRDEYE-BUDGET-CONTROL",
@@ -17,7 +17,7 @@
       "name": "full_suite",
       "command": ".venv/bin/python -m pytest -q",
       "exit_code": 0,
-      "stdout": "........................................................................ [ 28%]\n........................................................................ [ 56%]\n........................................................................ [ 84%]\n.........................................                                [100%]\n257 passed in 1.82s\n",
+      "stdout": "........................................................................ [ 28%]\n........................................................................ [ 56%]\n........................................................................ [ 84%]\n.........................................                                [100%]\n257 passed in 1.75s\n",
       "stderr": "",
       "ok": true
     }
@@ -32,13 +32,7 @@
       "docs/workflow/claude_task_result.json",
       "tests/test_t025_birdeye_budget_control.py"
     ],
-    "dirty_paths": [
-      "creeper_dripper/clients/birdeye.py",
-      "creeper_dripper/engine/discovery.py",
-      "creeper_dripper/engine/trader.py",
-      "docs/workflow/claude_task_result.json",
-      "tests/test_t025_birdeye_budget_control.py"
-    ],
+    "dirty_paths": [],
     "passed": true,
     "reason": null
   },
@@ -46,7 +40,7 @@
   "commit": {
     "attempted": true,
     "ok": true,
-    "sha": "82fffee3d40fd049d036fa0df0c056c780219b21",
+    "sha": "a2565806520f8e474832e339b91a25ed1345009b",
     "added_paths": [
       "creeper_dripper/clients/birdeye.py",
       "creeper_dripper/engine/discovery.py",
